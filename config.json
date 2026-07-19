@@ -1,0 +1,13 @@
+{
+  "main": {
+    "contexts": ["main"],
+    "model": "sonnet"
+  },
+  "agents": [
+    {
+      "name": "mainagent",
+      "contexts": ["main"],
+      "model": "sonnet"
+    }
+  ]
+}

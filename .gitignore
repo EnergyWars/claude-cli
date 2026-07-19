@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src/version.ts
+src/generated/
+*.log
+.env
+.DS_Store

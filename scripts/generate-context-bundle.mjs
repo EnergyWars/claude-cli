@@ -1,0 +1,38 @@
+import { readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
+const contextsDir = join(rootDir, 'contexts');
+const configPath = join(rootDir, 'config.json');
+const outDir = join(rootDir, 'src', 'generated');
+const outFile = join(outDir, 'embedded-context.ts');
+
+function collectMarkdownFiles(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectMarkdownFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+const config = JSON.parse(readFileSync(configPath, 'utf8'));
+
+const contexts = {};
+for (const filePath of collectMarkdownFiles(contextsDir)) {
+  const name = relative(contextsDir, filePath).replace(/\.md$/, '').split('\\').join('/');
+  contexts[name] = readFileSync(filePath, 'utf8');
+}
+
+const body = `export const EMBEDDED_CONFIG: unknown = ${JSON.stringify(config)};
+
+export const EMBEDDED_CONTEXTS: Record<string, string> = ${JSON.stringify(contexts)};
+`;
+
+mkdirSync(outDir, { recursive: true });
+writeFileSync(outFile, body);

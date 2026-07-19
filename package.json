@@ -1,0 +1,36 @@
+{
+  "name": "claude-cli",
+  "version": "0.1.0",
+  "description": "Persoenliches CLI-Tool, deployed als `cl` nach ~/.local/bin.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generate-version": "node scripts/generate-version.mjs",
+    "generate-context-bundle": "node scripts/generate-context-bundle.mjs",
+    "predev": "npm run generate-version && npm run generate-context-bundle",
+    "dev": "tsx src/index.ts",
+    "prebuild": "npm run generate-version && npm run generate-context-bundle",
+    "build": "tsc",
+    "deploy": "bash scripts/deploy.sh",
+    "release": "npm run build && npm run deploy",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.5",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0"
+  }
+}
