@@ -1,0 +1,252 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "cl server API",
+    "description": "HTTP-API von `cl server`. Exposed alle in config.json definierten Agents als headless POST-Endpunkte und liefert Status/Output ueber GET /state/{id}.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8787",
+      "description": "Default (Port ueberschreibbar via `cl server --port`)"
+    }
+  ],
+  "paths": {
+    "/": {
+      "post": {
+        "summary": "Startet einen headless Command auf dem main-Agent",
+        "operationId": "runMainAgentCommand",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CommandRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Command wurde gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"command\"/\"path\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "Unerwarteter Serverfehler.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/{agent}": {
+      "post": {
+        "summary": "Startet einen headless Command auf einem benannten Agent",
+        "operationId": "runNamedAgentCommand",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Agents aus config.json (agents[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CommandRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Command wurde gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"command\"/\"path\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Agent mit diesem Namen in config.json, oder kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "Unerwarteter Serverfehler.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths": {
+      "get": {
+        "summary": "Listet die Namen aller konfigurierten Pfade",
+        "operationId": "listPaths",
+        "responses": {
+          "200": {
+            "description": "Namen aller Eintraege aus config.json (paths[].name), ohne die zugehoerigen Dateisystem-Pfade.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PathList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/state/{id}": {
+      "get": {
+        "summary": "Status und Output eines Commands abfragen",
+        "operationId": "getCommandState",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Von POST / bzw. POST /{agent} zurueckgegebene Command-ID.",
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aktueller Stand des Commands (Output ist waehrend \"running\" bereits teilweise befuellt).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandState" }
+              }
+            }
+          },
+          "404": {
+            "description": "Keine Command mit dieser ID bekannt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CommandRequest": {
+        "type": "object",
+        "required": ["command", "path"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Der Prompt/Befehl, der headless (claude --print) an den Agent geschickt wird."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name eines Eintrags aus config.json (paths[].name), bestimmt das Arbeitsverzeichnis (cwd), in dem claude ausgefuehrt wird. Der zugehoerige Dateisystem-Pfad wird serverseitig aus config.json aufgeloest, nicht direkt im Request angegeben."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional. Ueberschreibt das in config.json konfigurierte Model des Agents (z. B. \"haiku\", \"sonnet\", \"opus\", \"fable\")."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PathList": {
+        "type": "object",
+        "required": ["paths"],
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Nur die Namen (paths[].name) aus config.json, nicht die Dateisystem-Pfade."
+          }
+        }
+      },
+      "CommandAccepted": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID des gestarteten Commands, abfragbar via GET /state/{id}."
+          }
+        }
+      },
+      "CommandState": {
+        "type": "object",
+        "required": [
+          "id",
+          "agent",
+          "model",
+          "command",
+          "path",
+          "status",
+          "output",
+          "exitCode",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "agent": {
+            "type": "string",
+            "description": "\"main\" oder der Agent-Name aus config.json."
+          },
+          "model": { "type": "string" },
+          "command": { "type": "string" },
+          "path": {
+            "type": "string",
+            "description": "Der aus config.json (paths[].path) aufgeloeste Dateisystem-Pfad, in dem claude ausgefuehrt wurde (cwd)."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["running", "completed", "failed"]
+          },
+          "output": {
+            "type": "string",
+            "description": "Kompletter bisheriger stdout/stderr-Output, live aktualisiert waehrend \"running\"."
+          },
+          "exitCode": {
+            "type": ["integer", "null"],
+            "description": "Exit-Code des claude-Prozesses; null solange \"running\" oder bei Spawn-Fehler."
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

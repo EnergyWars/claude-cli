@@ -5,3 +5,6 @@ src/generated/
 *.log
 .env
 .DS_Store
+*.db
+*.db-wal
+*.db-shm

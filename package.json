@@ -16,6 +16,8 @@
     "build": "tsc",
     "deploy": "bash scripts/deploy.sh",
     "release": "npm run build && npm run deploy",
+    "pretest": "npm run generate-version && npm run generate-context-bundle",
+    "test": "tsx --test 'src/**/*.test.ts'",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

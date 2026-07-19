@@ -1,0 +1,253 @@
+import assert from 'node:assert/strict';
+import { after, before, test } from 'node:test';
+
+import { loadConfig } from './config.js';
+import { startServer, type RunningServer } from './server.js';
+import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
+import { createMockClaude, pathWithMock, type MockClaude } from './test-support/mock-claude.js';
+
+let fixture: Fixture;
+let mock: MockClaude;
+let running: RunningServer;
+let previousRootDir: string | undefined;
+let previousPath: string | undefined;
+
+before(async () => {
+  fixture = createFixtureRoot({
+    main: { description: 'Main' },
+    agents: [{ name: 'dev', description: 'Dev-Agent' }],
+    contexts: { main: '# Main-Context\n' },
+    tasks: [{ name: 'mytask', contexts: ['main'], tasks: ['mytask'] }],
+    taskFiles: { mytask: '# Mytask-Inhalt\n' },
+  });
+  mock = createMockClaude({ outputChunks: ['erste Zeile\n', 'zweite Zeile\n'], chunkDelayMs: 30 });
+
+  previousRootDir = process.env.CL_ROOT_DIR;
+  previousPath = process.env.PATH;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  process.env.PATH = pathWithMock(mock.binDir);
+
+  running = startServer(loadConfig(), 0);
+  await running.ready;
+});
+
+after(async () => {
+  await running.close();
+  mock.cleanup();
+  fixture.cleanup();
+  if (previousRootDir === undefined) {
+    delete process.env.CL_ROOT_DIR;
+  } else {
+    process.env.CL_ROOT_DIR = previousRootDir;
+  }
+  process.env.PATH = previousPath;
+});
+
+function baseUrl(): string {
+  return `http://localhost:${running.port.toString()}`;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'mache etwas', path: 'default' }),
+  });
+  assert.equal(res.status, 202);
+  const body = (await res.json()) as { id: string };
+  assert.match(body.id, /^[0-9a-f-]{36}$/);
+});
+
+test('POST /dev: startet den benannten Agent', async () => {
+  const res = await fetch(`${baseUrl()}/dev`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'x', path: 'default' }),
+  });
+  assert.equal(res.status, 202);
+  const body = (await res.json()) as { id: string };
+  assert.ok(body.id.length > 0);
+});
+
+test('POST /doesnotexist: 404 bei unbekanntem Agent', async () => {
+  const res = await fetch(`${baseUrl()}/doesnotexist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'x', path: 'default' }),
+  });
+  assert.equal(res.status, 404);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /doesnotexist/);
+});
+
+test('POST /: 400 bei fehlendem "command"', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'default' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /: 400 bei fehlendem "path"', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'x' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /: 404 bei unbekanntem "path"', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'x', path: 'doesnotexist' }),
+  });
+  assert.equal(res.status, 404);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /doesnotexist/);
+});
+
+test('POST /: 400 bei ungueltigem JSON', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{not json',
+  });
+  assert.equal(res.status, 400);
+});
+
+test('GET /state/<id>: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/state/unknown-id`);
+  assert.equal(res.status, 404);
+});
+
+test('GET /unbekannte-route: 404', async () => {
+  const res = await fetch(`${baseUrl()}/a/b`);
+  assert.equal(res.status, 404);
+});
+
+test('GET /paths: listet nur die Namen aus config.json', async () => {
+  const res = await fetch(`${baseUrl()}/paths`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { paths: string[] };
+  assert.deepEqual(body.paths, ['default']);
+});
+
+test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', async () => {
+  const postRes = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'teste live output', path: 'default' }),
+  });
+  const { id } = (await postRes.json()) as { id: string };
+
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  assert.equal(stateRes.status, 200);
+  const state = (await stateRes.json()) as {
+    status: string;
+    agent: string;
+    model: string;
+    command: string;
+  };
+  assert.equal(state.agent, 'main');
+  assert.equal(state.model, 'sonnet');
+  assert.equal(state.command, 'teste live output');
+  assert.ok(state.status === 'running' || state.status === 'completed');
+
+  await sleep(300);
+
+  const finalRes = await fetch(`${baseUrl()}/state/${id}`);
+  const final = (await finalRes.json()) as { status: string; output: string; exitCode: number };
+  assert.equal(final.status, 'completed');
+  assert.equal(final.exitCode, 0);
+  assert.match(final.output, /erste Zeile/);
+  assert.match(final.output, /zweite Zeile/);
+});
+
+test('POST /: model im Body ueberschreibt config.json-Default', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'x', model: 'opus', path: 'default' }),
+  });
+  const { id } = (await res.json()) as { id: string };
+  await sleep(300);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const state = (await stateRes.json()) as { model: string };
+  assert.equal(state.model, 'opus');
+});
+
+test('POST /task/mytask: startet den Task, antwortet sofort mit 202 + id, wird wie ein Agent abgefragt', async () => {
+  const res = await fetch(`${baseUrl()}/task/mytask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'default' }),
+  });
+  assert.equal(res.status, 202);
+  const { id } = (await res.json()) as { id: string };
+  assert.match(id, /^[0-9a-f-]{36}$/);
+
+  await sleep(300);
+
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  assert.equal(stateRes.status, 200);
+  const state = (await stateRes.json()) as {
+    status: string;
+    agent: string;
+    model: string;
+    output: string;
+    exitCode: number;
+  };
+  assert.equal(state.agent, 'task:mytask');
+  assert.equal(state.status, 'completed');
+  assert.equal(state.exitCode, 0);
+  assert.match(state.output, /erste Zeile/);
+});
+
+test('POST /task/mytask: model im Body ueberschreibt config.json-Default', async () => {
+  const res = await fetch(`${baseUrl()}/task/mytask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'default', model: 'opus' }),
+  });
+  const { id } = (await res.json()) as { id: string };
+  await sleep(300);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const state = (await stateRes.json()) as { model: string };
+  assert.equal(state.model, 'opus');
+});
+
+test('POST /task/doesnotexist: 404 bei unbekanntem Task', async () => {
+  const res = await fetch(`${baseUrl()}/task/doesnotexist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'default' }),
+  });
+  assert.equal(res.status, 404);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /doesnotexist/);
+});
+
+test('POST /task/mytask: 400 bei fehlendem "path"', async () => {
+  const res = await fetch(`${baseUrl()}/task/mytask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /task/mytask: 404 bei unbekanntem "path"', async () => {
+  const res = await fetch(`${baseUrl()}/task/mytask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: 'doesnotexist' }),
+  });
+  assert.equal(res.status, 404);
+});

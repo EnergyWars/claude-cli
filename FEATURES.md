@@ -4,11 +4,12 @@
 
 Einstiegspunkt (`src/index.ts`) mit `commander` als Argument-Parser. Bietet:
 
-- `-h, --help` – zeigt Nutzung, Optionen, das `[agent]`-Argument und ein Beispiel.
+- `--help` (**ohne** `-h`-Kurzform, siehe "Headless-Modus") – zeigt Nutzung, Optionen, das `[agent]`-Argument, die Model-Subcommands sowie eine dynamisch aus `config.json` gelesene Liste aller Agents (siehe "Dynamisches --help").
 - `-v, --version` – zeigt die aktuelle Version (aus `package.json`, zur Build-Zeit generiert).
 - `[agent]` (optionales positionales Argument) – siehe "Agent-Start".
-
-Weitere fachliche Subcommands sind noch nicht implementiert – das Grundgerüst ist bewusst minimal und bereit für spätere Erweiterung über `program.command(...)`.
+- `haiku|h`, `sonnet|s`, `opus|o`, `fable|f` (Subcommands, je mit optionalem `[agent]`) – siehe "Model-Override".
+- `-h, --headless [prompt]` (auf Root-Command und allen Model-Subcommands) – siehe "Headless-Modus".
+- `server` (Subcommand) – siehe "HTTP-Server (cl server)".
 
 ## Agent-Start (`cl` / `cl <name>`)
 
@@ -25,6 +26,128 @@ Für den aufgelösten Agent gilt:
 
 Implementiert in `src/launch.ts` (`launchAgent(name)`), aufgerufen aus dem `commander`-Action-Handler in `src/index.ts` mit dem optionalen `[agent]`-Argument.
 
+## Model-Override (`cl <model>` / `cl <model> <agent>`)
+
+Vier feste Subcommands überschreiben gezielt nur das `model` des sonst wie gewohnt aufgelösten Agents (Contexts, `acceptEdits`-Permissions bleiben gleich):
+
+| Command     | Kurzform | Model    |
+| ----------- | -------- | -------- |
+| `cl haiku`  | `cl h`   | `haiku`  |
+| `cl sonnet` | `cl s`   | `sonnet` |
+| `cl opus`   | `cl o`   | `opus`   |
+| `cl fable`  | `cl f`   | `fable`  |
+
+- **`cl <model>`** (ohne Agent-Name) → `main`-Agent, aber mit `<model>` statt dessen `model` aus `config.json`.
+- **`cl <model> <agent>`** → benannter Agent aus `agents[]`, ebenfalls mit `<model>` statt dessen `model`.
+
+Beispiele: `cl opus` (main-Agent mit Opus), `cl s mainagent` (`mainagent` mit Sonnet), `cl h iwan` (Agent `iwan` mit Haiku).
+
+Implementiert als vier `program.command(...)` in `src/index.ts` (parallel zum Root-Command mit dem `[agent]`-Argument – `commander` dispatcht anhand des ersten Positional-Tokens automatisch an den passenden Subcommand oder faellt auf die Root-Action zurueck). `launchAgent(name, modelOverride)` in `src/launch.ts` verwendet `modelOverride ?? agent.model`.
+
+**Reservierte Namen:** `haiku`, `sonnet`, `opus`, `fable`, deren Kurzformen `h`, `s`, `o`, `f` sowie `server` sind für Commands reserviert. Enthält `config.json` einen `agents[].name`, der einem dieser Namen entspricht, **bricht die CLI beim Start sofort mit einer Fehlermeldung ab** – unabhängig davon, ob `cl`, `cl --help`, `cl --version` oder ein Subcommand aufgerufen wird (`assertNoReservedAgentNames()` in `src/config.ts`, eager geprüft in `src/index.ts` vor jedem Kommando).
+
+## Headless-Modus (`-h, --headless [prompt]`)
+
+Jeder Aufruf – `cl [agent]` und `cl <model> [agent]` – kann headless statt interaktiv laufen:
+
+- **`cl <model> <agent> -h "<prompt>"`** (z. B. `cl sonnet mainagent -h 'mache irgendwas cooles'`) → `claude` läuft mit `--print "<prompt>"` (Claude Codes Non-Interactive-Modus): Antwort wird ausgegeben, dann beendet sich der Prozess. Modell, System-Prompt und Permissions sind identisch zum interaktiven Fall.
+- **`cl <model> <agent> -h`** (Flag ohne Wert) → die CLI fragt selbst interaktiv über die Kommandozeile `Prompt: ` ab; nach Eingabe + Enter wird genau dieser Text als `<prompt>` headless an `claude` weitergereicht.
+- **`cl -h "<prompt>"`** / **`cl -h`** (ohne Model-Subcommand, ohne Agent) → gleiches Verhalten für den `main`-Agent mit dessen Default-Model.
+- Ohne `-h` (Default) bleibt jeder Aufruf wie bisher voll interaktiv im Vordergrund.
+
+`-h` ist wegen dieser Funktion **nicht** mehr die Kurzform von `--help` (Kollision) – Hilfe ist nur noch über das lange `--help` erreichbar.
+
+Implementiert über `resolveHeadlessPrompt()` in `src/index.ts` (nutzt `node:readline/promises` für die interaktive Abfrage) und `launchAgent(name, modelOverride?, headlessPrompt?)` in `src/launch.ts` (hängt bei gesetztem Prompt `--print <prompt>` an die `claude`-Argumente an). Die Option ist auf dem Root-Command und jedem der vier Model-Subcommands separat registriert; `program.enablePositionalOptions()` sorgt dafür, dass z. B. bei `cl sonnet mainagent -h 'text'` der Wert tatsächlich beim `sonnet`-Subcommand ankommt statt in der Root-Options-Verarbeitung verlorenzugehen.
+
+## HTTP-Server (`cl server`)
+
+`cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
+
+Mit `-P, --paths-file <file>` kann beim Start eine JSON-Datei angegeben werden, die nur den `paths`-Teil enthält (gleiche Form wie `config.json`s `paths`-Feld, z. B. `{ "paths": [{ "name": "myapp", "path": "/my/path" }] }`) und `config.json`s `paths` für diesen Serverlauf vollständig ersetzt – so lassen sich Arbeitsverzeichnisse überschreiben, ohne `config.json` selbst anzufassen (z. B. pro Umgebung/Deployment). Ohne die Option gilt weiterhin `config.json`s `paths` unverändert.
+
+Der Server läuft im **Vordergrund** (blockiert das Terminal, bis `Ctrl+C`/`SIGTERM`). Beim Start werden zuerst **alle Endpunkte** auf der Konsole ausgegeben:
+
+```
+cl server laeuft auf http://localhost:8787
+Endpunkte:
+  POST http://localhost:8787/
+  POST http://localhost:8787/dev
+  GET  http://localhost:8787/state/:id
+```
+
+Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite-Eintrag in `t_access_log`):
+
+```
+2026-07-19T16:42:06.320Z POST / -> 202
+2026-07-19T16:42:06.331Z GET /state/doesnotexist -> 404
+```
+
+**Endpunkte:**
+
+- **`POST /`** – startet einen Command auf dem `main`-Agent.
+- **`POST /<agent>`** – startet einen Command auf dem benannten Agent aus `agents[]` (404, falls unbekannt).
+- **`GET /state/<id>`** – liefert Status und (live aktualisierten) Output eines Commands (404, falls unbekannt).
+- **`GET /paths`** – liefert nur die Namen (`paths[].name`) aller in `config.json` konfigurierten Pfade, ohne die zugehörigen Dateisystem-Pfade.
+
+**Request-Body (beide POST-Routen):**
+
+```json
+{ "command": "mache irgendwas cooles", "path": "myapp", "model": "opus" }
+```
+
+- `command` (String, Pflicht) – der Prompt.
+- `path` (String, Pflicht) – Name eines Eintrags aus `config.json`s `paths`-Array (`paths[].name`, z. B. `{ "name": "myapp", "path": "/my/path" }`). Der zugehörige Dateisystem-Pfad wird serverseitig aufgelöst und als Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess verwendet – der tatsächliche Pfad wird nie direkt im Request angegeben, nur der Name. 404, falls kein Eintrag mit diesem Namen existiert.
+- `model` (String, optional) – überschreibt das `model` aus `config.json` für diesen einen Aufruf, sonst wird `agent.model` verwendet.
+
+**Ablauf eines POST-Requests:**
+
+1. Body wird validiert (400 bei fehlendem/leerem `command`/`path` oder ungültigem JSON), Agent wird aufgelöst (404, falls unbekannt), `path`-Name wird gegen `config.json`s `paths[]` aufgelöst (404, falls unbekannt).
+2. Eine `id` (`crypto.randomUUID()`) wird generiert, sofort eine Zeile in `t_commands` mit `status: "running"` angelegt (inkl. des aufgelösten Dateisystem-Pfads).
+3. Response **sofort**: `202 { "id": "<uuid>" }` – der Request wartet nicht auf das Ergebnis.
+4. `claude --model <model> --append-system-prompt <contexts> --permission-mode acceptEdits --print "<command>"` läuft im Hintergrund mit dem aufgelösten Pfad als Arbeitsverzeichnis (`cwd`); jeder Output-Chunk (stdout **und** stderr) wird sofort in `t_commands.output` geschrieben (live, nicht erst am Ende).
+5. Nach Prozessende: `status` wird `"completed"` (Exit-Code 0) oder `"failed"`, `exit_code` wird gespeichert. Bei Spawn-Fehler (`claude` nicht gefunden): `status: "failed"` mit Fehlermeldung als `output`.
+
+**`GET /state/<id>`** liefert dann:
+
+```json
+{
+  "id": "...",
+  "agent": "main",
+  "model": "sonnet",
+  "command": "...",
+  "path": "/my/path",
+  "status": "running",
+  "output": "... bisheriger Output ...",
+  "exitCode": null,
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+**`GET /paths`** liefert:
+
+```json
+{ "paths": ["myapp", "otherapp"] }
+```
+
+**Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus `config.json`s `databaseDirectory` (aktuell `/home/simon/commands`), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
+
+Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Responses) und `src/db.ts` (SQLite-Zugriff über Node's eingebautes `node:sqlite`). `runHeadlessCommand()` in `src/launch.ts` ist die Server-Variante von `launchAgent()`: `stdio: ['ignore', 'pipe', 'pipe']` statt `'inherit'`, Output wird eingesammelt statt direkt ans Terminal durchgereicht, kein `process.exit()` (der Server läuft weiter).
+
+`-P, --paths-file <file>` (Option auf dem `server`-Subcommand in `src/index.ts`) liest die angegebene Datei über `loadPathsOverride(filePath)` (`src/config.ts`, validiert per `parsePathsOverride()`) und ersetzt via `applyPathsOverride(config, paths)` das `paths`-Array der geladenen `config.json` vollständig, bevor `startServer()` aufgerufen wird. Ungültige/fehlende Datei bricht den Start mit Fehlermeldung und Exit-Code 1 ab.
+
+## Dynamisches `--help`
+
+`cl --help` zeigt zusaetzlich zur `commander`-Standardausgabe eine Liste aller in `config.json` definierten Agents inklusive ihrer `description`:
+
+```
+Agents (aus config.json):
+  cl            Standard-Agent, gestartet mit `cl` ohne Argument.
+  cl mainagent  Gleicher Agent wie der Standard-Agent, aufrufbar per Name.
+```
+
+Diese Liste wird bei jedem `--help`-Aufruf frisch aus der aktuellen `config.json` gelesen (`formatAgentsHelp()` in `src/index.ts`, nutzt `listAgents()` aus `src/config.ts`) – ein neuer Agent in `config.json` erscheint automatisch, ohne Code-Aenderung. Bei ungueltiger `config.json` wird statt eines Crashs eine Fehlermeldung im Hilfetext angezeigt.
+
 ## Deployment als `cl`
 
 Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` deployed:
@@ -36,10 +159,14 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 
 ## Config/Context-System
 
-`config.json` (Projekt-Root) hat zwei Felder:
+`config.json` (Projekt-Root) hat vier Felder:
 
-- `main` – ein Objekt `{ contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
-- `agents` – ein Array benannter Objekte `{ name: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
+- `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
+- `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
+- `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
+- `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)").
+
+`description` wird im `--help`-Text pro Agent angezeigt (siehe "Dynamisches --help").
 
 `contexts` referenziert Markdown-Dateien unter `contexts/`:
 
@@ -53,3 +180,15 @@ Aufgelöst über `src/config.ts` (`loadConfig()`, `resolveAgent(name)`, `resolve
 - Bei jedem `dev`/`build` wird die eingebettete Kopie (`src/generated/embedded-context.ts`) frisch aus dem aktuellen Stand von `config.json` + `contexts/**/*.md` generiert.
 
 Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt des jeweiligen Agents aufzulösen.
+
+## Tests (`npm test`)
+
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 56 Tests über 5 Dateien, ein File pro Feature-Bereich:
+
+- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-Namen), `listAgents`, sowie `loadConfig`/`resolveAgent`/`resolveContext` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
+- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand` gegen ein Fake-`claude`-Binary (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
+- **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`) gegen echte temporäre `.db`-Dateien.
+- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, Live-Status `running` → `completed`, Model-Override).
+- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server` End-to-End inkl. `SIGTERM`-Shutdown).
+
+Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.

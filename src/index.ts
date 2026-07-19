@@ -1,9 +1,76 @@
 #!/usr/bin/env node
 
+import { createInterface } from 'node:readline/promises';
+
 import { Command } from 'commander';
 
-import { launchAgent } from './launch.js';
+import {
+  applyPathsOverride,
+  listAgents,
+  loadConfig,
+  loadPathsOverride,
+  resolveTask,
+  MODEL_COMMANDS,
+} from './config.js';
+import { launchAgent, runTask } from './launch.js';
+import { startServer } from './server.js';
 import { VERSION } from './version.js';
+
+const AGENT_ARGUMENT_DESCRIPTION =
+  'Name eines Agents aus config.json (agents[].name). Ohne Angabe wird der "main"-Agent verwendet.';
+const TASK_ARGUMENT_DESCRIPTION = 'Name eines Tasks aus config.json (tasks[].name).';
+
+const DEFAULT_SERVER_PORT = 8787;
+
+const HEADLESS_OPTION_FLAGS = '-h, --headless [prompt]';
+const HEADLESS_OPTION_DESCRIPTION =
+  'Startet headless (claude --print) statt interaktiv. Ohne Wert wird der Prompt interaktiv abgefragt.';
+
+interface CommandOptions {
+  headless?: true | string;
+}
+
+try {
+  loadConfig();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
+async function resolveHeadlessPrompt(
+  headless: true | string | undefined,
+): Promise<string | undefined> {
+  if (headless === undefined || typeof headless === 'string') {
+    return headless;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question('Prompt: ');
+  } finally {
+    rl.close();
+  }
+}
+
+function formatAgentsHelp(): string {
+  try {
+    const agents = listAgents(loadConfig());
+    const width = Math.max(...agents.map((agent) => agent.command.length));
+    const lines = agents.map((agent) => `  ${agent.command.padEnd(width + 2)}${agent.description}`);
+    return ['Agents (aus config.json):', ...lines].join('\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Agents konnten nicht aus config.json gelesen werden: ${message}`;
+  }
+}
+
+function formatModelsHelp(): string {
+  const width = Math.max(...MODEL_COMMANDS.map((model) => model.name.length));
+  const lines = MODEL_COMMANDS.map(
+    (model) =>
+      `  cl ${model.name.padEnd(width)} (${model.alias})  [agent]  ueberschreibt das Model aus config.json mit "${model.name}"`,
+  );
+  return ['Model-Override (jeweils optional mit [agent]):', ...lines].join('\n');
+}
 
 const program = new Command();
 
@@ -11,17 +78,76 @@ program
   .name('cl')
   .description('Persoenliches CLI-Tool.')
   .version(VERSION, '-v, --version', 'Version anzeigen')
-  .helpOption('-h, --help', 'Hilfe anzeigen')
-  .argument(
-    '[agent]',
-    'Name eines Agents aus config.json (agents[].name). Ohne Angabe wird der "main"-Agent verwendet.',
-  )
+  .helpOption('--help', 'Hilfe anzeigen')
+  .enablePositionalOptions()
+  .argument('[agent]', AGENT_ARGUMENT_DESCRIPTION)
+  .option(HEADLESS_OPTION_FLAGS, HEADLESS_OPTION_DESCRIPTION)
   .addHelpText(
     'after',
-    '\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, acceptEdits-Permissions).\n\nBeispiele:\n  $ cl              # main-Agent\n  $ cl mainagent    # benannter Agent aus agents[]\n  $ cl --version\n',
+    () =>
+      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, acceptEdits-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help').\n\n'cl task <name>' fuehrt einen Task aus config.json (tasks[].name) headless aus, Output wird live in der Konsole geloggt (siehe 'cl task --help').\n`,
   )
-  .action(async (agent: string | undefined) => {
-    await launchAgent(agent);
+  .action(async (agent: string | undefined, options: CommandOptions) => {
+    const headlessPrompt = await resolveHeadlessPrompt(options.headless);
+    await launchAgent(agent, undefined, headlessPrompt);
+  });
+
+for (const model of MODEL_COMMANDS) {
+  program
+    .command(model.name)
+    .alias(model.alias)
+    .description(`Startet einen Agent mit Model "${model.name}" (ueberschreibt config.json).`)
+    .argument('[agent]', AGENT_ARGUMENT_DESCRIPTION)
+    .option(HEADLESS_OPTION_FLAGS, HEADLESS_OPTION_DESCRIPTION)
+    .action(async (agent: string | undefined, options: CommandOptions) => {
+      const headlessPrompt = await resolveHeadlessPrompt(options.headless);
+      await launchAgent(agent, model.name, headlessPrompt);
+    });
+}
+
+program
+  .command('server')
+  .description(
+    'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output.',
+  )
+  .option('-p, --port <port>', 'Port fuer den HTTP-Server', String(DEFAULT_SERVER_PORT))
+  .option(
+    '-P, --paths-file <file>',
+    'Pfad zu einer JSON-Datei mit nur { "paths": [...] } (gleiche Form wie paths in config.json) - ersetzt die paths aus config.json fuer diesen Serverlauf vollstaendig.',
+  )
+  .action((options: { port: string; pathsFile?: string }) => {
+    const port = Number(options.port);
+    if (!Number.isInteger(port) || port < 0) {
+      console.error(`Ungueltiger Port: "${options.port}"`);
+      process.exitCode = 1;
+      return;
+    }
+    const config = loadConfig();
+    if (options.pathsFile === undefined) {
+      startServer(config, port);
+      return;
+    }
+    try {
+      startServer(applyPathsOverride(config, loadPathsOverride(options.pathsFile)), port);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command('task')
+  .description(
+    'Fuehrt einen Task aus config.json (tasks[].name) headless aus. Output wird live in der Konsole geloggt, bis der Command abgebrochen wird (der Task laeuft dann im Hintergrund weiter).',
+  )
+  .argument('<name>', TASK_ARGUMENT_DESCRIPTION)
+  .option(
+    '-d, --detached',
+    'Startet den Task im Hintergrund ohne Live-Output; das Kommando kehrt sofort zurueck.',
+  )
+  .action(async (name: string, options: { detached?: boolean }) => {
+    const task = resolveTask(loadConfig(), name);
+    await runTask(task, options.detached ?? false);
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

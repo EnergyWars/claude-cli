@@ -1,0 +1,9 @@
+# Beachte während der Softwareentwicklung alle folgenden Regeln von start bis end strikt
+---start---
+
+Keine Kommentare im Code
+Verwende nur bibliotheken, die kommerziell kostenlos nutzbar sind
+Schreibe für jedes implementierte Feature Unit-Tests - mindestens 80% coverage
+
+
+---end---

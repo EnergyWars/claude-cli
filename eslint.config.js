@@ -18,5 +18,13 @@ export default defineConfig([
       },
     },
   },
+  {
+    files: ['src/**/*.test.ts'],
+    rules: {
+      // node:test's `test(name, fn)` intentionally returns an unawaited promise;
+      // the test runner itself tracks and awaits it.
+      '@typescript-eslint/no-floating-promises': 'off',
+    },
+  },
   eslintConfigPrettier,
 ]);
