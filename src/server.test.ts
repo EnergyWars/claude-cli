@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
 import { loadConfig } from './config.js';
@@ -11,14 +14,32 @@ let mock: MockClaude;
 let running: RunningServer;
 let previousRootDir: string | undefined;
 let previousPath: string | undefined;
+let hostedDir: string;
 
 before(async () => {
+  hostedDir = mkdtempSync(join(tmpdir(), 'cl-hosted-'));
+  writeFileSync(join(hostedDir, 'notes.txt'), 'hosted-file-inhalt');
+  mkdirSync(join(hostedDir, 'docs'));
+  writeFileSync(join(hostedDir, 'docs', 'a.txt'), 'a-inhalt');
+  writeFileSync(join(hostedDir, 'docs', 'b.txt'), 'b-inhalt');
+  mkdirSync(join(hostedDir, 'docs', 'subdir'));
+
   fixture = createFixtureRoot({
     main: { description: 'Main' },
     agents: [{ name: 'dev', description: 'Dev-Agent' }],
     contexts: { main: '# Main-Context\n' },
     tasks: [{ name: 'mytask', contexts: ['main'], tasks: ['mytask'] }],
     taskFiles: { mytask: '# Mytask-Inhalt\n' },
+    paths: [
+      {
+        name: 'default',
+        path: hostedDir,
+        hosted: [
+          { name: 'notes', path: 'notes.txt', type: 'file' },
+          { name: 'docs', path: 'docs', type: 'path' },
+        ],
+      },
+    ],
   });
   mock = createMockClaude({ outputChunks: ['erste Zeile\n', 'zweite Zeile\n'], chunkDelayMs: 30 });
 
@@ -35,6 +56,7 @@ after(async () => {
   await running.close();
   mock.cleanup();
   fixture.cleanup();
+  rmSync(hostedDir, { recursive: true, force: true });
   if (previousRootDir === undefined) {
     delete process.env.CL_ROOT_DIR;
   } else {
@@ -137,6 +159,54 @@ test('GET /paths: listet nur die Namen aus config.json', async () => {
   assert.equal(res.status, 200);
   const body = (await res.json()) as { paths: string[] };
   assert.deepEqual(body.paths, ['default']);
+});
+
+test('GET /files/default: listet die hosted-Namen des Pfads', async () => {
+  const res = await fetch(`${baseUrl()}/files/default`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { hosted: string[] };
+  assert.deepEqual(body.hosted, ['notes', 'docs']);
+});
+
+test('GET /files/doesnotexist: 404 bei unbekanntem Pfad-Namen', async () => {
+  const res = await fetch(`${baseUrl()}/files/doesnotexist`);
+  assert.equal(res.status, 404);
+});
+
+test('GET /files/default/notes: hosted-Typ "file" laedt direkt herunter', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/notes`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition') ?? '', /notes\.txt/);
+  assert.equal(await res.text(), 'hosted-file-inhalt');
+});
+
+test('GET /files/default/docs: hosted-Typ "path" listet die Dateien im Verzeichnis', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/docs`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { files: string[] };
+  assert.deepEqual(body.files.sort(), ['a.txt', 'b.txt']);
+});
+
+test('GET /files/default/doesnotexist: 404 bei unbekanntem Hosted-Namen', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/doesnotexist`);
+  assert.equal(res.status, 404);
+});
+
+test('GET /files/default/docs/a.txt: laedt die einzelne Datei aus dem Verzeichnis herunter', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/docs/a.txt`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition') ?? '', /a\.txt/);
+  assert.equal(await res.text(), 'a-inhalt');
+});
+
+test('GET /files/default/docs/doesnotexist.txt: 404 bei unbekannter Datei', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/docs/doesnotexist.txt`);
+  assert.equal(res.status, 404);
+});
+
+test('GET /files/default/notes/anything: 404, da "notes" eine Datei und kein Verzeichnis ist', async () => {
+  const res = await fetch(`${baseUrl()}/files/default/notes/anything`);
+  assert.equal(res.status, 404);
 });
 
 test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', async () => {

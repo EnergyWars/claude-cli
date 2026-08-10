@@ -88,6 +88,9 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 - **`POST /<agent>`** – startet einen Command auf dem benannten Agent aus `agents[]` (404, falls unbekannt).
 - **`GET /state/<id>`** – liefert Status und (live aktualisierten) Output eines Commands (404, falls unbekannt).
 - **`GET /paths`** – liefert nur die Namen (`paths[].name`) aller in `config.json` konfigurierten Pfade, ohne die zugehörigen Dateisystem-Pfade.
+- **`GET /files/<pathName>`** – liefert nur die Namen (`paths[].hosted[].name`) aller hosted-Einträge des Pfads (404, falls `pathName` unbekannt).
+- **`GET /files/<pathName>/<hostedName>`** – bei `type: "file"` lädt die Datei direkt herunter; bei `type: "path"` liefert eine Liste der Dateinamen, die direkt (nicht rekursiv) im Verzeichnis liegen (404, falls `pathName`/`hostedName` unbekannt oder die Datei/das Verzeichnis nicht mehr existiert).
+- **`GET /files/<pathName>/<hostedName>/<fileName>`** – lädt eine einzelne Datei aus einem `type: "path"`-Verzeichnis herunter (404, falls `hostedName` vom `type: "file"` ist oder `fileName` nicht existiert; 400 bei ungültigem Dateinamen).
 
 **Request-Body (beide POST-Routen):**
 
@@ -130,6 +133,26 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 { "paths": ["myapp", "otherapp"] }
 ```
 
+**Hosted-Dateien (`paths[].hosted`):** Jeder Eintrag in `paths[]` kann zusätzlich ein `hosted`-Array (`{ name, path, type: "path" | "file" }`) definieren – benannte Datei- oder Verzeichnis-Freigaben innerhalb dieses Pfad-Eintrags, herunterladbar über `GET /files/...`. `hosted[].path` ist **relativ zum `path` des umgebenden Eintrags** (wird per `path.join()` zusammengesetzt, nicht als eigenständiger absoluter Pfad):
+
+```json
+{
+  "name": "myapp",
+  "path": "/my/path",
+  "hosted": [
+    { "name": "readme", "path": "README.md", "type": "file" },
+    { "name": "reports", "path": "reports", "type": "path" }
+  ]
+}
+```
+
+Hier löst `readme` zu `/my/path/README.md` und `reports` zu `/my/path/reports` auf.
+
+- `type: "file"` – `GET /files/myapp/readme` lädt `README.md` direkt herunter.
+- `type: "path"` – `GET /files/myapp/reports` liefert `{ "files": ["a.pdf", "b.pdf"] }` (nur Dateien, die direkt im Verzeichnis liegen, nicht rekursiv); jede davon ist dann über `GET /files/myapp/reports/a.pdf` einzeln herunterladbar.
+
+Der Download setzt `Content-Type` anhand der Dateiendung (kleine eingebaute MIME-Tabelle, Fallback `application/octet-stream`) sowie `Content-Disposition: attachment`. Bei `GET /files/<pathName>/<hostedName>/<fileName>` wird der aufgelöste Dateipfad zusätzlich gegen das Verzeichnis des hosted-Eintrags geprüft (muss darin liegen), um Pfad-Traversal zu verhindern.
+
 **Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus `config.json`s `databaseDirectory` (aktuell `/home/simon/commands`), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
 
 Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Responses) und `src/db.ts` (SQLite-Zugriff über Node's eingebautes `node:sqlite`). `runHeadlessCommand()` in `src/launch.ts` ist die Server-Variante von `launchAgent()`: `stdio: ['ignore', 'pipe', 'pipe']` statt `'inherit'`, Output wird eingesammelt statt direkt ans Terminal durchgereicht, kein `process.exit()` (der Server läuft weiter).
@@ -164,7 +187,7 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
 - `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
-- `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)").
+- `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[] }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut.
 
 `description` wird im `--help`-Text pro Agent angezeigt (siehe "Dynamisches --help").
 
@@ -183,12 +206,12 @@ Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt de
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 56 Tests über 5 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 82 Tests über 5 Dateien, ein File pro Feature-Bereich:
 
-- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-Namen), `listAgents`, sowie `loadConfig`/`resolveAgent`/`resolveContext` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
+- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-Namen, `hosted`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, sowie `loadConfig`/`resolveAgent`/`resolveContext` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand` gegen ein Fake-`claude`-Binary (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
 - **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`) gegen echte temporäre `.db`-Dateien.
-- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, Live-Status `running` → `completed`, Model-Override).
+- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing).
 - **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server` End-to-End inkl. `SIGTERM`-Shutdown).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.

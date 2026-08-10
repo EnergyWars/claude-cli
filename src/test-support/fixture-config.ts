@@ -9,9 +9,16 @@ export interface FixtureAgent {
   model?: string;
 }
 
+export interface FixtureHostedEntry {
+  name: string;
+  path: string;
+  type: 'path' | 'file';
+}
+
 export interface FixturePathEntry {
   name: string;
   path: string;
+  hosted?: FixtureHostedEntry[];
 }
 
 export interface FixtureTask {

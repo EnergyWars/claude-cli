@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   applyPathsOverride,
   listAgents,
+  listHostedNames,
   listPathNames,
   loadConfig,
   loadPathsOverride,
@@ -14,6 +15,7 @@ import {
   parsePathsOverride,
   resolveAgent,
   resolveContext,
+  resolveHostedEntry,
   resolvePath,
   resolveTask,
   resolveTaskFile,
@@ -67,6 +69,34 @@ test('parseConfig: wirft ohne Feld "paths"', () => {
 test('parseConfig: wirft wenn ein Path-Eintrag "path" fehlt', () => {
   const raw = validRawConfig() as { paths: Record<string, unknown>[] };
   delete raw.paths[0]?.path;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Path-Eintrag mit "hosted"', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    hosted: [
+      { name: 'notes', path: '/my/path/notes.txt', type: 'file' },
+      { name: 'docs', path: '/my/path/docs', type: 'path' },
+    ],
+  };
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.paths[0]?.hosted?.length, 2);
+});
+
+test('parseConfig: wirft wenn ein Hosted-Eintrag "type" fehlt', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = { ...raw.paths[0], hosted: [{ name: 'notes', path: '/my/path/notes.txt' }] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Hosted-Eintrag "type" ungueltig ist', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    hosted: [{ name: 'notes', path: '/my/path/notes.txt', type: 'invalid' }],
+  };
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -188,6 +218,47 @@ test('loadConfig/resolveAgent/resolveContext: lokal-first ueber CL_ROOT_DIR-Fixt
     }
     fixture.cleanup();
   }
+});
+
+test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads', () => {
+  const config: Config = {
+    main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/x',
+    paths: [
+      {
+        name: 'myapp',
+        path: '/my/path',
+        hosted: [
+          { name: 'notes', path: 'notes.txt', type: 'file' },
+          { name: 'docs', path: 'docs', type: 'path' },
+        ],
+      },
+      { name: 'empty', path: '/empty/path' },
+    ],
+    tasks: [],
+  };
+
+  assert.deepEqual(listHostedNames(config, 'myapp'), ['notes', 'docs']);
+  assert.deepEqual(listHostedNames(config, 'empty'), []);
+  assert.throws(
+    () => listHostedNames(config, 'doesnotexist'),
+    /wurde in config\.json nicht gefunden/,
+  );
+
+  assert.deepEqual(resolveHostedEntry(config, 'myapp', 'notes'), {
+    name: 'notes',
+    path: '/my/path/notes.txt',
+    type: 'file',
+  });
+  assert.throws(
+    () => resolveHostedEntry(config, 'myapp', 'doesnotexist'),
+    /Hosted-Eintrag "doesnotexist" wurde in Pfad "myapp" nicht gefunden/,
+  );
+  assert.throws(
+    () => resolveHostedEntry(config, 'doesnotexist', 'notes'),
+    /wurde in config\.json nicht gefunden/,
+  );
 });
 
 test('resolveTask/resolveTaskFile: lokal-first ueber CL_ROOT_DIR-Fixture', () => {

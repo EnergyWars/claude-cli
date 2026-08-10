@@ -16,7 +16,11 @@
   "paths": [
     {
       "name": "claude-cli",
-      "path": "/home/simon/IdeaProjects/claude-cli"
+      "path": "/home/simon/IdeaProjects/claude-cli",
+      "hosted": [
+        { "name": "config", "path": "config.json", "type": "file" },
+        { "name": "project", "path": ".", "type": "path" }
+      ]
     }
   ],
   "tasks": []

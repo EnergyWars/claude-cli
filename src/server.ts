@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { basename, extname, join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 import {
@@ -13,13 +15,35 @@ import {
 import {
   type AgentDefinition,
   type Config,
+  type HostedEntry,
   type TaskConfig,
+  listHostedNames,
   listPathNames,
   resolveAgent,
+  resolveHostedEntry,
   resolvePath,
   resolveTask,
 } from './config.js';
 import { buildTaskContent, runHeadlessCommand } from './launch.js';
+
+const MIME_TYPES: Record<string, string> = {
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.zip': 'application/zip',
+};
+
+function mimeTypeFor(filePath: string): string {
+  return MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -105,6 +129,90 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
 
 function handleGetPaths(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { paths: listPathNames(config) });
+}
+
+function sendFileDownload(res: ServerResponse, filePath: string): void {
+  const stat = statSync(filePath);
+  res.writeHead(200, {
+    'Content-Type': mimeTypeFor(filePath),
+    'Content-Length': stat.size,
+    'Content-Disposition': `attachment; filename="${basename(filePath)}"`,
+  });
+  createReadStream(filePath).pipe(res);
+}
+
+function handleGetHostedNames(config: Config, res: ServerResponse, pathName: string): void {
+  try {
+    sendJson(res, 200, { hosted: listHostedNames(config, pathName) });
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function handleGetHostedEntry(
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  hostedName: string,
+): void {
+  let entry: HostedEntry;
+  try {
+    entry = resolveHostedEntry(config, pathName, hostedName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  if (entry.type === 'file') {
+    if (!existsSync(entry.path) || !statSync(entry.path).isFile()) {
+      sendJson(res, 404, { error: `Datei "${entry.path}" wurde nicht gefunden.` });
+      return;
+    }
+    sendFileDownload(res, entry.path);
+    return;
+  }
+
+  if (!existsSync(entry.path) || !statSync(entry.path).isDirectory()) {
+    sendJson(res, 404, { error: `Verzeichnis "${entry.path}" wurde nicht gefunden.` });
+    return;
+  }
+  const files = readdirSync(entry.path, { withFileTypes: true })
+    .filter((dirent) => dirent.isFile())
+    .map((dirent) => dirent.name);
+  sendJson(res, 200, { files });
+}
+
+function handleGetHostedFile(
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  hostedName: string,
+  fileName: string,
+): void {
+  let entry: HostedEntry;
+  try {
+    entry = resolveHostedEntry(config, pathName, hostedName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  if (entry.type !== 'path') {
+    sendJson(res, 404, { error: `"${hostedName}" ist keine Verzeichnis-Freigabe.` });
+    return;
+  }
+
+  const directory = resolve(entry.path);
+  const filePath = resolve(join(directory, fileName));
+  if (filePath !== directory && !filePath.startsWith(directory + sep)) {
+    sendJson(res, 400, { error: 'Ungueltiger Dateiname.' });
+    return;
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    sendJson(res, 404, { error: `Datei "${fileName}" wurde nicht gefunden.` });
+    return;
+  }
+  sendFileDownload(res, filePath);
 }
 
 function handlePostCommand(
@@ -251,6 +359,12 @@ async function handleRequest(
       handleGetState(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'paths') {
       handleGetPaths(config, res);
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'files') {
+      handleGetHostedNames(config, res, segments[1] ?? '');
+    } else if (method === 'GET' && segments.length === 3 && segments[0] === 'files') {
+      handleGetHostedEntry(config, res, segments[1] ?? '', segments[2] ?? '');
+    } else if (method === 'GET' && segments.length === 4 && segments[0] === 'files') {
+      handleGetHostedFile(config, res, segments[1] ?? '', segments[2] ?? '', segments[3] ?? '');
     } else if (method === 'POST' && segments.length === 2 && segments[0] === 'task') {
       bodyText = await readRequestBody(req);
       handlePostTask(db, config, res, segments[1] ?? '', bodyText);
@@ -283,6 +397,9 @@ function printEndpoints(config: Config, port: number): void {
   }
   console.log(`  GET  ${base}/state/:id`);
   console.log(`  GET  ${base}/paths`);
+  console.log(`  GET  ${base}/files/:pathName`);
+  console.log(`  GET  ${base}/files/:pathName/:hostedName`);
+  console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);
 }
 
 export interface RunningServer {

@@ -14,9 +14,16 @@ export interface AgentConfig extends AgentDefinition {
   name: string;
 }
 
+export interface HostedEntry {
+  name: string;
+  path: string;
+  type: 'path' | 'file';
+}
+
 export interface PathEntry {
   name: string;
   path: string;
+  hosted?: HostedEntry[];
 }
 
 export interface TaskDefinition {
@@ -86,12 +93,29 @@ function isAgentConfig(value: unknown): value is AgentConfig {
   return typeof record.name === 'string' && isAgentDefinition(value);
 }
 
+function isHostedEntry(value: unknown): value is HostedEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.name === 'string' &&
+    typeof record.path === 'string' &&
+    (record.type === 'path' || record.type === 'file')
+  );
+}
+
 function isPathEntry(value: unknown): value is PathEntry {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const record = value as Record<string, unknown>;
-  return typeof record.name === 'string' && typeof record.path === 'string';
+  return (
+    typeof record.name === 'string' &&
+    typeof record.path === 'string' &&
+    (record.hosted === undefined ||
+      (Array.isArray(record.hosted) && record.hosted.every(isHostedEntry)))
+  );
 }
 
 function isTaskDefinition(value: unknown): value is TaskDefinition {
@@ -147,7 +171,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path }) oder "tasks" (Array von { name, contexts, tasks, model }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted? }, wobei hosted ein Array von { name, path, type: "path"|"file" } ist) oder "tasks" (Array von { name, contexts, tasks, model }) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -186,16 +210,40 @@ export function listAgents(config: Config): AgentSummary[] {
   ];
 }
 
-export function resolvePath(config: Config, name: string): string {
+export function resolvePathEntry(config: Config, name: string): PathEntry {
   const entry = config.paths.find((candidate) => candidate.name === name);
   if (!entry) {
     throw new Error(`Pfad "${name}" wurde in config.json nicht gefunden.`);
   }
-  return entry.path;
+  return entry;
+}
+
+export function resolvePath(config: Config, name: string): string {
+  return resolvePathEntry(config, name).path;
 }
 
 export function listPathNames(config: Config): string[] {
   return config.paths.map((entry) => entry.name);
+}
+
+export function listHostedNames(config: Config, pathName: string): string[] {
+  const entry = resolvePathEntry(config, pathName);
+  return (entry.hosted ?? []).map((hosted) => hosted.name);
+}
+
+export function resolveHostedEntry(
+  config: Config,
+  pathName: string,
+  hostedName: string,
+): HostedEntry {
+  const entry = resolvePathEntry(config, pathName);
+  const hosted = (entry.hosted ?? []).find((candidate) => candidate.name === hostedName);
+  if (!hosted) {
+    throw new Error(
+      `Hosted-Eintrag "${hostedName}" wurde in Pfad "${pathName}" nicht gefunden.`,
+    );
+  }
+  return { ...hosted, path: join(entry.path, hosted.path) };
 }
 
 function isPathsOverrideFile(value: unknown): value is { paths: PathEntry[] } {

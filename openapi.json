@@ -121,6 +121,129 @@
         }
       }
     },
+    "/files/{pathName}": {
+      "get": {
+        "summary": "Listet die Namen aller hosted-Eintraege eines Pfads",
+        "operationId": "listHostedNames",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namen aller hosted-Eintraege (paths[].hosted[].name) dieses Pfads. Deren paths[].hosted[].path ist in config.json relativ zu paths[].path angegeben und wird serverseitig zum absoluten Dateisystem-Pfad aufgeloest.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HostedList" }
+              }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/files/{pathName}/{hostedName}": {
+      "get": {
+        "summary": "Laedt eine hosted-Datei herunter oder listet den Inhalt eines hosted-Verzeichnisses",
+        "operationId": "getHostedEntry",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "hostedName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines hosted-Eintrags (paths[].hosted[].name) dieses Pfads.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bei type \"file\": direkter Datei-Download (Content-Type nach Dateiendung, Content-Disposition: attachment). Bei type \"path\": Liste der Dateien direkt in diesem Verzeichnis.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FileList" }
+              },
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad- oder Hosted-Namen, oder die zugehoerige Datei/das Verzeichnis existiert nicht mehr auf der Platte.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/files/{pathName}/{hostedName}/{fileName}": {
+      "get": {
+        "summary": "Laedt eine einzelne Datei aus einem hosted-Verzeichnis (type \"path\") herunter",
+        "operationId": "getHostedFile",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "hostedName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines hosted-Eintrags (paths[].hosted[].name) vom type \"path\".",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "fileName",
+            "in": "path",
+            "required": true,
+            "description": "Name einer Datei direkt im hosted-Verzeichnis (aus der Liste von GET /files/{pathName}/{hostedName}).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Direkter Datei-Download (Content-Type nach Dateiendung, Content-Disposition: attachment).",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungueltiger Dateiname (z. B. Pfad-Traversal-Versuch).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad- oder Hosted-Namen, der Hosted-Eintrag ist vom type \"file\" statt \"path\", oder die Datei existiert nicht im Verzeichnis.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/state/{id}": {
       "get": {
         "summary": "Status und Output eines Commands abfragen",
@@ -184,6 +307,28 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Nur die Namen (paths[].name) aus config.json, nicht die Dateisystem-Pfade."
+          }
+        }
+      },
+      "HostedList": {
+        "type": "object",
+        "required": ["hosted"],
+        "properties": {
+          "hosted": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Nur die Namen (paths[].hosted[].name) eines Pfad-Eintrags aus config.json."
+          }
+        }
+      },
+      "FileList": {
+        "type": "object",
+        "required": ["files"],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Dateinamen, die direkt (nicht rekursiv) im hosted-Verzeichnis liegen, einzeln abrufbar ueber GET /files/{pathName}/{hostedName}/{fileName}."
           }
         }
       },
