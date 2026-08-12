@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "cl server API",
-    "description": "HTTP-API von `cl server`. Exposed alle in config.json definierten Agents als headless POST-Endpunkte und liefert Status/Output ueber GET /state/{id}.",
+    "description": "HTTP-API von `cl server`. Exposed alle in config.json definierten Agents als headless POST-Endpunkte und liefert Status/Output ueber GET /state/{id}. Alle Endpunkte ausser POST /auth/setup und POST /auth/setup/confirm verlangen einen gueltigen Google-Authenticator-Code im Header X-TOTP-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und liefern 409, sobald ein Authenticator aktiv ist. Ein aktiver Authenticator kann ausschliesslich per CLI (`cl totp remove`) entfernt werden, nicht ueber die HTTP-API.",
     "version": "0.1.0"
   },
   "servers": [
@@ -11,7 +11,86 @@
       "description": "Default (Port ueberschreibbar via `cl server --port`)"
     }
   ],
+  "security": [{ "TotpAuth": [] }],
   "paths": {
+    "/auth/setup": {
+      "post": {
+        "summary": "Richtet einen neuen Google Authenticator ein (Schritt 1: Secret generieren)",
+        "description": "Nur aus dem lokalen Netz erreichbar (sonst 404). Erzeugt ein neues, unbestaetigtes TOTP-Secret und ersetzt damit ein zuvor unbestaetigtes Secret. Schlaegt fehl, solange bereits ein Authenticator aktiv (bestaetigt) ist - dieser muss zuerst per CLI (`cl totp remove`) entfernt werden.",
+        "operationId": "setupAuth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Neues, noch unbestaetigtes Secret. Muss per POST /auth/setup/confirm mit einem damit erzeugten Code bestaetigt werden, bevor es aktiv wird.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthSetupResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Zugriff nicht aus dem lokalen Netz.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "409": {
+            "description": "Es ist bereits ein Google Authenticator aktiv.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/auth/setup/confirm": {
+      "post": {
+        "summary": "Bestaetigt das per POST /auth/setup erzeugte Secret (Schritt 2: aktivieren)",
+        "description": "Nur aus dem lokalen Netz erreichbar (sonst 404). Aktiviert das ausstehende Secret, sofern der uebergebene Code dazu passt.",
+        "operationId": "confirmAuthSetup",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuthSetupConfirmRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticator aktiviert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"code\" fehlt/leer), oder kein ausstehendes Setup vorhanden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Der uebergebene Code passt nicht zum ausstehenden Secret.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Zugriff nicht aus dem lokalen Netz.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "409": {
+            "description": "Es ist bereits ein Google Authenticator aktiv.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "post": {
         "summary": "Startet einen headless Command auf dem main-Agent",
@@ -35,6 +114,12 @@
           },
           "400": {
             "description": "Body ungueltig (kein JSON, oder Feld \"command\"/\"path\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -90,6 +175,12 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
           "404": {
             "description": "Kein Agent mit diesem Namen in config.json, oder kein Eintrag mit diesem Namen in config.json (paths[].name).",
             "content": {
@@ -117,6 +208,94 @@
                 "schema": { "$ref": "#/components/schemas/PathList" }
               }
             }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/commands": {
+      "get": {
+        "summary": "Listet die konfigurierten Commands eines Pfads",
+        "operationId": "listPathCommands",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alle Commands (paths[].commands[]) dieses Pfads.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PathCommandList" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/commands/{key}": {
+      "post": {
+        "summary": "Fuehrt einen konfigurierten Command aus",
+        "description": "Startet den Command im Dateisystem-Verzeichnis des Pfad-Eintrags (paths[].path) als cwd, headless und im Hintergrund. Antwortet sofort mit 202, Status/Output ueber GET /state/{id}.",
+        "operationId": "runPathCommand",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "description": "Key eines Commands (paths[].commands[].key) dieses Pfads.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Command wurde gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Command mit diesem Key in diesem Pfad.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
           }
         }
       }
@@ -141,6 +320,12 @@
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/HostedList" }
               }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
           "404": {
@@ -182,6 +367,12 @@
               "application/octet-stream": {
                 "schema": { "type": "string", "format": "binary" }
               }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
           "404": {
@@ -235,6 +426,12 @@
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
           "404": {
             "description": "Kein Eintrag mit diesem Pfad- oder Hosted-Namen, der Hosted-Eintrag ist vom type \"file\" statt \"path\", oder die Datei existiert nicht im Verzeichnis.",
             "content": {
@@ -264,6 +461,12 @@
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/CommandState" }
               }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           },
           "404": {
@@ -391,6 +594,72 @@
         "properties": {
           "error": { "type": "string" }
         }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" }
+        }
+      },
+      "AuthSetupResponse": {
+        "type": "object",
+        "required": ["secret", "otpauthUrl"],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "Base32-kodiertes TOTP-Secret, manuell eingebbar in Google Authenticator."
+          },
+          "otpauthUrl": {
+            "type": "string",
+            "description": "otpauth://totp/... URI, als QR-Code darstellbar fuer den Scan-Import in Google Authenticator."
+          }
+        }
+      },
+      "AuthSetupConfirmRequest": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Aktueller 6-stelliger Code aus Google Authenticator fuer das per POST /auth/setup erzeugte Secret."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PathCommandEntry": {
+        "type": "object",
+        "required": ["key", "command", "displayName", "description"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Eindeutiger Bezeichner, Teil der URL (POST /paths/{pathName}/commands/{key})."
+          },
+          "command": {
+            "type": "string",
+            "description": "Der Shell-Befehl, der im Verzeichnis des Pfad-Eintrags ausgefuehrt wird."
+          },
+          "displayName": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "PathCommandList": {
+        "type": "object",
+        "required": ["commands"],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PathCommandEntry" }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "TotpAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-TOTP-Code",
+        "description": "Aktueller 6-stelliger Code aus dem eingerichteten Google Authenticator. Nicht erforderlich fuer POST /auth/setup und POST /auth/setup/confirm."
       }
     }
   }

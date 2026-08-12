@@ -45,6 +45,14 @@ export function openDatabase(directory: string): DatabaseSync {
       updated_at TEXT NOT NULL
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_totp (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      secret TEXT NOT NULL,
+      confirmed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `);
   return db;
 }
 
@@ -108,4 +116,39 @@ function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
 export function getCommand(db: DatabaseSync, id: string): CommandRow | undefined {
   const row = db.prepare('SELECT * FROM t_commands WHERE id = ?').get(id);
   return row === undefined ? undefined : toCommandRow(row);
+}
+
+export interface TotpRow {
+  secret: string;
+  confirmed: boolean;
+  createdAt: string;
+}
+
+function toTotpRow(row: Record<string, SQLOutputValue>): TotpRow {
+  return {
+    secret: String(row.secret),
+    confirmed: Number(row.confirmed) === 1,
+    createdAt: String(row.created_at),
+  };
+}
+
+export function getTotpSecret(db: DatabaseSync): TotpRow | undefined {
+  const row = db.prepare('SELECT secret, confirmed, created_at FROM t_totp WHERE id = 1').get();
+  return row === undefined ? undefined : toTotpRow(row);
+}
+
+export function setPendingTotpSecret(db: DatabaseSync, secret: string): void {
+  db.prepare(
+    `INSERT INTO t_totp (id, secret, confirmed, created_at) VALUES (1, ?, 0, ?)
+     ON CONFLICT(id) DO UPDATE SET secret = excluded.secret, confirmed = 0, created_at = excluded.created_at`,
+  ).run(secret, new Date().toISOString());
+}
+
+export function confirmTotpSecret(db: DatabaseSync): void {
+  db.prepare('UPDATE t_totp SET confirmed = 1 WHERE id = 1').run();
+}
+
+export function deleteTotpSecret(db: DatabaseSync): boolean {
+  const result = db.prepare('DELETE FROM t_totp WHERE id = 1').run();
+  return result.changes > 0;
 }

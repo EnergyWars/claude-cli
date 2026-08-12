@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
 import {
   createMockClaude,
@@ -14,6 +15,17 @@ import {
   type MockClaude,
 } from './test-support/mock-claude.js';
 import { runCli } from './test-support/run-cli.js';
+
+async function setupAndConfirmTotp(baseUrl: string): Promise<string> {
+  const setupRes = await fetch(`${baseUrl}/auth/setup`, { method: 'POST' });
+  const { secret } = (await setupRes.json()) as { secret: string };
+  await fetch(`${baseUrl}/auth/setup/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: generateTotp(secret) }),
+  });
+  return secret;
+}
 
 let fixture: Fixture;
 let mock: MockClaude;
@@ -123,8 +135,13 @@ test('cl server: startet, druckt Endpunkte, beantwortet Requests, beendet sich a
   const tsxBin = join(projectRoot, 'node_modules', '.bin', 'tsx');
   const entryPoint = join(projectRoot, 'src', 'index.ts');
 
+  const serverFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc', model: 'sonnet' },
+    contexts: { main: '# Main-Context\n' },
+  });
+
   const child = spawn(tsxBin, [entryPoint, 'server', '--port', '0'], {
-    env: { ...process.env, ...baseEnv() },
+    env: { ...process.env, CL_ROOT_DIR: serverFixture.rootDir, PATH: pathWithMock(mock.binDir) },
   });
 
   let stdout = '';
@@ -143,14 +160,19 @@ test('cl server: startet, druckt Endpunkte, beantwortet Requests, beendet sich a
     assert.ok(portMatch);
     const [, port] = portMatch;
     assert.ok(port);
+    const url = `http://localhost:${port}`;
 
-    const res = await fetch(`http://localhost:${port}/state/unknown`);
+    const secret = await setupAndConfirmTotp(url);
+    const res = await fetch(`${url}/state/unknown`, {
+      headers: { 'X-TOTP-Code': generateTotp(secret) },
+    });
     assert.equal(res.status, 404);
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => {
       child.on('exit', resolve);
     });
+    serverFixture.cleanup();
   }
 });
 
@@ -159,12 +181,16 @@ test('cl server --paths-file: ueberschreibt die paths aus config.json vollstaend
   const tsxBin = join(projectRoot, 'node_modules', '.bin', 'tsx');
   const entryPoint = join(projectRoot, 'src', 'index.ts');
 
+  const serverFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc', model: 'sonnet' },
+    contexts: { main: '# Main-Context\n' },
+  });
   const pathsFileDir = mkdtempSync(join(tmpdir(), 'cl-paths-file-'));
   const pathsFile = join(pathsFileDir, 'paths.json');
   writeFileSync(pathsFile, JSON.stringify({ paths: [{ name: 'override', path: pathsFileDir }] }));
 
   const child = spawn(tsxBin, [entryPoint, 'server', '--port', '0', '--paths-file', pathsFile], {
-    env: { ...process.env, ...baseEnv() },
+    env: { ...process.env, CL_ROOT_DIR: serverFixture.rootDir, PATH: pathWithMock(mock.binDir) },
   });
 
   let stdout = '';
@@ -183,8 +209,10 @@ test('cl server --paths-file: ueberschreibt die paths aus config.json vollstaend
     assert.ok(portMatch);
     const [, port] = portMatch;
     assert.ok(port);
+    const url = `http://localhost:${port}`;
 
-    const res = await fetch(`http://localhost:${port}/paths`);
+    const secret = await setupAndConfirmTotp(url);
+    const res = await fetch(`${url}/paths`, { headers: { 'X-TOTP-Code': generateTotp(secret) } });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { paths: string[] };
     assert.deepEqual(body.paths, ['override']);
@@ -194,6 +222,99 @@ test('cl server --paths-file: ueberschreibt die paths aus config.json vollstaend
       child.on('exit', resolve);
     });
     rmSync(pathsFileDir, { recursive: true, force: true });
+    serverFixture.cleanup();
+  }
+});
+
+test('cl totp remove: ohne vorherigen Setup meldet, dass kein Authenticator eingerichtet war', async () => {
+  const totpFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['totp', 'remove'], {
+      env: { CL_ROOT_DIR: totpFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /kein Google Authenticator eingerichtet/);
+  } finally {
+    totpFixture.cleanup();
+  }
+});
+
+test('cl totp remove: entfernt einen aktiven Authenticator; Server-Endpunkte sind danach wieder gesperrt', async () => {
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const tsxBin = join(projectRoot, 'node_modules', '.bin', 'tsx');
+  const entryPoint = join(projectRoot, 'src', 'index.ts');
+
+  const totpFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc', model: 'sonnet' },
+    contexts: { main: '# Main-Context\n' },
+  });
+  const env = { CL_ROOT_DIR: totpFixture.rootDir, PATH: pathWithMock(mock.binDir) };
+
+  const child = spawn(tsxBin, [entryPoint, 'server', '--port', '0'], {
+    env: { ...process.env, ...env },
+  });
+  let stdout = '';
+  const readyPromise = new Promise<void>((resolve) => {
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+      if (stdout.includes('Endpunkte:')) {
+        resolve();
+      }
+    });
+  });
+
+  try {
+    await readyPromise;
+    const portMatch = /http:\/\/localhost:(\d+)/.exec(stdout);
+    assert.ok(portMatch);
+    const [, port] = portMatch;
+    assert.ok(port);
+    const url = `http://localhost:${port}`;
+
+    const secret = await setupAndConfirmTotp(url);
+    const authorized = await fetch(`${url}/paths`, {
+      headers: { 'X-TOTP-Code': generateTotp(secret) },
+    });
+    assert.equal(authorized.status, 200);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => {
+      child.on('exit', resolve);
+    });
+  }
+
+  const removeResult = await runCli(['totp', 'remove'], { env });
+  assert.equal(removeResult.exitCode, 0);
+  assert.match(removeResult.stdout, /Google Authenticator entfernt/);
+
+  const secondChild = spawn(tsxBin, [entryPoint, 'server', '--port', '0'], {
+    env: { ...process.env, ...env },
+  });
+  let secondStdout = '';
+  const secondReadyPromise = new Promise<void>((resolve) => {
+    secondChild.stdout.on('data', (chunk: Buffer) => {
+      secondStdout += chunk.toString('utf8');
+      if (secondStdout.includes('Endpunkte:')) {
+        resolve();
+      }
+    });
+  });
+
+  try {
+    await secondReadyPromise;
+    const portMatch = /http:\/\/localhost:(\d+)/.exec(secondStdout);
+    assert.ok(portMatch);
+    const [, port] = portMatch;
+    assert.ok(port);
+
+    const res = await fetch(`http://localhost:${port}/paths`);
+    assert.equal(res.status, 401);
+  } finally {
+    secondChild.kill('SIGTERM');
+    await new Promise((resolve) => {
+      secondChild.on('exit', resolve);
+    });
+    totpFixture.cleanup();
   }
 });
 

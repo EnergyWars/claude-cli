@@ -15,10 +15,18 @@ export interface FixtureHostedEntry {
   type: 'path' | 'file';
 }
 
+export interface FixturePathCommandEntry {
+  key: string;
+  command: string;
+  displayName: string;
+  description: string;
+}
+
 export interface FixturePathEntry {
   name: string;
   path: string;
   hosted?: FixtureHostedEntry[];
+  commands?: FixturePathCommandEntry[];
 }
 
 export interface FixtureTask {

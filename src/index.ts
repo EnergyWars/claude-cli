@@ -12,6 +12,7 @@ import {
   resolveTask,
   MODEL_COMMANDS,
 } from './config.js';
+import { deleteTotpSecret, openDatabase } from './db.js';
 import { launchAgent, runTask } from './launch.js';
 import { startServer } from './server.js';
 import { VERSION } from './version.js';
@@ -85,7 +86,7 @@ program
   .addHelpText(
     'after',
     () =>
-      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, acceptEdits-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help').\n\n'cl task <name>' fuehrt einen Task aus config.json (tasks[].name) headless aus, Output wird live in der Konsole geloggt (siehe 'cl task --help').\n`,
+      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, acceptEdits-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' fuehrt einen Task aus config.json (tasks[].name) headless aus, Output wird live in der Konsole geloggt (siehe 'cl task --help').\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
   )
   .action(async (agent: string | undefined, options: CommandOptions) => {
     const headlessPrompt = await resolveHeadlessPrompt(options.headless);
@@ -108,7 +109,7 @@ for (const model of MODEL_COMMANDS) {
 program
   .command('server')
   .description(
-    'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output.',
+    'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output. Alle Endpunkte ausser POST /auth/setup(/confirm) verlangen den Header X-TOTP-Code (Google Authenticator).',
   )
   .option('-p, --port <port>', 'Port fuer den HTTP-Server', String(DEFAULT_SERVER_PORT))
   .option(
@@ -148,6 +149,27 @@ program
   .action(async (name: string, options: { detached?: boolean }) => {
     const task = resolveTask(loadConfig(), name);
     await runTask(task, options.detached ?? false);
+  });
+
+const totpCommand = program
+  .command('totp')
+  .description(
+    'Verwaltung des per "cl server" eingerichteten Google Authenticator (TOTP). Kein Server-Endpunkt - nur ueber die CLI erreichbar.',
+  );
+
+totpCommand
+  .command('remove')
+  .description(
+    'Entfernt den aktuell aktiven/ausstehenden Google Authenticator aus der Datenbank. Danach sind alle Server-Endpunkte (ausser den Setup-Endpunkten) wieder gesperrt, bis ein neuer eingerichtet und bestaetigt wurde.',
+  )
+  .action(() => {
+    const config = loadConfig();
+    const db = openDatabase(config.databaseDirectory);
+    const removed = deleteTotpSecret(db);
+    db.close();
+    console.log(
+      removed ? 'Google Authenticator entfernt.' : 'Es war kein Google Authenticator eingerichtet.',
+    );
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

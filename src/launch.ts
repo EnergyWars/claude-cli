@@ -83,6 +83,29 @@ export async function runHeadlessCommand(
   });
 }
 
+export async function runShellCommand(
+  command: string,
+  cwd: string,
+  onChunk: (output: string) => void,
+): Promise<HeadlessCommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, { shell: true, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+
+    const handleChunk = (chunk: Buffer): void => {
+      output += chunk.toString('utf8');
+      onChunk(output);
+    };
+
+    child.stdout.on('data', handleChunk);
+    child.stderr.on('data', handleChunk);
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      resolve({ exitCode: code, output });
+    });
+  });
+}
+
 export async function runTask(task: TaskConfig, detached: boolean): Promise<void> {
   const args = buildClaudeArgs(task.model, buildSystemPrompt(task), buildTaskContent(task));
 

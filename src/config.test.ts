@@ -8,6 +8,7 @@ import {
   applyPathsOverride,
   listAgents,
   listHostedNames,
+  listPathCommands,
   listPathNames,
   loadConfig,
   loadPathsOverride,
@@ -17,6 +18,7 @@ import {
   resolveContext,
   resolveHostedEntry,
   resolvePath,
+  resolvePathCommand,
   resolveTask,
   resolveTaskFile,
   type Config,
@@ -98,6 +100,56 @@ test('parseConfig: wirft wenn ein Hosted-Eintrag "type" ungueltig ist', () => {
     hosted: [{ name: 'notes', path: '/my/path/notes.txt', type: 'invalid' }],
   };
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Path-Eintrag mit "commands"', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    commands: [
+      {
+        key: 'build',
+        command: 'npm run build',
+        displayName: 'Build',
+        description: 'Baut das Projekt',
+      },
+    ],
+  };
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.paths[0]?.commands?.length, 1);
+});
+
+test('parseConfig: wirft wenn ein Command-Eintrag "key" fehlt', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    commands: [{ command: 'npm run build', displayName: 'Build', description: 'x' }],
+  };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Command-Eintrag "command" leer ist', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    commands: [{ key: 'build', command: '  ', displayName: 'Build', description: 'x' }],
+  };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Command-Eintrag "description" fehlt', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    commands: [{ key: 'build', command: 'npm run build', displayName: 'Build' }],
+  };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft bei Agent-Namen "totp"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).name = 'totp';
+  assert.throws(() => parseConfig(raw), /reservierten Commands/);
 });
 
 test('parseConfig: wirft ohne Feld "tasks"', () => {
@@ -257,6 +309,51 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
   );
   assert.throws(
     () => resolveHostedEntry(config, 'doesnotexist', 'notes'),
+    /wurde in config\.json nicht gefunden/,
+  );
+});
+
+test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => {
+  const config: Config = {
+    main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/x',
+    paths: [
+      {
+        name: 'myapp',
+        path: '/my/path',
+        commands: [
+          { key: 'build', command: 'npm run build', displayName: 'Build', description: 'Baut' },
+          { key: 'test', command: 'npm test', displayName: 'Test', description: 'Testet' },
+        ],
+      },
+      { name: 'empty', path: '/empty/path' },
+    ],
+    tasks: [],
+  };
+
+  assert.deepEqual(listPathCommands(config, 'myapp'), [
+    { key: 'build', command: 'npm run build', displayName: 'Build', description: 'Baut' },
+    { key: 'test', command: 'npm test', displayName: 'Test', description: 'Testet' },
+  ]);
+  assert.deepEqual(listPathCommands(config, 'empty'), []);
+  assert.throws(
+    () => listPathCommands(config, 'doesnotexist'),
+    /wurde in config\.json nicht gefunden/,
+  );
+
+  assert.deepEqual(resolvePathCommand(config, 'myapp', 'build'), {
+    key: 'build',
+    command: 'npm run build',
+    displayName: 'Build',
+    description: 'Baut',
+  });
+  assert.throws(
+    () => resolvePathCommand(config, 'myapp', 'doesnotexist'),
+    /Command "doesnotexist" wurde in Pfad "myapp" nicht gefunden/,
+  );
+  assert.throws(
+    () => resolvePathCommand(config, 'doesnotexist', 'build'),
     /wurde in config\.json nicht gefunden/,
   );
 });

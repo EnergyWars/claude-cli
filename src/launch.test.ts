@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import type { AgentDefinition } from './config.js';
-import { buildClaudeArgs, buildSystemPrompt, buildTaskContent, runHeadlessCommand } from './launch.js';
+import {
+  buildClaudeArgs,
+  buildSystemPrompt,
+  buildTaskContent,
+  runHeadlessCommand,
+  runShellCommand,
+} from './launch.js';
 import { createFixtureRoot } from './test-support/fixture-config.js';
 import {
   createEmptyBinDir,
@@ -172,4 +181,25 @@ test('runHeadlessCommand: rejected wenn "claude" nicht im PATH gefunden wird', a
     process.env.PATH = previousPath;
     empty.cleanup();
   }
+});
+
+test('runShellCommand: fuehrt den Command im angegebenen Verzeichnis aus, liefert Output + Exit-Code 0', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-shell-cmd-'));
+  try {
+    const chunks: string[] = [];
+    const result = await runShellCommand('pwd', cwd, (output) => {
+      chunks.push(output);
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.output.trim(), new RegExp(cwd.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')));
+    assert.ok(chunks.length > 0);
+    assert.equal(chunks.at(-1), result.output);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('runShellCommand: liefert nicht-null Exit-Code bei fehlschlagendem Command', async () => {
+  const result = await runShellCommand('exit 7', process.cwd(), () => undefined);
+  assert.equal(result.exitCode, 7);
 });

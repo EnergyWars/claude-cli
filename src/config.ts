@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS, EMBEDDED_TASKS } from './generated/embedded-context.js';
+import {
+  EMBEDDED_CONFIG,
+  EMBEDDED_CONTEXTS,
+  EMBEDDED_TASKS,
+} from './generated/embedded-context.js';
 
 export interface AgentDefinition {
   description: string;
@@ -20,10 +24,18 @@ export interface HostedEntry {
   type: 'path' | 'file';
 }
 
+export interface PathCommandEntry {
+  key: string;
+  command: string;
+  displayName: string;
+  description: string;
+}
+
 export interface PathEntry {
   name: string;
   path: string;
   hosted?: HostedEntry[];
+  commands?: PathCommandEntry[];
 }
 
 export interface TaskDefinition {
@@ -55,6 +67,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   ...MODEL_COMMANDS.flatMap((model) => [model.name, model.alias]),
   'server',
   'task',
+  'totp',
 ]);
 
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,6 +118,21 @@ function isHostedEntry(value: unknown): value is HostedEntry {
   );
 }
 
+function isPathCommandEntry(value: unknown): value is PathCommandEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.key === 'string' &&
+    record.key.trim() !== '' &&
+    typeof record.command === 'string' &&
+    record.command.trim() !== '' &&
+    typeof record.displayName === 'string' &&
+    typeof record.description === 'string'
+  );
+}
+
 function isPathEntry(value: unknown): value is PathEntry {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -114,7 +142,9 @@ function isPathEntry(value: unknown): value is PathEntry {
     typeof record.name === 'string' &&
     typeof record.path === 'string' &&
     (record.hosted === undefined ||
-      (Array.isArray(record.hosted) && record.hosted.every(isHostedEntry)))
+      (Array.isArray(record.hosted) && record.hosted.every(isHostedEntry))) &&
+    (record.commands === undefined ||
+      (Array.isArray(record.commands) && record.commands.every(isPathCommandEntry)))
   );
 }
 
@@ -171,7 +201,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted? }, wobei hosted ein Array von { name, path, type: "path"|"file" } ist) oder "tasks" (Array von { name, contexts, tasks, model }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist) oder "tasks" (Array von { name, contexts, tasks, model }) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -239,11 +269,26 @@ export function resolveHostedEntry(
   const entry = resolvePathEntry(config, pathName);
   const hosted = (entry.hosted ?? []).find((candidate) => candidate.name === hostedName);
   if (!hosted) {
-    throw new Error(
-      `Hosted-Eintrag "${hostedName}" wurde in Pfad "${pathName}" nicht gefunden.`,
-    );
+    throw new Error(`Hosted-Eintrag "${hostedName}" wurde in Pfad "${pathName}" nicht gefunden.`);
   }
   return { ...hosted, path: join(entry.path, hosted.path) };
+}
+
+export function listPathCommands(config: Config, pathName: string): PathCommandEntry[] {
+  return resolvePathEntry(config, pathName).commands ?? [];
+}
+
+export function resolvePathCommand(
+  config: Config,
+  pathName: string,
+  key: string,
+): PathCommandEntry {
+  const entry = resolvePathEntry(config, pathName);
+  const command = (entry.commands ?? []).find((candidate) => candidate.key === key);
+  if (!command) {
+    throw new Error(`Command "${key}" wurde in Pfad "${pathName}" nicht gefunden.`);
+  }
+  return command;
 }
 
 function isPathsOverrideFile(value: unknown): value is { paths: PathEntry[] } {

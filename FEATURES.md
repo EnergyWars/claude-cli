@@ -63,6 +63,8 @@ Implementiert über `resolveHeadlessPrompt()` in `src/index.ts` (nutzt `node:rea
 
 `cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
 
+**Alle Endpunkte sind per Google Authenticator (TOTP) geschützt** – Ausnahme sind ausschließlich die beiden Setup-Endpunkte (`POST /auth/setup`, `POST /auth/setup/confirm`). Details siehe Abschnitt "Google-Authenticator-Schutz (TOTP)" weiter unten.
+
 Mit `-P, --paths-file <file>` kann beim Start eine JSON-Datei angegeben werden, die nur den `paths`-Teil enthält (gleiche Form wie `config.json`s `paths`-Feld, z. B. `{ "paths": [{ "name": "myapp", "path": "/my/path" }] }`) und `config.json`s `paths` für diesen Serverlauf vollständig ersetzt – so lassen sich Arbeitsverzeichnisse überschreiben, ohne `config.json` selbst anzufassen (z. B. pro Umgebung/Deployment). Ohne die Option gilt weiterhin `config.json`s `paths` unverändert.
 
 Der Server läuft im **Vordergrund** (blockiert das Terminal, bis `Ctrl+C`/`SIGTERM`). Beim Start werden zuerst **alle Endpunkte** auf der Konsole ausgegeben:
@@ -91,6 +93,8 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 - **`GET /files/<pathName>`** – liefert nur die Namen (`paths[].hosted[].name`) aller hosted-Einträge des Pfads (404, falls `pathName` unbekannt).
 - **`GET /files/<pathName>/<hostedName>`** – bei `type: "file"` lädt die Datei direkt herunter; bei `type: "path"` liefert eine Liste der Dateinamen, die direkt (nicht rekursiv) im Verzeichnis liegen (404, falls `pathName`/`hostedName` unbekannt oder die Datei/das Verzeichnis nicht mehr existiert).
 - **`GET /files/<pathName>/<hostedName>/<fileName>`** – lädt eine einzelne Datei aus einem `type: "path"`-Verzeichnis herunter (404, falls `hostedName` vom `type: "file"` ist oder `fileName` nicht existiert; 400 bei ungültigem Dateinamen).
+- **`GET /paths/<pathName>/commands`** – liefert alle konfigurierten Commands (`paths[].commands[]`) dieses Pfads (404, falls `pathName` unbekannt). Siehe Abschnitt "Pfad-Commands (paths[].commands)".
+- **`POST /paths/<pathName>/commands/<key>`** – führt den Command aus, im Dateisystem-Verzeichnis des Pfad-Eintrags als `cwd` (404, falls `pathName`/`key` unbekannt). Siehe Abschnitt "Pfad-Commands (paths[].commands)".
 
 **Request-Body (beide POST-Routen):**
 
@@ -159,6 +163,52 @@ Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Res
 
 `-P, --paths-file <file>` (Option auf dem `server`-Subcommand in `src/index.ts`) liest die angegebene Datei über `loadPathsOverride(filePath)` (`src/config.ts`, validiert per `parsePathsOverride()`) und ersetzt via `applyPathsOverride(config, paths)` das `paths`-Array der geladenen `config.json` vollständig, bevor `startServer()` aufgerufen wird. Ungültige/fehlende Datei bricht den Start mit Fehlermeldung und Exit-Code 1 ab.
 
+## Google-Authenticator-Schutz (TOTP)
+
+Alle `cl server`-Endpunkte verlangen einen gültigen TOTP-Code (Google Authenticator, RFC 6238, 6-stellig, 30-Sekunden-Schritt) im Header `X-TOTP-Code` – **mit Ausnahme** der beiden Setup-Endpunkte. Es kann jeweils nur **ein** Authenticator gleichzeitig aktiv sein.
+
+**Einrichtung (nur aus dem lokalen Netz erreichbar, sonst `404`):**
+
+1. **`POST /auth/setup`** – erzeugt ein neues, noch unbestätigtes Secret und liefert `{ "secret": "...", "otpauthUrl": "otpauth://totp/..." }`. `secret` kann manuell in Google Authenticator eingegeben werden, `otpauthUrl` eignet sich zum Erzeugen eines QR-Codes für den Scan-Import. Schlägt mit `409` fehl, solange bereits ein Authenticator **aktiv** ist (dann muss dieser zuerst per CLI entfernt werden, siehe unten). Ein erneuter Aufruf, solange das Setup noch nicht bestätigt ist, ersetzt das vorherige unbestätigte Secret durch ein neues.
+2. **`POST /auth/setup/confirm`** – Body `{ "code": "123456" }`, der aktuelle Code aus Google Authenticator für das per Schritt 1 erzeugte Secret. Bei korrektem Code (`200`) wird der Authenticator aktiv geschaltet; bei falschem Code `401` (Secret bleibt unbestätigt, ein weiterer Versuch ist möglich). `409`, falls bereits ein Authenticator aktiv ist.
+
+Beide Setup-Endpunkte prüfen die Herkunft der Anfrage über `req.socket.remoteAddress` (niemals über spoofbare Header wie `X-Forwarded-For`) gegen private/loopback-Adressbereiche (`127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, IPv6-ULA `fc00::/7`, Link-Local `fe80::/10`) – außerhalb dieser Bereiche liefern beide Routen `404`, identisch zu einer unbekannten Route (kein Hinweis auf deren Existenz).
+
+**Schutz aller übrigen Endpunkte:** Jeder Request ohne oder mit ungültigem `X-TOTP-Code`-Header erhält `401`. Es gibt bewusst **keine Replay-Sperre** pro Code – derselbe (noch gültige) Code kann für mehrere Requests innerhalb desselben 30-Sekunden-Fensters wiederverwendet werden, da TOTP hier als reine Zugriffsschranke für ein persönliches Tool dient und nicht als Einmal-Login; eine Replay-Sperre würde legitime, schnell aufeinanderfolgende API-Aufrufe mit demselben Code sonst blockieren. Zur Absicherung gegen Uhr-Drift wird zusätzlich zum aktuellen Zeitfenster je ein Schritt davor/danach akzeptiert.
+
+**Entfernen (ausschließlich per CLI, kein Server-Endpunkt):** `cl totp remove` löscht das aktive/ausstehende Secret aus der Datenbank. Absicht: Ein Angreifer, der bereits vollen HTTP-Zugriff auf den Server hätte, könnte sonst den eigenen Authenticator entfernen und einen neuen einrichten. Da der Removal-Command nie als HTTP-Route exposed ist, erfordert das Entfernen zwingend Shell-Zugriff auf die Maschine, auf der `cl server` läuft.
+
+Implementiert in `src/totp.ts` (Base32-En-/Decoding, `generateSecret`, `generateTotp`, `verifyTotp` mit Zeitfenster-Toleranz, `buildOtpAuthUrl`), `src/network.ts` (`isLocalNetworkAddress`), `src/db.ts` (Tabelle `t_totp`, Single-Row via `CHECK (id = 1)`: `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) und `src/server.ts` (Routing, `isRequestAuthorized()`). CLI-Command `cl totp remove` in `src/index.ts`.
+
+## Pfad-Commands (`paths[].commands`)
+
+Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `commands`-Array definieren – vordefinierte Shell-Befehle, die über die HTTP-API ausgelöst werden können:
+
+```json
+{
+  "name": "myapp",
+  "path": "/my/path",
+  "commands": [
+    {
+      "key": "build",
+      "command": "npm run build",
+      "displayName": "Build",
+      "description": "Baut das Projekt für Produktion"
+    }
+  ]
+}
+```
+
+- `key` – eindeutiger Bezeichner innerhalb des Pfads, Teil der URL (`POST /paths/<pathName>/commands/<key>`).
+- `command` – der auszuführende Shell-Befehl (`spawn(command, { shell: true, cwd })`), läuft **im Dateisystem-Verzeichnis des Pfad-Eintrags** (`paths[].path`, nicht ein `hosted`-Unterpfad).
+- `displayName`, `description` – Anzeigename/Beschreibung, z. B. für eine spätere UI; werden 1:1 über `GET /paths/<pathName>/commands` mit ausgeliefert.
+
+**`GET /paths/<pathName>/commands`** liefert `{ "commands": [{ "key", "command", "displayName", "description" }, ...] }` (404, falls `pathName` unbekannt).
+
+**`POST /paths/<pathName>/commands/<key>`** startet den Command headless im Hintergrund (404, falls `pathName`/`key` unbekannt), analog zu den Agent-/Task-Commands: sofortige Antwort `202 { "id": "<uuid>" }`, Live-Output + Status über das bestehende `GET /state/<id>` (gemeinsame `t_commands`-Tabelle; `model` ist bei Pfad-Commands `"-"`, da kein LLM beteiligt ist).
+
+Implementiert in `src/config.ts` (`PathCommandEntry`, `listPathCommands`, `resolvePathCommand`), `src/launch.ts` (`runShellCommand`) und `src/server.ts` (Routing, Wiederverwendung von `t_commands` für Status-Tracking).
+
 ## Dynamisches `--help`
 
 `cl --help` zeigt zusaetzlich zur `commander`-Standardausgabe eine Liste aller in `config.json` definierten Agents inklusive ihrer `description`:
@@ -187,7 +237,7 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
 - `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
-- `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[] }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut.
+- `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[], commands?: { key: string, command: string, displayName: string, description: string }[] }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut. Das optionale `commands`-Array definiert vordefinierte Shell-Befehle, auslösbar über `POST /paths/<pathName>/commands/<key>` (siehe "Pfad-Commands (paths[].commands)").
 
 `description` wird im `--help`-Text pro Agent angezeigt (siehe "Dynamisches --help").
 
@@ -206,12 +256,15 @@ Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt de
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 82 Tests über 5 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 130 Tests über 9 Dateien, ein File pro Feature-Bereich:
 
-- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-Namen, `hosted`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, sowie `loadConfig`/`resolveAgent`/`resolveContext` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
-- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand` gegen ein Fake-`claude`-Binary (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
-- **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`) gegen echte temporäre `.db`-Dateien.
-- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing).
-- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server` End-to-End inkl. `SIGTERM`-Shutdown).
+- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
+- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt`/`buildTaskContent` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
+- **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`, `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) gegen echte temporäre `.db`-Dateien.
+- **`src/totp.test.ts`** – Base32-En-/Decoding-Rundreise, `generateTotp`/`verifyTotp` (gültiger Code, Zeitfenster-Toleranz, falsches Secret/Format), `buildOtpAuthUrl`.
+- **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.
+- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands).
+- **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster).
+- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove` End-to-End inkl. `SIGTERM`-Shutdown).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.

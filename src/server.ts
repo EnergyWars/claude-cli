@@ -6,25 +6,35 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import {
   completeCommand,
+  confirmTotpSecret,
   getCommand,
+  getTotpSecret,
   insertCommand,
   logAccess,
   openDatabase,
+  setPendingTotpSecret,
   updateCommandOutput,
 } from './db.js';
 import {
   type AgentDefinition,
   type Config,
   type HostedEntry,
+  type PathCommandEntry,
+  type PathEntry,
   type TaskConfig,
   listHostedNames,
+  listPathCommands,
   listPathNames,
   resolveAgent,
   resolveHostedEntry,
   resolvePath,
+  resolvePathCommand,
+  resolvePathEntry,
   resolveTask,
 } from './config.js';
-import { buildTaskContent, runHeadlessCommand } from './launch.js';
+import { buildTaskContent, runHeadlessCommand, runShellCommand } from './launch.js';
+import { isLocalNetworkAddress } from './network.js';
+import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
@@ -56,6 +66,10 @@ interface CommandRequestBody {
 interface TaskRequestBody {
   model?: string;
   path: string;
+}
+
+interface AuthSetupConfirmBody {
+  code: string;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -118,6 +132,80 @@ function parseTaskRequestBody(raw: unknown): TaskRequestBody {
     : { path: record.path };
 }
 
+function parseAuthSetupConfirmBody(raw: unknown): AuthSetupConfirmBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.code !== 'string' || record.code.trim() === '') {
+    throw new Error('Feld "code" (nicht-leerer String) ist erforderlich.');
+  }
+  return { code: record.code };
+}
+
+function isRequestAuthorized(db: DatabaseSync, req: IncomingMessage): boolean {
+  const totp = getTotpSecret(db);
+  if (!totp?.confirmed) {
+    return false;
+  }
+  const header = req.headers['x-totp-code'];
+  const code = Array.isArray(header) ? header[0] : header;
+  if (typeof code !== 'string') {
+    return false;
+  }
+  return verifyTotp(totp.secret, code);
+}
+
+function handlePostAuthSetup(db: DatabaseSync, res: ServerResponse): void {
+  const existing = getTotpSecret(db);
+  if (existing?.confirmed) {
+    sendJson(res, 409, {
+      error:
+        'Es ist bereits ein Google Authenticator aktiv. Zuerst per CLI entfernen ("cl totp remove"), bevor ein neuer eingerichtet wird.',
+    });
+    return;
+  }
+  const secret = generateSecret();
+  setPendingTotpSecret(db, secret);
+  sendJson(res, 200, { secret, otpauthUrl: buildOtpAuthUrl(secret, 'cl-server', 'cl') });
+}
+
+function handlePostAuthSetupConfirm(db: DatabaseSync, res: ServerResponse, bodyText: string): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: AuthSetupConfirmBody;
+  try {
+    body = parseAuthSetupConfirmBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const existing = getTotpSecret(db);
+  if (!existing) {
+    sendJson(res, 400, {
+      error: 'Kein ausstehendes Setup vorhanden. Zuerst POST /auth/setup aufrufen.',
+    });
+    return;
+  }
+  if (existing.confirmed) {
+    sendJson(res, 409, { error: 'Es ist bereits ein Google Authenticator aktiv.' });
+    return;
+  }
+  if (!verifyTotp(existing.secret, body.code)) {
+    sendJson(res, 401, { error: 'Ungueltiger Code.' });
+    return;
+  }
+  confirmTotpSecret(db);
+  sendJson(res, 200, { message: 'Google Authenticator aktiviert.' });
+}
+
 function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void {
   const row = getCommand(db, id);
   if (!row) {
@@ -129,6 +217,59 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
 
 function handleGetPaths(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { paths: listPathNames(config) });
+}
+
+function handleGetPathCommands(config: Config, res: ServerResponse, pathName: string): void {
+  try {
+    sendJson(res, 200, { commands: listPathCommands(config, pathName) });
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function handlePostPathCommand(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  key: string,
+): void {
+  let pathEntry: PathEntry;
+  let pathCommand: PathCommandEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+    pathCommand = resolvePathCommand(config, pathName, key);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const id = randomUUID();
+  insertCommand(db, {
+    id,
+    agent: `path-command:${pathName}:${key}`,
+    model: '-',
+    command: pathCommand.command,
+    path: pathEntry.path,
+  });
+  sendJson(res, 202, { id });
+
+  runShellCommand(pathCommand.command, pathEntry.path, (output) => {
+    updateCommandOutput(db, id, output);
+  })
+    .then((result) => {
+      completeCommand(
+        db,
+        id,
+        result.exitCode === 0 ? 'completed' : 'failed',
+        result.exitCode,
+        result.output,
+      );
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      completeCommand(db, id, 'failed', null, message);
+    });
 }
 
 function sendFileDownload(res: ServerResponse, filePath: string): void {
@@ -355,10 +496,44 @@ async function handleRequest(
   let bodyText: string | undefined;
 
   try {
-    if (method === 'GET' && segments.length === 2 && segments[0] === 'state') {
+    if (segments[0] === 'auth') {
+      if (!isLocalNetworkAddress(req.socket.remoteAddress)) {
+        sendJson(res, 404, { error: 'Route nicht gefunden.' });
+      } else if (method === 'POST' && segments.length === 2 && segments[1] === 'setup') {
+        handlePostAuthSetup(db, res);
+      } else if (
+        method === 'POST' &&
+        segments.length === 3 &&
+        segments[1] === 'setup' &&
+        segments[2] === 'confirm'
+      ) {
+        bodyText = await readRequestBody(req);
+        handlePostAuthSetupConfirm(db, res, bodyText);
+      } else {
+        sendJson(res, 404, { error: 'Route nicht gefunden.' });
+      }
+    } else if (!isRequestAuthorized(db, req)) {
+      sendJson(res, 401, {
+        error: 'TOTP-Code fehlt oder ist ungueltig (Header "X-TOTP-Code").',
+      });
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'state') {
       handleGetState(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'paths') {
       handleGetPaths(config, res);
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'commands'
+    ) {
+      handleGetPathCommands(config, res, segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 4 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'commands'
+    ) {
+      handlePostPathCommand(db, config, res, segments[1] ?? '', segments[3] ?? '');
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'files') {
       handleGetHostedNames(config, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'files') {
@@ -388,6 +563,9 @@ async function handleRequest(
 function printEndpoints(config: Config, port: number): void {
   const base = `http://localhost:${port.toString()}`;
   console.log('Endpunkte:');
+  console.log('(ausser /auth/setup* verlangen alle den Header "X-TOTP-Code")');
+  console.log(`  POST ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404)`);
+  console.log(`  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {
     console.log(`  POST ${base}/${agent.name}`);
@@ -397,6 +575,12 @@ function printEndpoints(config: Config, port: number): void {
   }
   console.log(`  GET  ${base}/state/:id`);
   console.log(`  GET  ${base}/paths`);
+  console.log(`  GET  ${base}/paths/:pathName/commands`);
+  for (const pathEntry of config.paths) {
+    for (const command of pathEntry.commands ?? []) {
+      console.log(`  POST ${base}/paths/${pathEntry.name}/commands/${command.key}`);
+    }
+  }
   console.log(`  GET  ${base}/files/:pathName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);

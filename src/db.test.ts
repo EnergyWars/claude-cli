@@ -7,10 +7,14 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import {
   completeCommand,
+  confirmTotpSecret,
+  deleteTotpSecret,
   getCommand,
+  getTotpSecret,
   insertCommand,
   logAccess,
   openDatabase,
+  setPendingTotpSecret,
   updateCommandOutput,
 } from './db.js';
 
@@ -31,13 +35,14 @@ test('openDatabase: legt Verzeichnis und commands.db an', () => {
   assert.ok(existsSync(join(dbDir, 'commands.db')));
 });
 
-test('openDatabase: erzeugt t_access_log und t_commands', () => {
+test('openDatabase: erzeugt t_access_log, t_commands und t_totp', () => {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .all()
     .map((row) => String(row.name));
   assert.ok(tables.includes('t_access_log'));
   assert.ok(tables.includes('t_commands'));
+  assert.ok(tables.includes('t_totp'));
 });
 
 test('insertCommand + getCommand: Roundtrip mit status "running"', () => {
@@ -116,4 +121,47 @@ test('logAccess: Body ist NULL wenn undefined uebergeben wird (z. B. GET)', () =
   assert.equal(row.method, 'GET');
   assert.equal(row.status_code, 404);
   assert.equal(row.body, null);
+});
+
+test('getTotpSecret: undefined ohne vorherigen Aufruf von setPendingTotpSecret', () => {
+  const freshDir = mkdtempSync(join(tmpdir(), 'cl-db-test-totp-'));
+  const freshDb = openDatabase(freshDir);
+  try {
+    assert.equal(getTotpSecret(freshDb), undefined);
+  } finally {
+    freshDb.close();
+    rmSync(freshDir, { recursive: true, force: true });
+  }
+});
+
+test('setPendingTotpSecret: legt unbestaetigtes Secret an', () => {
+  setPendingTotpSecret(db, 'SECRETAAAAAAAAAAAAAAAAAAAAAAAAA');
+  const row = getTotpSecret(db);
+  assert.ok(row);
+  assert.equal(row.secret, 'SECRETAAAAAAAAAAAAAAAAAAAAAAAAA');
+  assert.equal(row.confirmed, false);
+});
+
+test('setPendingTotpSecret: ein zweiter Aufruf ersetzt das vorherige (unbestaetigte) Secret', () => {
+  setPendingTotpSecret(db, 'FIRSTSECRETAAAAAAAAAAAAAAAAAAAA');
+  setPendingTotpSecret(db, 'SECONDSECRETAAAAAAAAAAAAAAAAAAA');
+  const row = getTotpSecret(db);
+  assert.ok(row);
+  assert.equal(row.secret, 'SECONDSECRETAAAAAAAAAAAAAAAAAAA');
+  assert.equal(row.confirmed, false);
+});
+
+test('confirmTotpSecret: markiert das ausstehende Secret als bestaetigt/aktiv', () => {
+  setPendingTotpSecret(db, 'CONFIRMMEAAAAAAAAAAAAAAAAAAAAAA');
+  confirmTotpSecret(db);
+  const row = getTotpSecret(db);
+  assert.ok(row);
+  assert.equal(row.confirmed, true);
+});
+
+test('deleteTotpSecret: entfernt das Secret und liefert true, sonst false', () => {
+  setPendingTotpSecret(db, 'DELETEMEAAAAAAAAAAAAAAAAAAAAAAA');
+  assert.equal(deleteTotpSecret(db), true);
+  assert.equal(getTotpSecret(db), undefined);
+  assert.equal(deleteTotpSecret(db), false);
 });

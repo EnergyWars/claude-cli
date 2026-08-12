@@ -6,6 +6,7 @@ import { after, before, test } from 'node:test';
 
 import { loadConfig } from './config.js';
 import { startServer, type RunningServer } from './server.js';
+import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
 import { createMockClaude, pathWithMock, type MockClaude } from './test-support/mock-claude.js';
 
@@ -15,6 +16,7 @@ let running: RunningServer;
 let previousRootDir: string | undefined;
 let previousPath: string | undefined;
 let hostedDir: string;
+let totpSecret: string;
 
 before(async () => {
   hostedDir = mkdtempSync(join(tmpdir(), 'cl-hosted-'));
@@ -38,6 +40,15 @@ before(async () => {
           { name: 'notes', path: 'notes.txt', type: 'file' },
           { name: 'docs', path: 'docs', type: 'path' },
         ],
+        commands: [
+          {
+            key: 'pwd',
+            command: 'pwd',
+            displayName: 'Pwd',
+            description: 'Zeigt das Arbeitsverzeichnis',
+          },
+          { key: 'fail', command: 'exit 5', displayName: 'Fail', description: 'Schlaegt fehl' },
+        ],
       },
     ],
   });
@@ -50,6 +61,15 @@ before(async () => {
 
   running = startServer(loadConfig(), 0);
   await running.ready;
+
+  const setupRes = await fetch(`${baseUrl()}/auth/setup`, { method: 'POST' });
+  const setupBody = (await setupRes.json()) as { secret: string };
+  totpSecret = setupBody.secret;
+  await fetch(`${baseUrl()}/auth/setup/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: generateTotp(totpSecret) }),
+  });
 });
 
 after(async () => {
@@ -69,6 +89,10 @@ function baseUrl(): string {
   return `http://localhost:${running.port.toString()}`;
 }
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { 'X-TOTP-Code': generateTotp(totpSecret), ...extra };
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -76,7 +100,7 @@ async function sleep(ms: number): Promise<void> {
 test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'mache etwas', path: 'default' }),
   });
   assert.equal(res.status, 202);
@@ -84,10 +108,19 @@ test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () =
   assert.match(body.id, /^[0-9a-f-]{36}$/);
 });
 
+test('POST /: 401 ohne gueltigen "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'mache etwas', path: 'default' }),
+  });
+  assert.equal(res.status, 401);
+});
+
 test('POST /dev: startet den benannten Agent', async () => {
   const res = await fetch(`${baseUrl()}/dev`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'x', path: 'default' }),
   });
   assert.equal(res.status, 202);
@@ -98,7 +131,7 @@ test('POST /dev: startet den benannten Agent', async () => {
 test('POST /doesnotexist: 404 bei unbekanntem Agent', async () => {
   const res = await fetch(`${baseUrl()}/doesnotexist`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'x', path: 'default' }),
   });
   assert.equal(res.status, 404);
@@ -109,7 +142,7 @@ test('POST /doesnotexist: 404 bei unbekanntem Agent', async () => {
 test('POST /: 400 bei fehlendem "command"', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'default' }),
   });
   assert.equal(res.status, 400);
@@ -118,7 +151,7 @@ test('POST /: 400 bei fehlendem "command"', async () => {
 test('POST /: 400 bei fehlendem "path"', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'x' }),
   });
   assert.equal(res.status, 400);
@@ -127,7 +160,7 @@ test('POST /: 400 bei fehlendem "path"', async () => {
 test('POST /: 404 bei unbekanntem "path"', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'x', path: 'doesnotexist' }),
   });
   assert.equal(res.status, 404);
@@ -138,86 +171,93 @@ test('POST /: 404 bei unbekanntem "path"', async () => {
 test('POST /: 400 bei ungueltigem JSON', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: '{not json',
   });
   assert.equal(res.status, 400);
 });
 
 test('GET /state/<id>: 404 bei unbekannter ID', async () => {
-  const res = await fetch(`${baseUrl()}/state/unknown-id`);
+  const res = await fetch(`${baseUrl()}/state/unknown-id`, { headers: authHeaders() });
   assert.equal(res.status, 404);
 });
 
 test('GET /unbekannte-route: 404', async () => {
-  const res = await fetch(`${baseUrl()}/a/b`);
+  const res = await fetch(`${baseUrl()}/a/b`, { headers: authHeaders() });
   assert.equal(res.status, 404);
 });
 
 test('GET /paths: listet nur die Namen aus config.json', async () => {
-  const res = await fetch(`${baseUrl()}/paths`);
+  const res = await fetch(`${baseUrl()}/paths`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { paths: string[] };
   assert.deepEqual(body.paths, ['default']);
 });
 
+test('GET /paths: 401 ohne "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths`);
+  assert.equal(res.status, 401);
+});
+
 test('GET /files/default: listet die hosted-Namen des Pfads', async () => {
-  const res = await fetch(`${baseUrl()}/files/default`);
+  const res = await fetch(`${baseUrl()}/files/default`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { hosted: string[] };
   assert.deepEqual(body.hosted, ['notes', 'docs']);
 });
 
 test('GET /files/doesnotexist: 404 bei unbekanntem Pfad-Namen', async () => {
-  const res = await fetch(`${baseUrl()}/files/doesnotexist`);
+  const res = await fetch(`${baseUrl()}/files/doesnotexist`, { headers: authHeaders() });
   assert.equal(res.status, 404);
 });
 
 test('GET /files/default/notes: hosted-Typ "file" laedt direkt herunter', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/notes`);
+  const res = await fetch(`${baseUrl()}/files/default/notes`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-disposition') ?? '', /notes\.txt/);
   assert.equal(await res.text(), 'hosted-file-inhalt');
 });
 
 test('GET /files/default/docs: hosted-Typ "path" listet die Dateien im Verzeichnis', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/docs`);
+  const res = await fetch(`${baseUrl()}/files/default/docs`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { files: string[] };
   assert.deepEqual(body.files.sort(), ['a.txt', 'b.txt']);
 });
 
 test('GET /files/default/doesnotexist: 404 bei unbekanntem Hosted-Namen', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/doesnotexist`);
+  const res = await fetch(`${baseUrl()}/files/default/doesnotexist`, { headers: authHeaders() });
   assert.equal(res.status, 404);
 });
 
 test('GET /files/default/docs/a.txt: laedt die einzelne Datei aus dem Verzeichnis herunter', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/docs/a.txt`);
+  const res = await fetch(`${baseUrl()}/files/default/docs/a.txt`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-disposition') ?? '', /a\.txt/);
   assert.equal(await res.text(), 'a-inhalt');
 });
 
 test('GET /files/default/docs/doesnotexist.txt: 404 bei unbekannter Datei', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/docs/doesnotexist.txt`);
+  const res = await fetch(`${baseUrl()}/files/default/docs/doesnotexist.txt`, {
+    headers: authHeaders(),
+  });
   assert.equal(res.status, 404);
 });
 
 test('GET /files/default/notes/anything: 404, da "notes" eine Datei und kein Verzeichnis ist', async () => {
-  const res = await fetch(`${baseUrl()}/files/default/notes/anything`);
+  const res = await fetch(`${baseUrl()}/files/default/notes/anything`, { headers: authHeaders() });
   assert.equal(res.status, 404);
 });
 
 test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', async () => {
   const postRes = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'teste live output', path: 'default' }),
   });
   const { id } = (await postRes.json()) as { id: string };
 
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
   assert.equal(stateRes.status, 200);
   const state = (await stateRes.json()) as {
     status: string;
@@ -232,7 +272,7 @@ test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', a
 
   await sleep(300);
 
-  const finalRes = await fetch(`${baseUrl()}/state/${id}`);
+  const finalRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
   const final = (await finalRes.json()) as { status: string; output: string; exitCode: number };
   assert.equal(final.status, 'completed');
   assert.equal(final.exitCode, 0);
@@ -243,12 +283,12 @@ test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', a
 test('POST /: model im Body ueberschreibt config.json-Default', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ command: 'x', model: 'opus', path: 'default' }),
   });
   const { id } = (await res.json()) as { id: string };
   await sleep(300);
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
   const state = (await stateRes.json()) as { model: string };
   assert.equal(state.model, 'opus');
 });
@@ -256,7 +296,7 @@ test('POST /: model im Body ueberschreibt config.json-Default', async () => {
 test('POST /task/mytask: startet den Task, antwortet sofort mit 202 + id, wird wie ein Agent abgefragt', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'default' }),
   });
   assert.equal(res.status, 202);
@@ -265,7 +305,7 @@ test('POST /task/mytask: startet den Task, antwortet sofort mit 202 + id, wird w
 
   await sleep(300);
 
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
   assert.equal(stateRes.status, 200);
   const state = (await stateRes.json()) as {
     status: string;
@@ -283,12 +323,12 @@ test('POST /task/mytask: startet den Task, antwortet sofort mit 202 + id, wird w
 test('POST /task/mytask: model im Body ueberschreibt config.json-Default', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'default', model: 'opus' }),
   });
   const { id } = (await res.json()) as { id: string };
   await sleep(300);
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
   const state = (await stateRes.json()) as { model: string };
   assert.equal(state.model, 'opus');
 });
@@ -296,7 +336,7 @@ test('POST /task/mytask: model im Body ueberschreibt config.json-Default', async
 test('POST /task/doesnotexist: 404 bei unbekanntem Task', async () => {
   const res = await fetch(`${baseUrl()}/task/doesnotexist`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'default' }),
   });
   assert.equal(res.status, 404);
@@ -307,7 +347,7 @@ test('POST /task/doesnotexist: 404 bei unbekanntem Task', async () => {
 test('POST /task/mytask: 400 bei fehlendem "path"', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({}),
   });
   assert.equal(res.status, 400);
@@ -316,8 +356,65 @@ test('POST /task/mytask: 400 bei fehlendem "path"', async () => {
 test('POST /task/mytask: 404 bei unbekanntem "path"', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'doesnotexist' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('GET /paths/default/commands: listet die konfigurierten Commands', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/commands`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    commands: { key: string; command: string; displayName: string; description: string }[];
+  };
+  assert.deepEqual(
+    body.commands.map((c) => c.key),
+    ['pwd', 'fail'],
+  );
+});
+
+test('GET /paths/doesnotexist/commands: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/commands`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('POST /paths/default/commands/pwd: fuehrt den Command im Pfad-Verzeichnis aus', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/commands/pwd`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 202);
+  const { id } = (await res.json()) as { id: string };
+
+  await sleep(300);
+
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { status: string; output: string; exitCode: number };
+  assert.equal(state.status, 'completed');
+  assert.equal(state.exitCode, 0);
+  assert.match(state.output.trim(), new RegExp(hostedDir.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')));
+});
+
+test('POST /paths/default/commands/fail: nicht-null Exit-Code wird als "failed" gespeichert', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/commands/fail`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const { id } = (await res.json()) as { id: string };
+
+  await sleep(300);
+
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { status: string; exitCode: number };
+  assert.equal(state.status, 'failed');
+  assert.equal(state.exitCode, 5);
+});
+
+test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/commands/doesnotexist`, {
+    method: 'POST',
+    headers: authHeaders(),
   });
   assert.equal(res.status, 404);
 });
