@@ -218,6 +218,29 @@
         }
       }
     },
+    "/manifest": {
+      "get": {
+        "summary": "Liefert alle Agents, Tasks und Pfade (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
+        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description), Tasks (name + model) und alle Pfade mit deren konfigurierten Commands (paths[].commands) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade). Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands anzeigen kann.",
+        "operationId": "getManifest",
+        "responses": {
+          "200": {
+            "description": "Vollstaendige Uebersicht aller Agents, Tasks und Pfade.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Manifest" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/commands": {
       "get": {
         "summary": "Listet die konfigurierten Commands eines Pfads",
@@ -650,6 +673,66 @@
           "commands": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/PathCommandEntry" }
+          }
+        }
+      },
+      "ManifestAgent": {
+        "type": "object",
+        "required": ["command", "description"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Aufrufbarer CLI-Befehl, z. B. \"cl\" (main-Agent) oder \"cl dev\"."
+          },
+          "description": { "type": "string" }
+        }
+      },
+      "ManifestTask": {
+        "type": "object",
+        "required": ["name", "model"],
+        "properties": {
+          "name": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      },
+      "ManifestHostedEntry": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["path", "file"] }
+        }
+      },
+      "ManifestPath": {
+        "type": "object",
+        "required": ["name", "commands", "hosted"],
+        "properties": {
+          "name": { "type": "string" },
+          "commands": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PathCommandEntry" }
+          },
+          "hosted": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ManifestHostedEntry" }
+          }
+        }
+      },
+      "Manifest": {
+        "type": "object",
+        "required": ["agents", "tasks", "paths"],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ManifestAgent" }
+          },
+          "tasks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ManifestTask" }
+          },
+          "paths": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ManifestPath" }
           }
         }
       }

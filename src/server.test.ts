@@ -199,6 +199,42 @@ test('GET /paths: 401 ohne "X-TOTP-Code"-Header', async () => {
   assert.equal(res.status, 401);
 });
 
+test('GET /manifest: liefert Agents, Tasks und Paths inkl. Commands/Hosted', async () => {
+  const res = await fetch(`${baseUrl()}/manifest`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    agents: { command: string; description: string }[];
+    tasks: { name: string; model: string }[];
+    paths: {
+      name: string;
+      commands: { key: string }[];
+      hosted: { name: string; type: string }[];
+    }[];
+  };
+  assert.deepEqual(body.agents, [
+    { command: 'cl', description: 'Main' },
+    { command: 'cl dev', description: 'Dev-Agent' },
+  ]);
+  assert.deepEqual(body.tasks, [{ name: 'mytask', model: 'sonnet' }]);
+  assert.equal(body.paths.length, 1);
+  const [defaultPath] = body.paths;
+  assert.ok(defaultPath);
+  assert.equal(defaultPath.name, 'default');
+  assert.deepEqual(
+    defaultPath.commands.map((command) => command.key),
+    ['pwd', 'fail'],
+  );
+  assert.deepEqual(defaultPath.hosted, [
+    { name: 'notes', type: 'file' },
+    { name: 'docs', type: 'path' },
+  ]);
+});
+
+test('GET /manifest: 401 ohne "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/manifest`);
+  assert.equal(res.status, 401);
+});
+
 test('GET /files/default: listet die hosted-Namen des Pfads', async () => {
   const res = await fetch(`${baseUrl()}/files/default`, { headers: authHeaders() });
   assert.equal(res.status, 200);

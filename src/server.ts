@@ -22,7 +22,9 @@ import {
   type PathCommandEntry,
   type PathEntry,
   type TaskConfig,
+  listAgents,
   listHostedNames,
+  listHostedSummaries,
   listPathCommands,
   listPathNames,
   resolveAgent,
@@ -217,6 +219,18 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
 
 function handleGetPaths(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { paths: listPathNames(config) });
+}
+
+function handleGetManifest(config: Config, res: ServerResponse): void {
+  sendJson(res, 200, {
+    agents: listAgents(config),
+    tasks: config.tasks.map((task) => ({ name: task.name, model: task.model })),
+    paths: listPathNames(config).map((name) => ({
+      name,
+      commands: listPathCommands(config, name),
+      hosted: listHostedSummaries(config, name),
+    })),
+  });
 }
 
 function handleGetPathCommands(config: Config, res: ServerResponse, pathName: string): void {
@@ -520,6 +534,8 @@ async function handleRequest(
       handleGetState(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'paths') {
       handleGetPaths(config, res);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'manifest') {
+      handleGetManifest(config, res);
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -575,6 +591,7 @@ function printEndpoints(config: Config, port: number): void {
   }
   console.log(`  GET  ${base}/state/:id`);
   console.log(`  GET  ${base}/paths`);
+  console.log(`  GET  ${base}/manifest`);
   console.log(`  GET  ${base}/paths/:pathName/commands`);
   for (const pathEntry of config.paths) {
     for (const command of pathEntry.commands ?? []) {

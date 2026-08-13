@@ -8,6 +8,7 @@ import {
   applyPathsOverride,
   listAgents,
   listHostedNames,
+  listHostedSummaries,
   listPathCommands,
   listPathNames,
   loadConfig,
@@ -309,6 +310,36 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
   );
   assert.throws(
     () => resolveHostedEntry(config, 'doesnotexist', 'notes'),
+    /wurde in config\.json nicht gefunden/,
+  );
+});
+
+test('listHostedSummaries: liefert Name + Typ der Hosted-Eintraege eines Pfads', () => {
+  const config: Config = {
+    main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/x',
+    paths: [
+      {
+        name: 'myapp',
+        path: '/my/path',
+        hosted: [
+          { name: 'notes', path: 'notes.txt', type: 'file' },
+          { name: 'docs', path: 'docs', type: 'path' },
+        ],
+      },
+      { name: 'empty', path: '/empty/path' },
+    ],
+    tasks: [],
+  };
+
+  assert.deepEqual(listHostedSummaries(config, 'myapp'), [
+    { name: 'notes', type: 'file' },
+    { name: 'docs', type: 'path' },
+  ]);
+  assert.deepEqual(listHostedSummaries(config, 'empty'), []);
+  assert.throws(
+    () => listHostedSummaries(config, 'doesnotexist'),
     /wurde in config\.json nicht gefunden/,
   );
 });

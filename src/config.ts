@@ -261,6 +261,16 @@ export function listHostedNames(config: Config, pathName: string): string[] {
   return (entry.hosted ?? []).map((hosted) => hosted.name);
 }
 
+export interface HostedSummary {
+  name: string;
+  type: 'path' | 'file';
+}
+
+export function listHostedSummaries(config: Config, pathName: string): HostedSummary[] {
+  const entry = resolvePathEntry(config, pathName);
+  return (entry.hosted ?? []).map((hosted) => ({ name: hosted.name, type: hosted.type }));
+}
+
 export function resolveHostedEntry(
   config: Config,
   pathName: string,

@@ -21,6 +21,42 @@
         { "name": "config", "path": "config.json", "type": "file" },
         { "name": "project", "path": ".", "type": "path" }
       ]
+    },
+    {
+      "name": "periodical",
+      "path": "/home/simon/IdeaProjects/periodical",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/allinonecalendar.apk",
+          "type": "file"
+        }
+      ],
+      "commands": [
+        {
+          "key": "clean",
+          "command": "./gradlew clean",
+          "displayName": "Clean",
+          "description": "Raeumt alle Build-Artefakte auf."
+        },
+        {
+          "key": "assemble-debug",
+          "command": "./gradlew assembleDebug",
+          "displayName": "Build Debug",
+          "description": "Baut die Debug-APK."
+        },
+        {
+          "key": "assemble-release",
+          "command": "./gradlew assembleRelease",
+          "displayName": "Build Release",
+          "description": "Baut die Release-APK."
+        }
+      ]
     }
   ],
   "tasks": []
