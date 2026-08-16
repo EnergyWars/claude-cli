@@ -59,5 +59,13 @@
       ]
     }
   ],
-  "tasks": []
+  "tasks": [
+    {
+      "name": "review-local",
+      "description": "Macht ein review für alle local changes.",
+      "contexts": ["main"],
+      "model": "sonnet",
+      "startCommand": "Mache ein review für alle git local changes. Prüfe dabei auf verwendung der richtigen versionen, ausschließliche Verwendung von legal kostenlos kommerziell nutzbaren inhalten, verletzung von copyrights, und vor allem sauberen code: Best practices, Clean-Code, gute software architektur, saubere integration in die gesamte und bugs sowie die richtige funktionierende Umsetzung der Features. Wenn du findings hast, behebe sie direkt."
+    }
+  ]
 }

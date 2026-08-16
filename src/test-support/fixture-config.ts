@@ -31,9 +31,10 @@ export interface FixturePathEntry {
 
 export interface FixtureTask {
   name: string;
+  description?: string;
   contexts?: string[];
-  tasks?: string[];
   model?: string;
+  startCommand?: string;
 }
 
 export interface FixtureConfigOptions {
@@ -43,7 +44,6 @@ export interface FixtureConfigOptions {
   contexts?: Record<string, string>;
   paths?: FixturePathEntry[];
   tasks?: FixtureTask[];
-  taskFiles?: Record<string, string>;
 }
 
 export interface Fixture {
@@ -70,9 +70,10 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
     databaseDirectory: options.databaseDirectory ?? join(rootDir, 'db'),
     paths: options.paths ?? [{ name: 'default', path: rootDir }],
     tasks: (options.tasks ?? []).map((task) => ({
+      description: 'Test-Task',
       contexts: ['main'],
-      tasks: [],
       model: 'sonnet',
+      startCommand: 'mach was',
       ...task,
     })),
   };
@@ -81,12 +82,6 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
   const contexts = options.contexts ?? { main: '# Test-Main-Context\n' };
   for (const [name, content] of Object.entries(contexts)) {
     const filePath = join(rootDir, 'contexts', `${name}.md`);
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, content);
-  }
-
-  for (const [name, content] of Object.entries(options.taskFiles ?? {})) {
-    const filePath = join(rootDir, 'tasks', `${name}.md`);
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, content);
   }

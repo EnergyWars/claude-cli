@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  EMBEDDED_CONFIG,
-  EMBEDDED_CONTEXTS,
-  EMBEDDED_TASKS,
-} from './generated/embedded-context.js';
+import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
 
 export interface AgentDefinition {
   description: string;
@@ -39,9 +35,10 @@ export interface PathEntry {
 }
 
 export interface TaskDefinition {
+  description: string;
   contexts: string[];
-  tasks: string[];
   model: string;
+  startCommand: string;
 }
 
 export interface TaskConfig extends TaskDefinition {
@@ -154,11 +151,12 @@ function isTaskDefinition(value: unknown): value is TaskDefinition {
   }
   const record = value as Record<string, unknown>;
   return (
+    typeof record.description === 'string' &&
     typeof record.model === 'string' &&
     Array.isArray(record.contexts) &&
     record.contexts.every((entry) => typeof entry === 'string') &&
-    Array.isArray(record.tasks) &&
-    record.tasks.every((entry) => typeof entry === 'string')
+    typeof record.startCommand === 'string' &&
+    record.startCommand.trim() !== ''
   );
 }
 
@@ -201,7 +199,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist) oder "tasks" (Array von { name, contexts, tasks, model }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist) oder "tasks" (Array von { name, description, contexts, model, startCommand }) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -345,16 +343,4 @@ export function resolveTask(config: Config, name: string): TaskConfig {
     throw new Error(`Task "${name}" wurde in config.json nicht gefunden.`);
   }
   return task;
-}
-
-export function resolveTaskFile(name: string): string {
-  const local = readLocalFile(join('tasks', `${name}.md`));
-  if (local !== undefined) {
-    return local;
-  }
-  const embedded = EMBEDDED_TASKS[name];
-  if (embedded === undefined) {
-    throw new Error(`Task-Datei "${name}" wurde nicht gefunden.`);
-  }
-  return embedded;
 }

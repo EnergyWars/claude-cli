@@ -8,7 +8,6 @@ import type { AgentDefinition } from './config.js';
 import {
   buildClaudeArgs,
   buildSystemPrompt,
-  buildTaskContent,
   runHeadlessCommand,
   runShellCommand,
 } from './launch.js';
@@ -46,6 +45,46 @@ test('buildClaudeArgs: mit headlessPrompt haengt --print + Prompt an', () => {
   ]);
 });
 
+test('buildClaudeArgs: mit interactivePrompt haengt Prompt ohne --print an', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', undefined, 'task-inhalt');
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'acceptEdits',
+    'task-inhalt',
+  ]);
+});
+
+test('buildClaudeArgs: headlessPrompt hat Vorrang vor interactivePrompt', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', 'headless', 'interactive');
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'acceptEdits',
+    '--print',
+    'headless',
+  ]);
+});
+
+test('buildClaudeArgs: permissionMode ueberschreibt das Default "acceptEdits"', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', undefined, 'task-inhalt', 'auto');
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'auto',
+    'task-inhalt',
+  ]);
+});
+
 test('buildSystemPrompt: verkettet alle Contexts eines Agents mit doppeltem Newline', () => {
   const fixture = createFixtureRoot({
     contexts: { a: 'Content A', b: 'Content B' },
@@ -59,24 +98,6 @@ test('buildSystemPrompt: verkettet alle Contexts eines Agents mit doppeltem Newl
       contexts: ['a', 'b'],
     };
     assert.equal(buildSystemPrompt(agent), 'Content A\n\nContent B');
-  } finally {
-    if (previous === undefined) {
-      delete process.env.CL_ROOT_DIR;
-    } else {
-      process.env.CL_ROOT_DIR = previous;
-    }
-    fixture.cleanup();
-  }
-});
-
-test('buildTaskContent: verkettet alle Tasks-Dateien eines Tasks mit doppeltem Newline', () => {
-  const fixture = createFixtureRoot({
-    taskFiles: { a: 'Task A', b: 'Task B' },
-  });
-  const previous = process.env.CL_ROOT_DIR;
-  process.env.CL_ROOT_DIR = fixture.rootDir;
-  try {
-    assert.equal(buildTaskContent({ tasks: ['a', 'b'] }), 'Task A\n\nTask B');
   } finally {
     if (previous === undefined) {
       delete process.env.CL_ROOT_DIR;

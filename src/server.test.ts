@@ -30,8 +30,6 @@ before(async () => {
     main: { description: 'Main' },
     agents: [{ name: 'dev', description: 'Dev-Agent' }],
     contexts: { main: '# Main-Context\n' },
-    tasks: [{ name: 'mytask', contexts: ['main'], tasks: ['mytask'] }],
-    taskFiles: { mytask: '# Mytask-Inhalt\n' },
     paths: [
       {
         name: 'default',
@@ -199,12 +197,11 @@ test('GET /paths: 401 ohne "X-TOTP-Code"-Header', async () => {
   assert.equal(res.status, 401);
 });
 
-test('GET /manifest: liefert Agents, Tasks und Paths inkl. Commands/Hosted', async () => {
+test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks)', async () => {
   const res = await fetch(`${baseUrl()}/manifest`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
     agents: { command: string; description: string }[];
-    tasks: { name: string; model: string }[];
     paths: {
       name: string;
       commands: { key: string }[];
@@ -215,7 +212,7 @@ test('GET /manifest: liefert Agents, Tasks und Paths inkl. Commands/Hosted', asy
     { command: 'cl', description: 'Main' },
     { command: 'cl dev', description: 'Dev-Agent' },
   ]);
-  assert.deepEqual(body.tasks, [{ name: 'mytask', model: 'sonnet' }]);
+  assert.ok(!('tasks' in body));
   assert.equal(body.paths.length, 1);
   const [defaultPath] = body.paths;
   assert.ok(defaultPath);
@@ -329,71 +326,11 @@ test('POST /: model im Body ueberschreibt config.json-Default', async () => {
   assert.equal(state.model, 'opus');
 });
 
-test('POST /task/mytask: startet den Task, antwortet sofort mit 202 + id, wird wie ein Agent abgefragt', async () => {
+test('POST /task/mytask: 404 - Tasks sind nie ueber die API aufrufbar', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ path: 'default' }),
-  });
-  assert.equal(res.status, 202);
-  const { id } = (await res.json()) as { id: string };
-  assert.match(id, /^[0-9a-f-]{36}$/);
-
-  await sleep(300);
-
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
-  assert.equal(stateRes.status, 200);
-  const state = (await stateRes.json()) as {
-    status: string;
-    agent: string;
-    model: string;
-    output: string;
-    exitCode: number;
-  };
-  assert.equal(state.agent, 'task:mytask');
-  assert.equal(state.status, 'completed');
-  assert.equal(state.exitCode, 0);
-  assert.match(state.output, /erste Zeile/);
-});
-
-test('POST /task/mytask: model im Body ueberschreibt config.json-Default', async () => {
-  const res = await fetch(`${baseUrl()}/task/mytask`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ path: 'default', model: 'opus' }),
-  });
-  const { id } = (await res.json()) as { id: string };
-  await sleep(300);
-  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
-  const state = (await stateRes.json()) as { model: string };
-  assert.equal(state.model, 'opus');
-});
-
-test('POST /task/doesnotexist: 404 bei unbekanntem Task', async () => {
-  const res = await fetch(`${baseUrl()}/task/doesnotexist`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ path: 'default' }),
-  });
-  assert.equal(res.status, 404);
-  const body = (await res.json()) as { error: string };
-  assert.match(body.error, /doesnotexist/);
-});
-
-test('POST /task/mytask: 400 bei fehlendem "path"', async () => {
-  const res = await fetch(`${baseUrl()}/task/mytask`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({}),
-  });
-  assert.equal(res.status, 400);
-});
-
-test('POST /task/mytask: 404 bei unbekanntem "path"', async () => {
-  const res = await fetch(`${baseUrl()}/task/mytask`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ path: 'doesnotexist' }),
   });
   assert.equal(res.status, 404);
 });

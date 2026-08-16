@@ -1,19 +1,17 @@
 import { spawn } from 'node:child_process';
 
-import { resolveAgent, resolveContext, resolveTaskFile, type TaskConfig } from './config.js';
+import { resolveAgent, resolveContext, type TaskConfig } from './config.js';
 
 export function buildSystemPrompt(entity: { contexts: string[] }): string {
   return entity.contexts.map((name) => resolveContext(name)).join('\n\n');
-}
-
-export function buildTaskContent(task: { tasks: string[] }): string {
-  return task.tasks.map((name) => resolveTaskFile(name)).join('\n\n');
 }
 
 export function buildClaudeArgs(
   model: string,
   systemPrompt: string,
   headlessPrompt?: string,
+  interactivePrompt?: string,
+  permissionMode = 'acceptEdits',
 ): string[] {
   const args = [
     '--model',
@@ -21,11 +19,13 @@ export function buildClaudeArgs(
     '--append-system-prompt',
     systemPrompt,
     '--permission-mode',
-    'acceptEdits',
+    permissionMode,
   ];
 
   if (headlessPrompt !== undefined) {
     args.push('--print', headlessPrompt);
+  } else if (interactivePrompt !== undefined) {
+    args.push(interactivePrompt);
   }
 
   return args;
@@ -106,20 +106,17 @@ export async function runShellCommand(
   });
 }
 
-export async function runTask(task: TaskConfig, detached: boolean): Promise<void> {
-  const args = buildClaudeArgs(task.model, buildSystemPrompt(task), buildTaskContent(task));
-
-  if (detached) {
-    const child = spawn('claude', args, { stdio: 'ignore', detached: true });
-    child.unref();
-    return;
-  }
+export async function runTask(task: TaskConfig): Promise<void> {
+  const args = buildClaudeArgs(
+    task.model,
+    buildSystemPrompt(task),
+    undefined,
+    task.startCommand,
+    'auto',
+  );
 
   const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn('claude', args, {
-      stdio: ['ignore', 'inherit', 'inherit'],
-      detached: true,
-    });
+    const child = spawn('claude', args, { stdio: 'inherit' });
     child.on('error', reject);
     child.on('exit', (code) => {
       resolve(code ?? 0);

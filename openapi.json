@@ -220,12 +220,12 @@
     },
     "/manifest": {
       "get": {
-        "summary": "Liefert alle Agents, Tasks und Pfade (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
-        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description), Tasks (name + model) und alle Pfade mit deren konfigurierten Commands (paths[].commands) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade). Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands anzeigen kann.",
+        "summary": "Liefert alle Agents und Pfade (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
+        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description) und alle Pfade mit deren konfigurierten Commands (paths[].commands) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade). Tasks sind nicht enthalten - sie sind ausschliesslich per CLI ('cl task <name>', immer interaktiv) nutzbar, niemals ueber die API. Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands anzeigen kann.",
         "operationId": "getManifest",
         "responses": {
           "200": {
-            "description": "Vollstaendige Uebersicht aller Agents, Tasks und Pfade.",
+            "description": "Vollstaendige Uebersicht aller Agents und Pfade.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Manifest" }
@@ -687,14 +687,6 @@
           "description": { "type": "string" }
         }
       },
-      "ManifestTask": {
-        "type": "object",
-        "required": ["name", "model"],
-        "properties": {
-          "name": { "type": "string" },
-          "model": { "type": "string" }
-        }
-      },
       "ManifestHostedEntry": {
         "type": "object",
         "required": ["name", "type"],
@@ -720,15 +712,11 @@
       },
       "Manifest": {
         "type": "object",
-        "required": ["agents", "tasks", "paths"],
+        "required": ["agents", "paths"],
         "properties": {
           "agents": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ManifestAgent" }
-          },
-          "tasks": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/ManifestTask" }
           },
           "paths": {
             "type": "array",

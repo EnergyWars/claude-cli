@@ -35,8 +35,15 @@ before(() => {
     main: { description: 'Main-Agent-Desc', model: 'sonnet' },
     agents: [{ name: 'dev', description: 'Dev-Agent-Desc', model: 'sonnet' }],
     contexts: { main: '# Main-Context\n' },
-    tasks: [{ name: 'mytask', contexts: ['main'], tasks: ['mytask'], model: 'sonnet' }],
-    taskFiles: { mytask: '# Mytask-Content\n' },
+    tasks: [
+      {
+        name: 'mytask',
+        description: 'Mytask-Desc',
+        contexts: ['main'],
+        model: 'sonnet',
+        startCommand: 'mach den mytask-kram',
+      },
+    ],
   });
   mock = createMockClaude({ outputChunks: ['ok'], exitCode: 0 });
 });
@@ -318,10 +325,9 @@ test('cl totp remove: entfernt einen aktiven Authenticator; Server-Endpunkte sin
   }
 });
 
-test('cl task mytask: fuehrt den Task headless aus, Output wird live geloggt', async () => {
+test('cl task mytask: startet immer interaktiv, startCommand wird als Prompt ohne --print gesendet', async () => {
   const result = await runCli(['task', 'mytask'], { env: baseEnv() });
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /ok/);
   const invokedArgs = extractMockArgs(result.stdout);
   assert.deepEqual(invokedArgs, [
     '--model',
@@ -329,9 +335,8 @@ test('cl task mytask: fuehrt den Task headless aus, Output wird live geloggt', a
     '--append-system-prompt',
     '# Main-Context\n',
     '--permission-mode',
-    'acceptEdits',
-    '--print',
-    '# Mytask-Content\n',
+    'auto',
+    'mach den mytask-kram',
   ]);
 });
 
@@ -339,18 +344,4 @@ test('cl task doesnotexist: unbekannter Task bricht mit Fehler und Exit != 0 ab'
   const result = await runCli(['task', 'doesnotexist'], { env: baseEnv() });
   assert.notEqual(result.exitCode, 0);
   assert.match(result.stderr, /doesnotexist/);
-});
-
-test('cl task mytask -d: kehrt sofort zurueck, ohne auf den Task zu warten', async () => {
-  const slowMock = createMockClaude({ outputChunks: ['langsam'], chunkDelayMs: 1000 });
-  const start = Date.now();
-  try {
-    const result = await runCli(['task', 'mytask', '-d'], {
-      env: { CL_ROOT_DIR: fixture.rootDir, PATH: pathWithMock(slowMock.binDir) },
-    });
-    assert.equal(result.exitCode, 0);
-    assert.ok(Date.now() - start < 900);
-  } finally {
-    slowMock.cleanup();
-  }
 });

@@ -59,6 +59,18 @@ Jeder Aufruf – `cl [agent]` und `cl <model> [agent]` – kann headless statt i
 
 Implementiert über `resolveHeadlessPrompt()` in `src/index.ts` (nutzt `node:readline/promises` für die interaktive Abfrage) und `launchAgent(name, modelOverride?, headlessPrompt?)` in `src/launch.ts` (hängt bei gesetztem Prompt `--print <prompt>` an die `claude`-Argumente an). Die Option ist auf dem Root-Command und jedem der vier Model-Subcommands separat registriert; `program.enablePositionalOptions()` sorgt dafür, dass z. B. bei `cl sonnet mainagent -h 'text'` der Wert tatsächlich beim `sonnet`-Subcommand ankommt statt in der Root-Options-Verarbeitung verlorenzugehen.
 
+## Task-Ausführung (`cl task <name>`)
+
+Tasks sind wie Agents konfiguriert (`config.json`s `tasks[]`: `{ name, description, contexts, model }`), zusätzlich mit einem verpflichtenden `startCommand` (String). `cl task <name>` startet damit eine ganz normale interaktive `claude`-Session – Model und System-Prompt (aus `contexts`) wie bei Agents – und übergibt `startCommand` als positionales Argument **ohne** `--print`: `claude` startet dadurch interaktiv und schickt `startCommand` automatisch als erste Nachricht ab, so als hätte man ihn selbst eingetippt und abgeschickt. Danach läuft die Session normal weiter (`stdio: 'inherit'`, Terminal-Eingabe geht direkt an `claude`).
+
+Der Command kennt **keine Optionen** – nur `cl task <name>`, kein `-d`/`--detached`, kein `-h`/`--headless`, kein sonstiger Modus. Tasks sind ausnahmslos interaktiv.
+
+**Tasks starten immer im Auto-Mode** (`claude --permission-mode auto`, statt `acceptEdits` wie bei Agents/Headless-Commands) – Tasks laufen typischerweise unbeaufsichtigt (`startCommand` läuft sofort los, ohne dass man erst manuell freigibt), Auto-Mode passt dafür besser als das für interaktive Agent-Sessions gedachte `acceptEdits`.
+
+**Tasks sind nie über die API erreichbar** – kein `POST /task/:name`-Endpunkt, keine Erwähnung in `GET /manifest` (siehe "HTTP-Server (cl server)" und "Manifest (GET /manifest)"). Grund: HTTP-Requests haben kein TTY, eine interaktive Session ist darüber nicht sinnvoll nutzbar; Tasks sind bewusst CLI-only.
+
+Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, interactivePrompt?, permissionMode = 'acceptEdits')` in `src/launch.ts` – `interactivePrompt` (hier immer `startCommand`) wird als reines positionales Argument angehängt, sofern kein `headlessPrompt` gesetzt ist (der bleibt reserviert für den bestehenden `-h, --headless`-Mechanismus von Agents). `runTask(task)` ruft `buildClaudeArgs(...)` explizit mit `permissionMode: 'auto'` auf und spawnt `claude` mit `stdio: 'inherit'` im Vordergrund. Die CLI-Registrierung (`program.command('task')`, ein `<name>`-Argument, keine Optionen) liegt in `src/index.ts`.
+
 ## HTTP-Server (`cl server`)
 
 `cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
@@ -90,12 +102,14 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 - **`POST /<agent>`** – startet einen Command auf dem benannten Agent aus `agents[]` (404, falls unbekannt).
 - **`GET /state/<id>`** – liefert Status und (live aktualisierten) Output eines Commands (404, falls unbekannt).
 - **`GET /paths`** – liefert nur die Namen (`paths[].name`) aller in `config.json` konfigurierten Pfade, ohne die zugehörigen Dateisystem-Pfade.
-- **`GET /manifest`** – liefert Agents, Tasks und Pfade (inkl. deren Commands/Hosted-Einträgen) gebündelt in einem Aufruf. Siehe Abschnitt "Manifest (GET /manifest)".
+- **`GET /manifest`** – liefert Agents und Pfade (inkl. deren Commands/Hosted-Einträgen) gebündelt in einem Aufruf; enthält **keine** Tasks (siehe "Task-Ausführung (cl task <name>)"). Siehe Abschnitt "Manifest (GET /manifest)".
 - **`GET /files/<pathName>`** – liefert nur die Namen (`paths[].hosted[].name`) aller hosted-Einträge des Pfads (404, falls `pathName` unbekannt).
 - **`GET /files/<pathName>/<hostedName>`** – bei `type: "file"` lädt die Datei direkt herunter; bei `type: "path"` liefert eine Liste der Dateinamen, die direkt (nicht rekursiv) im Verzeichnis liegen (404, falls `pathName`/`hostedName` unbekannt oder die Datei/das Verzeichnis nicht mehr existiert).
 - **`GET /files/<pathName>/<hostedName>/<fileName>`** – lädt eine einzelne Datei aus einem `type: "path"`-Verzeichnis herunter (404, falls `hostedName` vom `type: "file"` ist oder `fileName` nicht existiert; 400 bei ungültigem Dateinamen).
 - **`GET /paths/<pathName>/commands`** – liefert alle konfigurierten Commands (`paths[].commands[]`) dieses Pfads (404, falls `pathName` unbekannt). Siehe Abschnitt "Pfad-Commands (paths[].commands)".
 - **`POST /paths/<pathName>/commands/<key>`** – führt den Command aus, im Dateisystem-Verzeichnis des Pfad-Eintrags als `cwd` (404, falls `pathName`/`key` unbekannt). Siehe Abschnitt "Pfad-Commands (paths[].commands)".
+
+**Es gibt bewusst keinen `POST /task/<name>`-Endpunkt und keine sonstige API-Route für Tasks** – Tasks sind ausschließlich über `cl task <name>` (immer interaktiv, siehe "Task-Ausführung (cl task <name>)") nutzbar.
 
 **Request-Body (beide POST-Routen):**
 
@@ -206,7 +220,7 @@ Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `commands`-Array 
 
 **`GET /paths/<pathName>/commands`** liefert `{ "commands": [{ "key", "command", "displayName", "description" }, ...] }` (404, falls `pathName` unbekannt).
 
-**`POST /paths/<pathName>/commands/<key>`** startet den Command headless im Hintergrund (404, falls `pathName`/`key` unbekannt), analog zu den Agent-/Task-Commands: sofortige Antwort `202 { "id": "<uuid>" }`, Live-Output + Status über das bestehende `GET /state/<id>` (gemeinsame `t_commands`-Tabelle; `model` ist bei Pfad-Commands `"-"`, da kein LLM beteiligt ist).
+**`POST /paths/<pathName>/commands/<key>`** startet den Command headless im Hintergrund (404, falls `pathName`/`key` unbekannt), analog zu den Agent-Commands: sofortige Antwort `202 { "id": "<uuid>" }`, Live-Output + Status über das bestehende `GET /state/<id>` (gemeinsame `t_commands`-Tabelle; `model` ist bei Pfad-Commands `"-"`, da kein LLM beteiligt ist).
 
 Implementiert in `src/config.ts` (`PathCommandEntry`, `listPathCommands`, `resolvePathCommand`), `src/launch.ts` (`runShellCommand`) und `src/server.ts` (Routing, Wiederverwendung von `t_commands` für Status-Tracking).
 
@@ -220,7 +234,6 @@ Liefert die gesamte per `config.json` gesteuerte Oberfläche in einem einzigen A
     { "command": "cl", "description": "..." },
     { "command": "cl dev", "description": "..." }
   ],
-  "tasks": [{ "name": "cleanup", "model": "sonnet" }],
   "paths": [
     {
       "name": "myapp",
@@ -237,8 +250,9 @@ Liefert die gesamte per `config.json` gesteuerte Oberfläche in einem einzigen A
 ```
 
 - `agents` – identisch zu der Liste aus dem `--help`-Text (`listAgents()`), inkl. `main`-Agent als `"cl"`.
-- `tasks` – jeder Eintrag aus `config.tasks` reduziert auf `{ name, model }` (ohne `contexts`/`tasks`-Inhalte).
 - `paths` – pro Pfad-Eintrag der Name, die vollständigen `commands[]` (wie `GET /paths/<pathName>/commands`) sowie `hosted[]` als `{ name, type }` (wie `GET /files/<pathName>`, aber zusätzlich mit `type`) – **nie** die zugrundeliegenden Dateisystem-Pfade.
+
+Enthält **keine** Tasks – Tasks sind CLI-only (siehe "Task-Ausführung (cl task <name>)") und tauchen bewusst in keiner API-Antwort auf.
 
 Kein Ersatz für die bestehenden Detail-Endpunkte, sondern eine zusätzliche, gebündelte Sicht für eine UI, die alle verfügbaren Befehle, Funktionen (Agents/Tasks) und Dateien dynamisch anzeigen will, ohne für jede neue `config.json`-Ergänzung angepasst werden zu müssen.
 
@@ -267,12 +281,13 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 
 ## Config/Context-System
 
-`config.json` (Projekt-Root) hat vier Felder:
+`config.json` (Projekt-Root) hat fünf Felder:
 
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
 - `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
 - `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[], commands?: { key: string, command: string, displayName: string, description: string }[] }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut. Das optionale `commands`-Array definiert vordefinierte Shell-Befehle, auslösbar über `POST /paths/<pathName>/commands/<key>` (siehe "Pfad-Commands (paths[].commands)").
+- `tasks` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string, startCommand: string }`, erreichbar ausschließlich über `cl task <name>` (immer interaktiv, siehe "Task-Ausführung (cl task <name>)") – nie über `cl server`.
 
 `description` wird im `--help`-Text pro Agent angezeigt (siehe "Dynamisches --help").
 
@@ -291,10 +306,10 @@ Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt de
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 133 Tests über 9 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 130 Tests über 9 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
-- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt`/`buildTaskContent` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
+- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
 - **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`, `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) gegen echte temporäre `.db`-Dateien.
 - **`src/totp.test.ts`** – Base32-En-/Decoding-Rundreise, `generateTotp`/`verifyTotp` (gültiger Code, Zeitfenster-Toleranz, falsches Secret/Format), `buildOtpAuthUrl`.
 - **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.

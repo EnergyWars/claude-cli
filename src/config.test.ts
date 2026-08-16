@@ -21,7 +21,6 @@ import {
   resolvePath,
   resolvePathCommand,
   resolveTask,
-  resolveTaskFile,
   type Config,
 } from './config.js';
 import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
@@ -33,7 +32,15 @@ function validRawConfig(): unknown {
     agents: [{ name: 'dev', description: 'Dev', contexts: ['main'], model: 'sonnet' }],
     databaseDirectory: '/tmp/does-not-matter',
     paths: [{ name: 'myapp', path: '/my/path' }],
-    tasks: [{ name: 'cleanup', contexts: ['main'], tasks: ['cleanup'], model: 'sonnet' }],
+    tasks: [
+      {
+        name: 'cleanup',
+        description: 'Cleanup',
+        contexts: ['main'],
+        model: 'sonnet',
+        startCommand: 'raeum auf',
+      },
+    ],
   };
 }
 
@@ -159,9 +166,15 @@ test('parseConfig: wirft ohne Feld "tasks"', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
-test('parseConfig: wirft wenn ein Task-Eintrag "tasks" kein String-Array ist', () => {
+test('parseConfig: wirft wenn ein Task-Eintrag "startCommand" fehlt', () => {
   const raw = validRawConfig() as { tasks: Record<string, unknown>[] };
-  raw.tasks[0] = { ...raw.tasks[0], tasks: [42] };
+  delete raw.tasks[0]?.startCommand;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Task-Eintrag "startCommand" leer ist', () => {
+  const raw = validRawConfig() as { tasks: Record<string, unknown>[] };
+  raw.tasks[0] = { ...raw.tasks[0], startCommand: '   ' };
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -389,11 +402,18 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
   );
 });
 
-test('resolveTask/resolveTaskFile: lokal-first ueber CL_ROOT_DIR-Fixture', () => {
+test('resolveTask: lokal-first ueber CL_ROOT_DIR-Fixture', () => {
   const fixture = createFixtureRoot({
     contexts: { main: '# Fixture Main Content\n' },
-    tasks: [{ name: 'cleanup', contexts: ['main'], tasks: ['cleanup'], model: 'opus' }],
-    taskFiles: { cleanup: '# Cleanup-Task-Inhalt\n' },
+    tasks: [
+      {
+        name: 'cleanup',
+        description: 'Cleanup',
+        contexts: ['main'],
+        model: 'opus',
+        startCommand: 'raeum auf',
+      },
+    ],
   });
   const previous = process.env.CL_ROOT_DIR;
   process.env.CL_ROOT_DIR = fixture.rootDir;
@@ -402,15 +422,12 @@ test('resolveTask/resolveTaskFile: lokal-first ueber CL_ROOT_DIR-Fixture', () =>
     const task = resolveTask(config, 'cleanup');
     assert.equal(task.model, 'opus');
     assert.deepEqual(task.contexts, ['main']);
-    assert.deepEqual(task.tasks, ['cleanup']);
-
-    assert.equal(resolveTaskFile('cleanup'), '# Cleanup-Task-Inhalt\n');
+    assert.equal(task.startCommand, 'raeum auf');
 
     assert.throws(
       () => resolveTask(config, 'doesnotexist'),
       /wurde in config\.json nicht gefunden/,
     );
-    assert.throws(() => resolveTaskFile('doesnotexist'), /wurde nicht gefunden/);
   } finally {
     if (previous === undefined) {
       delete process.env.CL_ROOT_DIR;

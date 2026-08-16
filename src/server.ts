@@ -21,7 +21,6 @@ import {
   type HostedEntry,
   type PathCommandEntry,
   type PathEntry,
-  type TaskConfig,
   listAgents,
   listHostedNames,
   listHostedSummaries,
@@ -32,9 +31,8 @@ import {
   resolvePath,
   resolvePathCommand,
   resolvePathEntry,
-  resolveTask,
 } from './config.js';
-import { buildTaskContent, runHeadlessCommand, runShellCommand } from './launch.js';
+import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 
@@ -61,11 +59,6 @@ const MAX_BODY_BYTES = 1_000_000;
 
 interface CommandRequestBody {
   command: string;
-  model?: string;
-  path: string;
-}
-
-interface TaskRequestBody {
   model?: string;
   path: string;
 }
@@ -116,22 +109,6 @@ function parseCommandRequestBody(raw: unknown): CommandRequestBody {
   return typeof record.model === 'string'
     ? { command: record.command, model: record.model, path: record.path }
     : { command: record.command, path: record.path };
-}
-
-function parseTaskRequestBody(raw: unknown): TaskRequestBody {
-  if (typeof raw !== 'object' || raw === null) {
-    throw new Error('Body muss ein JSON-Objekt sein.');
-  }
-  const record = raw as Record<string, unknown>;
-  if (typeof record.path !== 'string' || record.path.trim() === '') {
-    throw new Error('Feld "path" (nicht-leerer String) ist erforderlich.');
-  }
-  if (record.model !== undefined && typeof record.model !== 'string') {
-    throw new Error('Feld "model" muss ein String sein, falls angegeben.');
-  }
-  return typeof record.model === 'string'
-    ? { model: record.model, path: record.path }
-    : { path: record.path };
 }
 
 function parseAuthSetupConfirmBody(raw: unknown): AuthSetupConfirmBody {
@@ -224,7 +201,6 @@ function handleGetPaths(config: Config, res: ServerResponse): void {
 function handleGetManifest(config: Config, res: ServerResponse): void {
   sendJson(res, 200, {
     agents: listAgents(config),
-    tasks: config.tasks.map((task) => ({ name: task.name, model: task.model })),
     paths: listPathNames(config).map((name) => ({
       name,
       commands: listPathCommands(config, name),
@@ -434,70 +410,6 @@ function handlePostCommand(
     });
 }
 
-function handlePostTask(
-  db: DatabaseSync,
-  config: Config,
-  res: ServerResponse,
-  taskName: string,
-  bodyText: string,
-): void {
-  let parsedBody: unknown;
-  try {
-    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
-  } catch {
-    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
-    return;
-  }
-
-  let body: TaskRequestBody;
-  try {
-    body = parseTaskRequestBody(parsedBody);
-  } catch (error) {
-    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
-    return;
-  }
-
-  let task: TaskConfig;
-  try {
-    task = resolveTask(config, taskName);
-  } catch (error) {
-    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
-    return;
-  }
-
-  let cwd: string;
-  try {
-    cwd = resolvePath(config, body.path);
-  } catch (error) {
-    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
-    return;
-  }
-
-  const model = body.model ?? task.model;
-  const id = randomUUID();
-  const command = buildTaskContent(task);
-
-  insertCommand(db, { id, agent: `task:${taskName}`, model, command, path: cwd });
-  sendJson(res, 202, { id });
-
-  runHeadlessCommand(task, model, command, cwd, (output) => {
-    updateCommandOutput(db, id, output);
-  })
-    .then((result) => {
-      completeCommand(
-        db,
-        id,
-        result.exitCode === 0 ? 'completed' : 'failed',
-        result.exitCode,
-        result.output,
-      );
-    })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      completeCommand(db, id, 'failed', null, message);
-    });
-}
-
 async function handleRequest(
   db: DatabaseSync,
   config: Config,
@@ -556,9 +468,6 @@ async function handleRequest(
       handleGetHostedEntry(config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'GET' && segments.length === 4 && segments[0] === 'files') {
       handleGetHostedFile(config, res, segments[1] ?? '', segments[2] ?? '', segments[3] ?? '');
-    } else if (method === 'POST' && segments.length === 2 && segments[0] === 'task') {
-      bodyText = await readRequestBody(req);
-      handlePostTask(db, config, res, segments[1] ?? '', bodyText);
     } else if (method === 'POST' && segments.length <= 1) {
       bodyText = await readRequestBody(req);
       handlePostCommand(db, config, res, segments[0], bodyText);
@@ -585,9 +494,6 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {
     console.log(`  POST ${base}/${agent.name}`);
-  }
-  for (const task of config.tasks) {
-    console.log(`  POST ${base}/task/${task.name}`);
   }
   console.log(`  GET  ${base}/state/:id`);
   console.log(`  GET  ${base}/paths`);
