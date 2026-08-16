@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { generateTotp } from './totp.js';
+import { createMockAdb, pathWithMockAdb } from './test-support/mock-adb.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
+import { writeFakeGradlew } from './test-support/mock-gradlew.js';
 import {
   createMockClaude,
   extractMockArgs,
@@ -85,7 +87,7 @@ test('cl (ohne Argumente): startet main-Agent interaktiv (kein --print)', async 
     '--append-system-prompt',
     '# Main-Context\n',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
   ]);
 });
 
@@ -101,7 +103,7 @@ test('cl <model> <agent> -h "<prompt>": headless mit Model-Override und Agent', 
     '--append-system-prompt',
     '# Main-Context\n',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
     '--print',
     'mache irgendwas cooles',
   ]);
@@ -344,4 +346,112 @@ test('cl task doesnotexist: unbekannter Task bricht mit Fehler und Exit != 0 ab'
   const result = await runCli(['task', 'doesnotexist'], { env: baseEnv() });
   assert.notEqual(result.exitCode, 0);
   assert.match(result.stderr, /doesnotexist/);
+});
+
+test('cl inst: baut per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-inst-'));
+  writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });
+  const adb = createMockAdb({
+    devicesOutput: 'List of devices attached\nemulator-5554\tdevice\n\n',
+  });
+  try {
+    const result = await runCli(['inst'], {
+      env: { CL_ROOT_DIR: fixture.rootDir, PATH: pathWithMockAdb(adb.binDir) },
+      cwd,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /app-debug\.apk/);
+    assert.match(result.stdout, /Installiert auf emulator-5554/);
+    const log = readFileSync(adb.logFile, 'utf8').trim().split('\n');
+    assert.deepEqual(log, [
+      'devices',
+      '-s emulator-5554 install -r ' +
+        join(cwd, 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
+    ]);
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl instr: baut per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-instr-'));
+  writeFakeGradlew(cwd, { buildType: 'release', steps: [{ exitCode: 0, createApk: true }] });
+  const adb = createMockAdb({
+    devicesOutput: 'List of devices attached\nemulator-5554\tdevice\nABC123\tdevice\n\n',
+    failSerials: ['ABC123'],
+  });
+  try {
+    const result = await runCli(['instr'], {
+      env: { CL_ROOT_DIR: fixture.rootDir, PATH: pathWithMockAdb(adb.binDir) },
+      cwd,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Installiert auf emulator-5554/);
+    assert.match(result.stderr, /Installation auf ABC123 fehlgeschlagen/);
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl inst: Build-Fehler startet den Sonnet-Fix-Agent im Auto-Mode, danach erneuter Build + Install', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-inst-fix-'));
+  writeFakeGradlew(cwd, {
+    buildType: 'debug',
+    steps: [
+      { exitCode: 1, stdout: 'e: MainActivity.kt: Unresolved reference: foo' },
+      { exitCode: 0, createApk: true },
+    ],
+  });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const fixAgent = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  const adb = createMockAdb({
+    devicesOutput: 'List of devices attached\nemulator-5554\tdevice\n\n',
+  });
+  try {
+    const result = await runCli(['inst'], {
+      env: {
+        CL_ROOT_DIR: fixture.rootDir,
+        PATH: [fixAgent.binDir, adb.binDir, process.env.PATH ?? ''].join(delimiter),
+      },
+      cwd,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Installiert auf emulator-5554/);
+
+    const invocations = readFileSync(claudeLogFile, 'utf8').trim().split('\n');
+    assert.equal(invocations.length, 1);
+    const [firstInvocation] = invocations;
+    assert.ok(firstInvocation);
+    const invokedArgs = JSON.parse(firstInvocation) as string[];
+    assert.deepEqual(invokedArgs.slice(0, 2), ['--model', 'sonnet']);
+    assert.ok(invokedArgs.some((arg) => arg.includes('Unresolved reference: foo')));
+  } finally {
+    fixAgent.cleanup();
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl inst: Build-Fehler ohne verfuegbaren Fix-Agent ("claude" fehlt) -> Exit != 0', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-inst-fail-'));
+  writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 1, stdout: 'error' }] });
+  const adb = createMockAdb();
+  try {
+    const result = await runCli(['inst'], {
+      // Deliberately excludes the real PATH so a real "claude" binary on the test
+      // machine can never be found/invoked here; /usr/bin + /bin are kept so the
+      // fake gradlew's own shell built-ins resolve.
+      env: {
+        CL_ROOT_DIR: fixture.rootDir,
+        PATH: [adb.binDir, '/usr/bin', '/bin'].join(delimiter),
+      },
+      cwd,
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });

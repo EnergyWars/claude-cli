@@ -8,6 +8,8 @@ export interface MockClaudeOptions {
   outputChunks?: string[];
   chunkDelayMs?: number;
   exitCode?: number;
+  /** When set, each invocation appends its args as a JSON line to this file (opt-in, for tests that spawn "claude" with stdio: 'inherit' and can't capture its stdout directly). */
+  logFile?: string;
 }
 
 export interface MockClaude {
@@ -16,7 +18,7 @@ export interface MockClaude {
 }
 
 export function createMockClaude(options: MockClaudeOptions = {}): MockClaude {
-  const { outputChunks = ['MOCK_OUTPUT'], chunkDelayMs = 20, exitCode = 0 } = options;
+  const { outputChunks = ['MOCK_OUTPUT'], chunkDelayMs = 20, exitCode = 0, logFile } = options;
   const binDir = mkdtempSync(join(tmpdir(), 'cl-mock-claude-'));
   const scriptPath = join(binDir, 'claude');
 
@@ -24,8 +26,13 @@ export function createMockClaude(options: MockClaudeOptions = {}): MockClaude {
     .map((chunk) => `  process.stdout.write(${JSON.stringify(chunk)});`)
     .join(`\n  await new Promise((r) => setTimeout(r, ${chunkDelayMs.toString()}));\n`);
 
+  const logStatement =
+    logFile === undefined
+      ? ''
+      : `require('node:fs').appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`;
+
   const script = `#!/usr/bin/env node
-process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n${ARGS_END_MARKER}\\n');
+${logStatement}process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n${ARGS_END_MARKER}\\n');
 (async () => {
 ${writeStatements}
   process.exit(${exitCode.toString()});

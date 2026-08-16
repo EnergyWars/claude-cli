@@ -11,7 +11,6 @@ export function buildClaudeArgs(
   systemPrompt: string,
   headlessPrompt?: string,
   interactivePrompt?: string,
-  permissionMode = 'acceptEdits',
 ): string[] {
   const args = [
     '--model',
@@ -19,7 +18,7 @@ export function buildClaudeArgs(
     '--append-system-prompt',
     systemPrompt,
     '--permission-mode',
-    permissionMode,
+    'auto',
   ];
 
   if (headlessPrompt !== undefined) {
@@ -107,13 +106,7 @@ export async function runShellCommand(
 }
 
 export async function runTask(task: TaskConfig): Promise<void> {
-  const args = buildClaudeArgs(
-    task.model,
-    buildSystemPrompt(task),
-    undefined,
-    task.startCommand,
-    'auto',
-  );
+  const args = buildClaudeArgs(task.model, buildSystemPrompt(task), undefined, task.startCommand);
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     const child = spawn('claude', args, { stdio: 'inherit' });

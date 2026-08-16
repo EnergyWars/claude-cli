@@ -65,6 +65,8 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   'server',
   'task',
   'totp',
+  'inst',
+  'instr',
 ]);
 
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');

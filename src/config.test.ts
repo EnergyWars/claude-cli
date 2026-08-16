@@ -227,6 +227,18 @@ test('parseConfig: wirft bei Agent-Namen "task"', () => {
   assert.throws(() => parseConfig(raw), /reservierten Commands/);
 });
 
+test('parseConfig: wirft bei Agent-Namen "inst"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).name = 'inst';
+  assert.throws(() => parseConfig(raw), /reservierten Commands/);
+});
+
+test('parseConfig: wirft bei Agent-Namen "instr"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).name = 'instr';
+  assert.throws(() => parseConfig(raw), /reservierten Commands/);
+});
+
 test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
   const config: Config = {
     main: { description: 'Main-Desc', contexts: ['main'], model: 'sonnet' },

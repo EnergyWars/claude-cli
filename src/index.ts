@@ -13,6 +13,7 @@ import {
   MODEL_COMMANDS,
 } from './config.js';
 import { deleteTotpSecret, openDatabase } from './db.js';
+import { buildAndInstall } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { startServer } from './server.js';
 import { VERSION } from './version.js';
@@ -86,7 +87,7 @@ program
   .addHelpText(
     'after',
     () =>
-      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, acceptEdits-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
+      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, Auto-Mode-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
   )
   .action(async (agent: string | undefined, options: CommandOptions) => {
     const headlessPrompt = await resolveHeadlessPrompt(options.headless);
@@ -166,6 +167,24 @@ totpCommand
     console.log(
       removed ? 'Google Authenticator entfernt.' : 'Es war kein Google Authenticator eingerichtet.',
     );
+  });
+
+program
+  .command('inst')
+  .description(
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen).',
+  )
+  .action(async () => {
+    await buildAndInstall('debug');
+  });
+
+program
+  .command('instr')
+  .description(
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen).',
+  )
+  .action(async () => {
+    await buildAndInstall('release');
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

@@ -27,7 +27,7 @@ test('buildClaudeArgs: ohne headlessPrompt (interaktiver Fall)', () => {
     '--append-system-prompt',
     'SYSTEM-PROMPT',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
   ]);
 });
 
@@ -39,7 +39,7 @@ test('buildClaudeArgs: mit headlessPrompt haengt --print + Prompt an', () => {
     '--append-system-prompt',
     'SYSTEM-PROMPT',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
     '--print',
     'mache irgendwas cooles',
   ]);
@@ -53,7 +53,7 @@ test('buildClaudeArgs: mit interactivePrompt haengt Prompt ohne --print an', () 
     '--append-system-prompt',
     'SYSTEM-PROMPT',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
     'task-inhalt',
   ]);
 });
@@ -66,22 +66,9 @@ test('buildClaudeArgs: headlessPrompt hat Vorrang vor interactivePrompt', () => 
     '--append-system-prompt',
     'SYSTEM-PROMPT',
     '--permission-mode',
-    'acceptEdits',
+    'auto',
     '--print',
     'headless',
-  ]);
-});
-
-test('buildClaudeArgs: permissionMode ueberschreibt das Default "acceptEdits"', () => {
-  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', undefined, 'task-inhalt', 'auto');
-  assert.deepEqual(args, [
-    '--model',
-    'sonnet',
-    '--append-system-prompt',
-    'SYSTEM-PROMPT',
-    '--permission-mode',
-    'auto',
-    'task-inhalt',
   ]);
 });
 
@@ -137,7 +124,7 @@ test('runHeadlessCommand: sammelt Output und liefert Exit-Code 0', async () => {
       '--append-system-prompt',
       '',
       '--permission-mode',
-      'acceptEdits',
+      'auto',
       '--print',
       'irgendein prompt',
     ]);

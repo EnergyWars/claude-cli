@@ -15,12 +15,14 @@ export interface CliResult {
 export interface RunCliOptions {
   env?: NodeJS.ProcessEnv;
   input?: string;
+  cwd?: string;
 }
 
 export async function runCli(args: string[], options: RunCliOptions = {}): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(tsxBin, [entryPoint, ...args], {
       env: { ...process.env, ...options.env },
+      cwd: options.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

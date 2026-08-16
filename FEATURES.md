@@ -22,13 +22,13 @@ Für den aufgelösten Agent gilt:
 
 - **Model:** dessen `model` (aktuell z. B. `"sonnet"`) → `--model`.
 - **System-Prompt:** Inhalt aller Dateien, die in dessen `contexts`-Array referenziert sind, verkettet → `--append-system-prompt`.
-- **Permissions:** `--permission-mode acceptEdits` – Read ist in Claude Code ohnehin promptlos, `acceptEdits` erlaubt zusätzlich Write/Edit ohne Rückfrage (andere Tools wie Bash fragen weiterhin nach).
+- **Permissions:** `--permission-mode auto` – jede von `cl` gestartete `claude`-Session (Agent, Model-Override, Headless über `cl server`, Task, Fix-Agent) läuft ausnahmslos im Auto-Mode, ohne Rückfragen.
 
 Implementiert in `src/launch.ts` (`launchAgent(name)`), aufgerufen aus dem `commander`-Action-Handler in `src/index.ts` mit dem optionalen `[agent]`-Argument.
 
 ## Model-Override (`cl <model>` / `cl <model> <agent>`)
 
-Vier feste Subcommands überschreiben gezielt nur das `model` des sonst wie gewohnt aufgelösten Agents (Contexts, `acceptEdits`-Permissions bleiben gleich):
+Vier feste Subcommands überschreiben gezielt nur das `model` des sonst wie gewohnt aufgelösten Agents (Contexts, Auto-Mode-Permissions bleiben gleich):
 
 | Command     | Kurzform | Model    |
 | ----------- | -------- | -------- |
@@ -65,11 +65,11 @@ Tasks sind wie Agents konfiguriert (`config.json`s `tasks[]`: `{ name, descripti
 
 Der Command kennt **keine Optionen** – nur `cl task <name>`, kein `-d`/`--detached`, kein `-h`/`--headless`, kein sonstiger Modus. Tasks sind ausnahmslos interaktiv.
 
-**Tasks starten immer im Auto-Mode** (`claude --permission-mode auto`, statt `acceptEdits` wie bei Agents/Headless-Commands) – Tasks laufen typischerweise unbeaufsichtigt (`startCommand` läuft sofort los, ohne dass man erst manuell freigibt), Auto-Mode passt dafür besser als das für interaktive Agent-Sessions gedachte `acceptEdits`.
+**Tasks starten wie jede andere `claude`-Session von `cl` immer im Auto-Mode** (`claude --permission-mode auto`) – Tasks laufen typischerweise unbeaufsichtigt (`startCommand` läuft sofort los, ohne dass man erst manuell freigibt).
 
 **Tasks sind nie über die API erreichbar** – kein `POST /task/:name`-Endpunkt, keine Erwähnung in `GET /manifest` (siehe "HTTP-Server (cl server)" und "Manifest (GET /manifest)"). Grund: HTTP-Requests haben kein TTY, eine interaktive Session ist darüber nicht sinnvoll nutzbar; Tasks sind bewusst CLI-only.
 
-Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, interactivePrompt?, permissionMode = 'acceptEdits')` in `src/launch.ts` – `interactivePrompt` (hier immer `startCommand`) wird als reines positionales Argument angehängt, sofern kein `headlessPrompt` gesetzt ist (der bleibt reserviert für den bestehenden `-h, --headless`-Mechanismus von Agents). `runTask(task)` ruft `buildClaudeArgs(...)` explizit mit `permissionMode: 'auto'` auf und spawnt `claude` mit `stdio: 'inherit'` im Vordergrund. Die CLI-Registrierung (`program.command('task')`, ein `<name>`-Argument, keine Optionen) liegt in `src/index.ts`.
+Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, interactivePrompt?)` in `src/launch.ts` – der Auto-Mode ist fest in `buildClaudeArgs()` verdrahtet (`--permission-mode auto`, kein Parameter, keine Überschreibungsmöglichkeit), gilt also für alle Aufrufer gleichermaßen. `interactivePrompt` (hier immer `startCommand`) wird als reines positionales Argument angehängt, sofern kein `headlessPrompt` gesetzt ist (der bleibt reserviert für den bestehenden `-h, --headless`-Mechanismus von Agents). `runTask(task)` spawnt `claude` mit `stdio: 'inherit'` im Vordergrund. Die CLI-Registrierung (`program.command('task')`, ein `<name>`-Argument, keine Optionen) liegt in `src/index.ts`.
 
 ## HTTP-Server (`cl server`)
 
@@ -126,7 +126,7 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 1. Body wird validiert (400 bei fehlendem/leerem `command`/`path` oder ungültigem JSON), Agent wird aufgelöst (404, falls unbekannt), `path`-Name wird gegen `config.json`s `paths[]` aufgelöst (404, falls unbekannt).
 2. Eine `id` (`crypto.randomUUID()`) wird generiert, sofort eine Zeile in `t_commands` mit `status: "running"` angelegt (inkl. des aufgelösten Dateisystem-Pfads).
 3. Response **sofort**: `202 { "id": "<uuid>" }` – der Request wartet nicht auf das Ergebnis.
-4. `claude --model <model> --append-system-prompt <contexts> --permission-mode acceptEdits --print "<command>"` läuft im Hintergrund mit dem aufgelösten Pfad als Arbeitsverzeichnis (`cwd`); jeder Output-Chunk (stdout **und** stderr) wird sofort in `t_commands.output` geschrieben (live, nicht erst am Ende).
+4. `claude --model <model> --append-system-prompt <contexts> --permission-mode auto --print "<command>"` läuft im Hintergrund mit dem aufgelösten Pfad als Arbeitsverzeichnis (`cwd`); jeder Output-Chunk (stdout **und** stderr) wird sofort in `t_commands.output` geschrieben (live, nicht erst am Ende).
 5. Nach Prozessende: `status` wird `"completed"` (Exit-Code 0) oder `"failed"`, `exit_code` wird gespeichert. Bei Spawn-Fehler (`claude` nicht gefunden): `status: "failed"` mit Fehlermeldung als `output`.
 
 **`GET /state/<id>`** liefert dann:
@@ -304,9 +304,30 @@ Aufgelöst über `src/config.ts` (`loadConfig()`, `resolveAgent(name)`, `resolve
 
 Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt des jeweiligen Agents aufzulösen.
 
+## Android-Build+Install (`cl inst` / `cl instr`)
+
+Zwei fest verdrahtete Commands, die **weder in `config.json` konfigurierbar noch über `cl server`/die HTTP-API erreichbar** sind – reine CLI-Shortcuts für den lokalen Android-Workflow im jeweils aktuellen Arbeitsverzeichnis (`process.cwd()`, nicht ein `paths[]`-Eintrag):
+
+- **`cl inst`** – baut das Android-Projekt im aktuellen Verzeichnis per Gradle im **Debug**-Modus (`./gradlew assembleDebug`) und installiert anschließend die resultierende APK auf **allen** aktuell per `adb devices` gefundenen Geräten.
+- **`cl instr`** – identisch, aber im **Release**-Modus (`./gradlew assembleRelease`).
+
+Ablauf beider Commands (Build-Fix-Schleife + Install):
+
+1. `./gradlew <assembleDebug|assembleRelease>` läuft im aktuellen Verzeichnis; stdout/stderr werden live durchgereicht **und** zur Auswertung gesammelt.
+2. **Schlägt der Build fehl (Exit-Code ≠ 0) oder enthält die Build-Ausgabe Warnings** (Substring `warning` case-insensitive, oder Kotlinc-Zeilen der Form `w: <file>: <message>`), wird **kein** Install versucht. Stattdessen startet ein `claude`-Prozess mit `--model sonnet`, `--permission-mode auto` und `--print` (Fix-Agent, headless/autonom, `stdio: 'inherit'`) – als Prompt bekommt er die komplette Build-Ausgabe plus einen kurzen Hinweis, ob es sich um einen Fehler oder um Warnings handelte. Nach Abschluss des Fix-Agents wird der Build **erneut** gestartet (zurück zu Schritt 1) – das wiederholt sich **so oft, bis ein Build ohne Fehler und ohne Warnings durchläuft** (keine Obergrenze für die Anzahl der Versuche).
+3. Erst nach einem fehler- und warnungsfreien Build wird die APK unterhalb von `**/build/outputs/apk/<debug|release>/*.apk` gesucht (rekursiv ab dem aktuellen Verzeichnis, versteckte Ordner werden übersprungen) – kein Treffer wirft einen Fehler.
+4. `adb devices` listet alle aktuell verbundenen Geräte-Serials.
+5. Für jedes gefundene Gerät wird `adb -s <serial> install -r <apk>` einzeln ausgeführt – **schlägt die Installation auf einem Gerät fehl, wird der Fehler abgefangen und geloggt, die restlichen Geräte werden trotzdem weiter versucht** (kein Abbruch der gesamten Schleife).
+
+Ist `claude` (für den Fix-Agent) nicht im `PATH` bzw. schlägt sein Start fehl, bricht der gesamte Command mit Fehler ab (kein Install-Versuch).
+
+`inst`/`instr` sind reservierte Command-Namen (wie `server`/`task`/`totp`) – ein `agents[].name` in `config.json`, der damit kollidiert, lässt die CLI beim Start sofort mit Fehler abbrechen.
+
+Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAdbDevices`, intern `runGradleBuild`/`runFixAgent`/`hasWarnings`/`listAdbDevices`/`installApk`), registriert als zwei `program.command(...)` in `src/index.ts`. Getestet über echte temporäre Verzeichnisse (`findApk`), ein Fake-`adb`-Shellscript fürs `PATH` (`src/test-support/mock-adb.ts`), ein skriptbares Fake-`gradlew`-Shellscript im jeweiligen Test-Arbeitsverzeichnis (`src/test-support/mock-gradlew.ts`, liefert pro Aufruf ein anderes Ergebnis aus einer vorgegebenen Schritt-Sequenz) sowie das Fake-`claude`-Binary (`src/test-support/mock-claude.ts`, optionales `logFile` protokolliert Aufrufe auch bei `stdio: 'inherit'`) – sowohl auf Funktions- als auch auf voller CLI-Subprozess-Ebene (`src/gradle-install.test.ts`, `src/index.test.ts`).
+
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 130 Tests über 9 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 151 Tests über 10 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
@@ -315,6 +336,7 @@ Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt de
 - **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.
 - **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands).
 - **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster).
-- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove` End-to-End inkl. `SIGTERM`-Shutdown).
+- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove`/`cl inst`/`cl instr` End-to-End inkl. `SIGTERM`-Shutdown).
+- **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.
