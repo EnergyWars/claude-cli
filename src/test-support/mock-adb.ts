@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path';
 export interface MockAdbOptions {
   devicesOutput?: string;
   failSerials?: string[];
+  deviceNames?: Record<string, string>;
 }
 
 export interface MockAdb {
@@ -18,7 +19,11 @@ function shellQuote(value: string): string {
 }
 
 export function createMockAdb(options: MockAdbOptions = {}): MockAdb {
-  const { devicesOutput = 'List of devices attached\n\n', failSerials = [] } = options;
+  const {
+    devicesOutput = 'List of devices attached\n\n',
+    failSerials = [],
+    deviceNames = {},
+  } = options;
   const binDir = mkdtempSync(join(tmpdir(), 'cl-mock-adb-'));
   const logFile = join(binDir, 'adb.log');
   const scriptPath = join(binDir, 'adb');
@@ -30,6 +35,14 @@ if [ "$1" = "devices" ]; then
 ${devicesOutput}
 MOCK_ADB_DEVICES_EOF
   exit 0
+fi
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "getprop" ]; then
+  case "$2" in
+${Object.entries(deviceNames)
+  .map(([serial, name]) => `    ${shellQuote(serial)}) echo ${shellQuote(name)}; exit 0 ;;`)
+  .join('\n')}
+    *) exit 1 ;;
+  esac
 fi
 if [ "$1" = "-s" ] && [ "$3" = "install" ]; then
   serial="$2"

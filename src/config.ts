@@ -240,6 +240,13 @@ export function listAgents(config: Config): AgentSummary[] {
   ];
 }
 
+export function listTasks(config: Config): AgentSummary[] {
+  return config.tasks.map((task) => ({
+    command: `cl task ${task.name}`,
+    description: task.description,
+  }));
+}
+
 export function resolvePathEntry(config: Config, name: string): PathEntry {
   const entry = config.paths.find((candidate) => candidate.name === name);
   if (!entry) {

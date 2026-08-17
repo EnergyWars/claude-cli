@@ -11,6 +11,7 @@ import {
   listHostedSummaries,
   listPathCommands,
   listPathNames,
+  listTasks,
   loadConfig,
   loadPathsOverride,
   parseConfig,
@@ -517,4 +518,21 @@ test('loadConfig: bricht bei reserviertem Agent-Namen in lokaler config.json ab'
     }
     fixture.cleanup();
   }
+});
+
+test('listTasks: jeder Task als "cl task <name>" mit description', () => {
+  const config: Config = {
+    main: { description: 'm', contexts: [], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/db',
+    paths: [],
+    tasks: [
+      { name: 'a', description: 'A-Desc', contexts: [], model: 'sonnet', startCommand: 'x' },
+      { name: 'b', description: 'B-Desc', contexts: [], model: 'opus', startCommand: 'y' },
+    ],
+  };
+  assert.deepEqual(listTasks(config), [
+    { command: 'cl task a', description: 'A-Desc' },
+    { command: 'cl task b', description: 'B-Desc' },
+  ]);
 });

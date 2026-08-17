@@ -4,7 +4,7 @@
 
 Einstiegspunkt (`src/index.ts`) mit `commander` als Argument-Parser. Bietet:
 
-- `--help` (**ohne** `-h`-Kurzform, siehe "Headless-Modus") – zeigt Nutzung, Optionen, das `[agent]`-Argument, die Model-Subcommands sowie eine dynamisch aus `config.json` gelesene Liste aller Agents (siehe "Dynamisches --help").
+- `--help` (**ohne** `-h`-Kurzform, siehe "Headless-Modus") – zeigt Nutzung, Optionen, das `[agent]`-Argument, die Model-Subcommands sowie dynamisch aus `config.json` gelesene Listen aller Agents und Tasks (siehe "Dynamisches --help"). Auch `cl task --help`, `cl <model> --help` und `cl server --help` listen jeweils alle passenden Moeglichkeiten aus `config.json` auf.
 - `-v, --version` – zeigt die aktuelle Version (aus `package.json`, zur Build-Zeit generiert).
 - `[agent]` (optionales positionales Argument) – siehe "Agent-Start".
 - `haiku|h`, `sonnet|s`, `opus|o`, `fable|f` (Subcommands, je mit optionalem `[agent]`) – siehe "Model-Override".
@@ -270,6 +270,14 @@ Agents (aus config.json):
 
 Diese Liste wird bei jedem `--help`-Aufruf frisch aus der aktuellen `config.json` gelesen (`formatAgentsHelp()` in `src/index.ts`, nutzt `listAgents()` aus `src/config.ts`) – ein neuer Agent in `config.json` erscheint automatisch, ohne Code-Aenderung. Bei ungueltiger `config.json` wird statt eines Crashs eine Fehlermeldung im Hilfetext angezeigt.
 
+Zusaetzlich listet `cl --help` alle Tasks (`Tasks (aus config.json):` mit `cl task <name>` + `description`). Auch jeder Subcommand zeigt bei `--help` alle fuer ihn moeglichen Werte aus `config.json`:
+
+- `cl task --help` → alle Tasks (`cl task <name>` + `description`); ohne konfigurierte Tasks der Hinweis `Keine Tasks konfiguriert.`
+- `cl haiku|sonnet|opus|fable --help` (bzw. Kurzformen) → alle Agents wie bei `cl --help`.
+- `cl server --help` → alle Agent-Endpunkte (`POST /`, `POST /<agent>` + `description`) sowie alle Pfade aus `paths[]` mit ihren Commands (`POST /paths/<pfad>/commands/<key>  <displayName>: <description>`) und Hosted-Eintraegen (`GET /files/<pfad>/<hosted>  (file|path)`).
+
+Alle Listen werden bei jedem Aufruf frisch gelesen; bei ungueltiger `config.json` erscheint statt eines Crashs eine Fehlermeldung im jeweiligen Abschnitt.
+
 ## Deployment als `cl`
 
 Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` deployed:
@@ -317,13 +325,14 @@ Ablauf beider Commands (Build-Fix-Schleife + Install):
 2. **Schlägt der Build fehl (Exit-Code ≠ 0) oder enthält die Build-Ausgabe Warnings** (Substring `warning` case-insensitive, oder Kotlinc-Zeilen der Form `w: <file>: <message>`), wird **kein** Install versucht. Stattdessen startet ein `claude`-Prozess mit `--model sonnet`, `--permission-mode auto` und `--print` (Fix-Agent, headless/autonom, `stdio: 'inherit'`) – als Prompt bekommt er die komplette Build-Ausgabe plus einen kurzen Hinweis, ob es sich um einen Fehler oder um Warnings handelte. Nach Abschluss des Fix-Agents wird der Build **erneut** gestartet (zurück zu Schritt 1) – das wiederholt sich **so oft, bis ein Build ohne Fehler und ohne Warnings durchläuft** (keine Obergrenze für die Anzahl der Versuche).
 3. Erst nach einem fehler- und warnungsfreien Build wird die APK unterhalb von `**/build/outputs/apk/<debug|release>/*.apk` gesucht (rekursiv ab dem aktuellen Verzeichnis, versteckte Ordner werden übersprungen) – kein Treffer wirft einen Fehler.
 4. `adb devices` listet alle aktuell verbundenen Geräte-Serials.
-5. Für jedes gefundene Gerät wird `adb -s <serial> install -r <apk>` einzeln ausgeführt – **schlägt die Installation auf einem Gerät fehl, wird der Fehler abgefangen und geloggt, die restlichen Geräte werden trotzdem weiter versucht** (kein Abbruch der gesamten Schleife).
+5. Für jedes gefundene Gerät wird zuerst der Gerätename per `adb -s <serial> shell getprop ro.product.model` ermittelt (Fallback: die Serial), dann `adb -s <serial> install -r <apk>` einzeln ausgeführt – **schlägt die Installation auf einem Gerät fehl, wird der Fehler abgefangen und geloggt (`Installation auf <Name> (<Serial>) fehlgeschlagen: …`), die restlichen Geräte werden trotzdem weiter versucht** (kein Abbruch der gesamten Schleife). Erfolg wird als `Installiert auf <Name> (<Serial>).` geloggt.
+6. Am Ende wird eine Zusammenfassung ausgegeben: `Installiert auf <n> Geraet(en): <Name> (<Serial>), …` – nur erfolgreich installierte Geräte werden gezählt; ohne Erfolg `Auf keinem Geraet installiert.`
 
 Ist `claude` (für den Fix-Agent) nicht im `PATH` bzw. schlägt sein Start fehl, bricht der gesamte Command mit Fehler ab (kein Install-Versuch).
 
 `inst`/`instr` sind reservierte Command-Namen (wie `server`/`task`/`totp`) – ein `agents[].name` in `config.json`, der damit kollidiert, lässt die CLI beim Start sofort mit Fehler abbrechen.
 
-Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAdbDevices`, intern `runGradleBuild`/`runFixAgent`/`hasWarnings`/`listAdbDevices`/`installApk`), registriert als zwei `program.command(...)` in `src/index.ts`. Getestet über echte temporäre Verzeichnisse (`findApk`), ein Fake-`adb`-Shellscript fürs `PATH` (`src/test-support/mock-adb.ts`), ein skriptbares Fake-`gradlew`-Shellscript im jeweiligen Test-Arbeitsverzeichnis (`src/test-support/mock-gradlew.ts`, liefert pro Aufruf ein anderes Ergebnis aus einer vorgegebenen Schritt-Sequenz) sowie das Fake-`claude`-Binary (`src/test-support/mock-claude.ts`, optionales `logFile` protokolliert Aufrufe auch bei `stdio: 'inherit'`) – sowohl auf Funktions- als auch auf voller CLI-Subprozess-Ebene (`src/gradle-install.test.ts`, `src/index.test.ts`).
+Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAdbDevices`, `formatInstallSummary`, intern `runGradleBuild`/`runFixAgent`/`hasWarnings`/`listAdbDevices`/`readDeviceName`/`installApk`), registriert als zwei `program.command(...)` in `src/index.ts`. Getestet über echte temporäre Verzeichnisse (`findApk`), ein Fake-`adb`-Shellscript fürs `PATH` (`src/test-support/mock-adb.ts`), ein skriptbares Fake-`gradlew`-Shellscript im jeweiligen Test-Arbeitsverzeichnis (`src/test-support/mock-gradlew.ts`, liefert pro Aufruf ein anderes Ergebnis aus einer vorgegebenen Schritt-Sequenz) sowie das Fake-`claude`-Binary (`src/test-support/mock-claude.ts`, optionales `logFile` protokolliert Aufrufe auch bei `stdio: 'inherit'`) – sowohl auf Funktions- als auch auf voller CLI-Subprozess-Ebene (`src/gradle-install.test.ts`, `src/index.test.ts`).
 
 ## Tests (`npm test`)
 
@@ -337,6 +346,6 @@ Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAd
 - **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands).
 - **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster).
 - **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove`/`cl inst`/`cl instr` End-to-End inkl. `SIGTERM`-Shutdown).
-- **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
+- **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `formatInstallSummary` (Singular/Plural/leer), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden, Gerätenamen + Abschluss-Zusammenfassung) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.

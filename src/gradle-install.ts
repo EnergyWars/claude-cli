@@ -33,7 +33,7 @@ export function parseAdbDevices(output: string): string[] {
   return deviceLines
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map((line) => line.split(/\s+/, 1)[0] ?? line);
+    .map((line) => line.split('\t')[0] ?? line);
 }
 
 export function findApk(cwd: string, buildType: GradleBuildType): string {
@@ -127,6 +127,34 @@ function listAdbDevices(): Promise<string[]> {
   });
 }
 
+function readDeviceName(serial: string): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn('adb', ['-s', serial, 'shell', 'getprop', 'ro.product.model']);
+    let output = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString('utf8');
+    });
+    child.on('error', () => {
+      resolve(serial);
+    });
+    child.on('exit', (code) => {
+      const name = output.trim();
+      resolve(code === 0 && name.length > 0 ? name : serial);
+    });
+  });
+}
+
+export function formatInstallSummary(
+  installed: readonly { serial: string; name: string }[],
+): string {
+  if (installed.length === 0) {
+    return 'Auf keinem Geraet installiert.';
+  }
+  const list = installed.map(({ serial, name }) => `${name} (${serial})`).join(', ');
+  const noun = installed.length === 1 ? 'Geraet' : 'Geraeten';
+  return `Installiert auf ${String(installed.length)} ${noun}: ${list}`;
+}
+
 function installApk(serial: string, apkPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('adb', ['-s', serial, 'install', '-r', apkPath], { stdio: 'inherit' });
@@ -171,14 +199,18 @@ export async function buildAndInstall(
     return;
   }
 
+  const installed: { serial: string; name: string }[] = [];
   for (const serial of devices) {
+    const name = await readDeviceName(serial);
     try {
       await installApk(serial, apkPath);
-      console.log(`Installiert auf ${serial}.`);
+      console.log(`Installiert auf ${name} (${serial}).`);
+      installed.push({ serial, name });
     } catch (error) {
       console.error(
-        `Installation auf ${serial} fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
+        `Installation auf ${name} (${serial}) fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
+  console.log(formatInstallSummary(installed));
 }

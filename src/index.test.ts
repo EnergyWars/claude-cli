@@ -353,6 +353,7 @@ test('cl inst: baut per Gradle im Debug-Modus und installiert die APK auf allen 
   writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });
   const adb = createMockAdb({
     devicesOutput: 'List of devices attached\nemulator-5554\tdevice\n\n',
+    deviceNames: { 'emulator-5554': 'sdk_gphone64_x86_64' },
   });
   try {
     const result = await runCli(['inst'], {
@@ -361,10 +362,15 @@ test('cl inst: baut per Gradle im Debug-Modus und installiert die APK auf allen 
     });
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /app-debug\.apk/);
-    assert.match(result.stdout, /Installiert auf emulator-5554/);
+    assert.match(result.stdout, /Installiert auf sdk_gphone64_x86_64 \(emulator-5554\)\./);
+    assert.match(
+      result.stdout,
+      /Installiert auf 1 Geraet: sdk_gphone64_x86_64 \(emulator-5554\)$/m,
+    );
     const log = readFileSync(adb.logFile, 'utf8').trim().split('\n');
     assert.deepEqual(log, [
       'devices',
+      '-s emulator-5554 shell getprop ro.product.model',
       '-s emulator-5554 install -r ' +
         join(cwd, 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
     ]);
@@ -387,8 +393,9 @@ test('cl instr: baut per Gradle im Release-Modus und installiert die APK auf all
       cwd,
     });
     assert.equal(result.exitCode, 0);
-    assert.match(result.stdout, /Installiert auf emulator-5554/);
-    assert.match(result.stderr, /Installation auf ABC123 fehlgeschlagen/);
+    assert.match(result.stdout, /Installiert auf emulator-5554 \(emulator-5554\)\./);
+    assert.match(result.stderr, /Installation auf ABC123 \(ABC123\) fehlgeschlagen/);
+    assert.match(result.stdout, /Installiert auf 1 Geraet: emulator-5554 \(emulator-5554\)$/m);
   } finally {
     adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });
@@ -453,5 +460,75 @@ test('cl inst: Build-Fehler ohne verfuegbaren Fix-Agent ("claude" fehlt) -> Exit
   } finally {
     adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl --help: listet auch alle Tasks aus config.json auf', async () => {
+  const result = await runCli(['--help'], { env: baseEnv() });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Tasks \(aus config\.json\)/);
+  assert.match(result.stdout, /cl task mytask\s+Mytask-Desc/);
+});
+
+test('cl task --help: listet alle Tasks aus config.json auf, Exit 0', async () => {
+  const result = await runCli(['task', '--help'], { env: baseEnv() });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Tasks \(aus config\.json\)/);
+  assert.match(result.stdout, /cl task mytask\s+Mytask-Desc/);
+});
+
+test('cl <model> --help: listet alle Agents aus config.json auf, Exit 0', async () => {
+  const result = await runCli(['sonnet', '--help'], { env: baseEnv() });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Agents \(aus config\.json\)/);
+  assert.match(result.stdout, /cl\s+Main-Agent-Desc/);
+  assert.match(result.stdout, /cl dev\s+Dev-Agent-Desc/);
+});
+
+test('cl server --help: listet Agent-Endpunkte sowie Pfade mit Commands und Hosted-Eintraegen auf', async () => {
+  const serverFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc' },
+    agents: [{ name: 'dev', description: 'Dev-Agent-Desc' }],
+    paths: [
+      {
+        name: 'proj',
+        path: '/tmp/proj',
+        commands: [
+          {
+            key: 'clean',
+            command: './gradlew clean',
+            displayName: 'Clean',
+            description: 'Clean-Desc',
+          },
+        ],
+        hosted: [{ name: 'apk', path: 'app.apk', type: 'file' }],
+      },
+    ],
+  });
+  try {
+    const result = await runCli(['server', '--help'], {
+      env: { ...baseEnv(), CL_ROOT_DIR: serverFixture.rootDir },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /POST \/\s+Main-Agent-Desc/);
+    assert.match(result.stdout, /POST \/dev\s+Dev-Agent-Desc/);
+    assert.match(result.stdout, /Pfade \(aus config\.json/);
+    assert.match(result.stdout, /POST \/paths\/proj\/commands\/clean\s+Clean: Clean-Desc/);
+    assert.match(result.stdout, /GET\s+\/files\/proj\/apk\s+\(file\)/);
+  } finally {
+    serverFixture.cleanup();
+  }
+});
+
+test('cl task --help: ohne konfigurierte Tasks wird ein Hinweis angezeigt', async () => {
+  const emptyFixture = createFixtureRoot({ tasks: [] });
+  try {
+    const result = await runCli(['task', '--help'], {
+      env: { ...baseEnv(), CL_ROOT_DIR: emptyFixture.rootDir },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Keine Tasks konfiguriert\./);
+  } finally {
+    emptyFixture.cleanup();
   }
 });

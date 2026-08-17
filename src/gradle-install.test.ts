@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 
-import { buildAndInstall, findApk, parseAdbDevices } from './gradle-install.js';
+import {
+  buildAndInstall,
+  findApk,
+  formatInstallSummary,
+  parseAdbDevices,
+} from './gradle-install.js';
 import { createMockAdb, pathWithMockAdb } from './test-support/mock-adb.js';
 import { createMockClaude } from './test-support/mock-claude.js';
 import { readGradlewCallCount, writeFakeGradlew } from './test-support/mock-gradlew.js';
@@ -12,6 +17,14 @@ import { readGradlewCallCount, writeFakeGradlew } from './test-support/mock-grad
 test('parseAdbDevices: parst Serials aus normaler Ausgabe', () => {
   const output = 'List of devices attached\nemulator-5554\tdevice\nABC123\tdevice\n\n';
   assert.deepEqual(parseAdbDevices(output), ['emulator-5554', 'ABC123']);
+});
+
+test('parseAdbDevices: erhaelt Leerzeichen in mDNS-Geraetenamen (adb-tls-connect)', () => {
+  const output =
+    'List of devices attached\nadb-S8TKOBCAX8DAGQMN-NtwqFp (2)._adb-tls-connect._tcp\tdevice\n\n';
+  assert.deepEqual(parseAdbDevices(output), [
+    'adb-S8TKOBCAX8DAGQMN-NtwqFp (2)._adb-tls-connect._tcp',
+  ]);
 });
 
 test('parseAdbDevices: ignoriert Daemon-Startmeldungen vor dem Header', () => {
@@ -26,6 +39,27 @@ test('parseAdbDevices: leere Geraeteliste liefert leeres Array', () => {
 
 test('parseAdbDevices: fehlender Header liefert leeres Array', () => {
   assert.deepEqual(parseAdbDevices('irgendwas unerwartetes\n'), []);
+});
+
+test('formatInstallSummary: nennt Anzahl und Namen der Geraete', () => {
+  assert.equal(
+    formatInstallSummary([
+      { serial: 'ABC123', name: 'Pixel 7' },
+      { serial: 'emulator-5554', name: 'sdk_gphone64_x86_64' },
+    ]),
+    'Installiert auf 2 Geraeten: Pixel 7 (ABC123), sdk_gphone64_x86_64 (emulator-5554)',
+  );
+});
+
+test('formatInstallSummary: Singular bei einem Geraet', () => {
+  assert.equal(
+    formatInstallSummary([{ serial: 'ABC123', name: 'Pixel 7' }]),
+    'Installiert auf 1 Geraet: Pixel 7 (ABC123)',
+  );
+});
+
+test('formatInstallSummary: ohne Installation', () => {
+  assert.equal(formatInstallSummary([]), 'Auf keinem Geraet installiert.');
 });
 
 test('findApk: findet APK unterhalb von build/outputs/apk/<type>', () => {
@@ -74,11 +108,40 @@ test('buildAndInstall: baut, findet APK und installiert auf allen gefundenen Ger
     const log = readFileSync(adb.logFile, 'utf8').trim().split('\n');
     assert.equal(log[0], 'devices');
     const installedSerials = log
-      .slice(1)
+      .filter((line) => line.includes(' install '))
       .map((line) => line.split(' ')[1])
       .sort();
     assert.deepEqual(installedSerials, ['ABC123', 'emulator-5554']);
   } finally {
+    process.env.PATH = previousPath;
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: gibt am Ende Anzahl und Namen der installierten Geraete aus', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-install-summary-'));
+  writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });
+  const adb = createMockAdb({
+    devicesOutput:
+      'List of devices attached\nemulator-5554\tdevice\nABC123\tdevice\nDEF456\tdevice\n\n',
+    deviceNames: { ABC123: 'Pixel 7', 'emulator-5554': 'sdk_gphone64_x86_64' },
+    failSerials: ['emulator-5554'],
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMockAdb(adb.binDir);
+  const logged: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args.map(String).join(' '));
+  };
+  try {
+    await buildAndInstall('debug', cwd);
+    assert.ok(logged.includes('Installiert auf Pixel 7 (ABC123).'));
+    assert.ok(logged.includes('Installiert auf DEF456 (DEF456).'));
+    assert.equal(logged.at(-1), 'Installiert auf 2 Geraeten: Pixel 7 (ABC123), DEF456 (DEF456)');
+  } finally {
+    console.log = originalLog;
     process.env.PATH = previousPath;
     adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });
@@ -98,7 +161,7 @@ test('buildAndInstall: Installationsfehler auf einem Geraet bricht die anderen n
     await buildAndInstall('debug', cwd);
     const log = readFileSync(adb.logFile, 'utf8').trim().split('\n');
     const installedSerials = log
-      .slice(1)
+      .filter((line) => line.includes(' install '))
       .map((line) => line.split(' ')[1])
       .sort();
     assert.deepEqual(installedSerials, ['ABC123', 'emulator-5554']);
@@ -160,7 +223,7 @@ test('buildAndInstall: startet bei Build-Fehler einen Sonnet-Fix-Agent im Auto-M
 
     const adbLog = readFileSync(adb.logFile, 'utf8').trim().split('\n');
     assert.equal(adbLog[0], 'devices');
-    assert.equal(adbLog.length, 2);
+    assert.equal(adbLog.filter((line) => line.includes(' install ')).length, 1);
   } finally {
     process.env.PATH = previousPath;
     claude.cleanup();

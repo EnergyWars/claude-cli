@@ -5,8 +5,11 @@ import { createInterface } from 'node:readline/promises';
 import { Command } from 'commander';
 
 import {
+  type AgentSummary,
+  type Config,
   applyPathsOverride,
   listAgents,
+  listTasks,
   loadConfig,
   loadPathsOverride,
   resolveTask,
@@ -53,16 +56,77 @@ async function resolveHeadlessPrompt(
   }
 }
 
-function formatAgentsHelp(): string {
+function formatConfigSection(title: string, entries: AgentSummary[], emptyText: string): string {
+  if (entries.length === 0) {
+    return `${title}\n  ${emptyText}`;
+  }
+  const width = Math.max(...entries.map((entry) => entry.command.length));
+  const lines = entries.map((entry) => `  ${entry.command.padEnd(width + 2)}${entry.description}`);
+  return [title, ...lines].join('\n');
+}
+
+function formatConfigHelp(kind: string, render: (config: Config) => string): string {
   try {
-    const agents = listAgents(loadConfig());
-    const width = Math.max(...agents.map((agent) => agent.command.length));
-    const lines = agents.map((agent) => `  ${agent.command.padEnd(width + 2)}${agent.description}`);
-    return ['Agents (aus config.json):', ...lines].join('\n');
+    return render(loadConfig());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return `Agents konnten nicht aus config.json gelesen werden: ${message}`;
+    return `${kind} konnten nicht aus config.json gelesen werden: ${message}`;
   }
+}
+
+function formatAgentsHelp(): string {
+  return formatConfigHelp('Agents', (config) =>
+    formatConfigSection(
+      'Agents (aus config.json):',
+      listAgents(config),
+      'Keine Agents konfiguriert.',
+    ),
+  );
+}
+
+function formatTasksHelp(): string {
+  return formatConfigHelp('Tasks', (config) =>
+    formatConfigSection('Tasks (aus config.json):', listTasks(config), 'Keine Tasks konfiguriert.'),
+  );
+}
+
+function formatServerAgentsHelp(): string {
+  return formatConfigHelp('Agents', (config) =>
+    formatConfigSection(
+      'Agent-Endpunkte (aus config.json):',
+      [
+        { command: 'POST /', description: config.main.description },
+        ...config.agents.map((agent) => ({
+          command: `POST /${agent.name}`,
+          description: agent.description,
+        })),
+      ],
+      'Keine Agents konfiguriert.',
+    ),
+  );
+}
+
+function formatPathsHelp(): string {
+  return formatConfigHelp('Pfade', (config) => {
+    if (config.paths.length === 0) {
+      return 'Pfade (aus config.json):\n  Keine Pfade konfiguriert.';
+    }
+    const blocks = config.paths.map((entry) => {
+      const lines = [`  ${entry.name}`];
+      for (const command of entry.commands ?? []) {
+        lines.push(
+          `    POST /paths/${entry.name}/commands/${command.key}  ${command.displayName}: ${command.description}`,
+        );
+      }
+      for (const hosted of entry.hosted ?? []) {
+        lines.push(`    GET  /files/${entry.name}/${hosted.name}  (${hosted.type})`);
+      }
+      return lines.join('\n');
+    });
+    return ['Pfade (aus config.json, je mit Commands und Hosted-Eintraegen):', ...blocks].join(
+      '\n',
+    );
+  });
 }
 
 function formatModelsHelp(): string {
@@ -87,7 +151,7 @@ program
   .addHelpText(
     'after',
     () =>
-      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, Auto-Mode-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
+      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, Auto-Mode-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\n${formatTasksHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
   )
   .action(async (agent: string | undefined, options: CommandOptions) => {
     const headlessPrompt = await resolveHeadlessPrompt(options.headless);
@@ -101,6 +165,7 @@ for (const model of MODEL_COMMANDS) {
     .description(`Startet einen Agent mit Model "${model.name}" (ueberschreibt config.json).`)
     .argument('[agent]', AGENT_ARGUMENT_DESCRIPTION)
     .option(HEADLESS_OPTION_FLAGS, HEADLESS_OPTION_DESCRIPTION)
+    .addHelpText('after', () => `\n${formatAgentsHelp()}\n`)
     .action(async (agent: string | undefined, options: CommandOptions) => {
       const headlessPrompt = await resolveHeadlessPrompt(options.headless);
       await launchAgent(agent, model.name, headlessPrompt);
@@ -117,6 +182,7 @@ program
     '-P, --paths-file <file>',
     'Pfad zu einer JSON-Datei mit nur { "paths": [...] } (gleiche Form wie paths in config.json) - ersetzt die paths aus config.json fuer diesen Serverlauf vollstaendig.',
   )
+  .addHelpText('after', () => `\n${formatServerAgentsHelp()}\n\n${formatPathsHelp()}\n`)
   .action((options: { port: string; pathsFile?: string }) => {
     const port = Number(options.port);
     if (!Number.isInteger(port) || port < 0) {
@@ -143,6 +209,7 @@ program
     'Startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model, Contexts wie bei Agents; der konfigurierte startCommand wird automatisch als erste Nachricht abgeschickt).',
   )
   .argument('<name>', TASK_ARGUMENT_DESCRIPTION)
+  .addHelpText('after', () => `\n${formatTasksHelp()}\n`)
   .action(async (name: string) => {
     const task = resolveTask(loadConfig(), name);
     await runTask(task);
@@ -172,7 +239,7 @@ totpCommand
 program
   .command('inst')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen).',
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('debug');
@@ -181,7 +248,7 @@ program
 program
   .command('instr')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen).',
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('release');
