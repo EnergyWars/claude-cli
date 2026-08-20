@@ -1,0 +1,3 @@
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao class * { *; }
+-keepclassmembers class * extends androidx.room.RoomDatabase { *; }

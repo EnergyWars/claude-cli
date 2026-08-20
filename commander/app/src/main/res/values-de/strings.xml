@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Commander</string>
+
+    <string name="label_back">Zurück</string>
+    <string name="label_settings">Einstellungen</string>
+
+    <string name="cd_open_settings">Einstellungen öffnen</string>
+    <string name="cd_menu">Menü öffnen</string>
+    <string name="cd_home">Start</string>
+
+    <string name="header_menu">Menü</string>
+    <string name="header_home">Start</string>
+    <string name="nav_section_pages">Seiten</string>
+
+    <string name="setup_lede">Trage die Adresse deines cl-Servers ein.</string>
+    <string name="setup_host_label">Host / IP</string>
+    <string name="setup_port_label">Port</string>
+    <string name="setup_connect">Verbinden</string>
+    <string name="setup_connecting">Verbinde…</string>
+    <string name="setup_error_title">Fehler</string>
+    <string name="setup_existing_title">Authenticator bereits eingerichtet</string>
+    <string name="setup_existing_body">Auf diesem Server ist bereits ein Google Authenticator aktiv. Trage das damals gespeicherte Secret manuell ein, oder entferne ihn auf dem Server per „cl totp remove“.</string>
+    <string name="setup_secret_label">Secret</string>
+
+    <string name="home_agents_title">Agents</string>
+    <string name="home_paths_title">Pfade</string>
+    <string name="home_paths_empty">Keine Pfade konfiguriert.</string>
+    <string name="home_history_title">Verlauf</string>
+    <string name="home_error_title">Verbindung fehlgeschlagen</string>
+    <string name="home_retry">Erneut versuchen</string>
+
+    <string name="run_agent_title">Agent starten</string>
+    <string name="run_agent_agent_label">Agent</string>
+    <string name="run_agent_path_label">Pfad</string>
+    <string name="run_agent_model_label">Model</string>
+    <string name="run_agent_model_default">Standard</string>
+    <string name="run_agent_select_path">Bitte wählen</string>
+    <string name="run_agent_prompt_label">Prompt</string>
+    <string name="run_agent_start">Starten</string>
+
+    <string name="path_detail_start_agent">Agent hier starten</string>
+    <string name="path_detail_commands_title">Commands</string>
+    <string name="path_detail_files_title">Dateien</string>
+    <string name="path_detail_files_empty">Keine Dateien.</string>
+
+    <string name="command_detail_title">Command</string>
+    <string name="command_detail_output_title">Output</string>
+    <string name="command_detail_output_empty">Noch keine Ausgabe.</string>
+    <string name="command_detail_exit_code">Exit-Code: %1$d</string>
+    <string name="command_detail_downloads_title">Downloads</string>
+
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_display_title">Anzeige</string>
+    <string name="settings_display_sub">Theme</string>
+    <string name="settings_group_general">Allgemein</string>
+    <string name="settings_design_label">Theme</string>
+    <string name="settings_theme_system">Systemstandard</string>
+    <string name="settings_theme_light">Hell</string>
+    <string name="settings_theme_dark">Dunkel</string>
+    <string name="settings_group_connection">Verbindung</string>
+    <string name="settings_connection_none">Keine Verbindung</string>
+    <string name="settings_disconnect">Verbindung trennen</string>
+</resources>

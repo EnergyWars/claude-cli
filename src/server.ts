@@ -35,6 +35,7 @@ import {
 import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
+import { VERSION } from './version.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
@@ -183,6 +184,18 @@ function handlePostAuthSetupConfirm(db: DatabaseSync, res: ServerResponse, bodyT
   }
   confirmTotpSecret(db);
   sendJson(res, 200, { message: 'Google Authenticator aktiviert.' });
+}
+
+function handleGetHealth(res: ServerResponse): void {
+  sendJson(res, 200, { status: 'ok', version: VERSION });
+}
+
+function handleGetAuthStatus(db: DatabaseSync, res: ServerResponse): void {
+  const totp = getTotpSecret(db);
+  sendJson(res, 200, {
+    active: totp?.confirmed ?? false,
+    pending: totp !== undefined && !totp.confirmed,
+  });
 }
 
 function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void {
@@ -435,9 +448,13 @@ async function handleRequest(
       ) {
         bodyText = await readRequestBody(req);
         handlePostAuthSetupConfirm(db, res, bodyText);
+      } else if (method === 'GET' && segments.length === 2 && segments[1] === 'status') {
+        handleGetAuthStatus(db, res);
       } else {
         sendJson(res, 404, { error: 'Route nicht gefunden.' });
       }
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'health') {
+      handleGetHealth(res);
     } else if (!isRequestAuthorized(db, req)) {
       sendJson(res, 401, {
         error: 'TOTP-Code fehlt oder ist ungueltig (Header "X-TOTP-Code").',
@@ -488,9 +505,11 @@ async function handleRequest(
 function printEndpoints(config: Config, port: number): void {
   const base = `http://localhost:${port.toString()}`;
   console.log('Endpunkte:');
-  console.log('(ausser /auth/setup* verlangen alle den Header "X-TOTP-Code")');
+  console.log('(ausser /health und /auth/setup* verlangen alle den Header "X-TOTP-Code")');
+  console.log(`  GET  ${base}/health                (kein Auth noetig)`);
   console.log(`  POST ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404)`);
+  console.log(`  GET  ${base}/auth/status          (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {
     console.log(`  POST ${base}/${agent.name}`);

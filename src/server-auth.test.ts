@@ -51,6 +51,13 @@ test('GET /paths: 401, solange kein Google Authenticator eingerichtet ist', asyn
   assert.equal(res.status, 401);
 });
 
+test('GET /auth/status: {active:false,pending:false}, solange nichts eingerichtet ist', async () => {
+  const res = await fetch(`${baseUrl()}/auth/status`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { active: boolean; pending: boolean };
+  assert.deepEqual(body, { active: false, pending: false });
+});
+
 test('POST /auth/setup: liefert ein neues Secret + otpauthUrl', async () => {
   const res = await fetch(`${baseUrl()}/auth/setup`, { method: 'POST' });
   assert.equal(res.status, 200);
@@ -64,6 +71,13 @@ test('POST /auth/setup: liefert ein neues Secret + otpauthUrl', async () => {
 test('GET /paths: bleibt 401, solange das Setup nicht bestaetigt ist', async () => {
   const res = await fetch(`${baseUrl()}/paths`);
   assert.equal(res.status, 401);
+});
+
+test('GET /auth/status: {active:false,pending:true} bei ausstehendem, unbestaetigtem Setup', async () => {
+  const res = await fetch(`${baseUrl()}/auth/status`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { active: boolean; pending: boolean };
+  assert.deepEqual(body, { active: false, pending: true });
 });
 
 test('POST /auth/setup/confirm: 400 bei fehlendem "code"', async () => {
@@ -99,6 +113,13 @@ test('POST /auth/setup/confirm: 200 bei korrektem Code, aktiviert den Authentica
     body: JSON.stringify({ code }),
   });
   assert.equal(res.status, 200);
+});
+
+test('GET /auth/status: {active:true,pending:false} nach erfolgreicher Bestaetigung', async () => {
+  const res = await fetch(`${baseUrl()}/auth/status`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { active: boolean; pending: boolean };
+  assert.deepEqual(body, { active: true, pending: false });
 });
 
 test('POST /auth/setup: 409, wenn bereits ein Authenticator aktiv ist', async () => {

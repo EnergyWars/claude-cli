@@ -13,6 +13,24 @@
   ],
   "security": [{ "TotpAuth": [] }],
   "paths": {
+    "/health": {
+      "get": {
+        "summary": "Erreichbarkeits-Check, kein Auth noetig",
+        "description": "Kein X-TOTP-Code noetig und keine Lokalnetz-Beschraenkung - gibt nichts Sensibles preis (ein laufender cl server ist ueber 401 auf jeder geschuetzten Route ohnehin schon erkennbar). Gedacht, damit ein Client 'Host erreichbar?' unabhaengig vom TOTP-Pairing-Status pruefen kann.",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server laeuft.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/setup": {
       "post": {
         "summary": "Richtet einen neuen Google Authenticator ein (Schritt 1: Secret generieren)",
@@ -36,6 +54,30 @@
           },
           "409": {
             "description": "Es ist bereits ein Google Authenticator aktiv.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/auth/status": {
+      "get": {
+        "summary": "Liefert den aktuellen TOTP-Einrichtungsstatus",
+        "description": "Nur aus dem lokalen Netz erreichbar (sonst 404). Erlaubt einem Client, vor dem ersten POST /auth/setup zwischen 'nichts eingerichtet', 'Setup ausstehend/unbestaetigt' und 'Authenticator aktiv' zu unterscheiden, ohne sich allein auf den 409-Statuscode von POST /auth/setup verlassen zu muessen. Enthaelt niemals das Secret selbst.",
+        "operationId": "getAuthStatus",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Aktueller Einrichtungsstatus.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthStatusResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Zugriff nicht aus dem lokalen Netz.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -524,6 +566,28 @@
           }
         },
         "additionalProperties": false
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "version"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"] },
+          "version": { "type": "string", "description": "Version von cl (aus package.json)." }
+        }
+      },
+      "AuthStatusResponse": {
+        "type": "object",
+        "required": ["active", "pending"],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "true, wenn ein bestaetigter Google Authenticator aktiv ist."
+          },
+          "pending": {
+            "type": "boolean",
+            "description": "true, wenn ein Secret per POST /auth/setup erzeugt, aber noch nicht per POST /auth/setup/confirm bestaetigt wurde."
+          }
+        }
       },
       "PathList": {
         "type": "object",

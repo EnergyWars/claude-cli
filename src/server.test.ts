@@ -95,6 +95,14 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+test('GET /health: 200 ohne "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/health`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { status: string; version: string };
+  assert.equal(body.status, 'ok');
+  assert.equal(typeof body.version, 'string');
+});
+
 test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',

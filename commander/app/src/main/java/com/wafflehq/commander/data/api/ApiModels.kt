@@ -1,0 +1,79 @@
+package com.wafflehq.commander.data.api
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class HealthResponse(val status: String, val version: String)
+
+@Serializable
+data class AuthStatusResponse(val active: Boolean, val pending: Boolean)
+
+@Serializable
+data class AuthSetupResponse(val secret: String, val otpauthUrl: String)
+
+@Serializable
+data class AuthSetupConfirmRequest(val code: String)
+
+@Serializable
+data class MessageResponse(val message: String)
+
+@Serializable
+data class ErrorResponse(val error: String)
+
+@Serializable
+data class CommandAccepted(val id: String)
+
+@Serializable
+data class CommandRequest(val command: String, val path: String, val model: String? = null)
+
+@Serializable
+data class CommandState(
+    val id: String,
+    val agent: String,
+    val model: String,
+    val command: String,
+    val path: String,
+    val status: String,
+    val output: String,
+    val exitCode: Int?,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class PathList(val paths: List<String>)
+
+@Serializable
+data class FileList(val files: List<String>)
+
+@Serializable
+data class PathCommandEntry(
+    val key: String,
+    val command: String,
+    val displayName: String,
+    val description: String,
+)
+
+@Serializable
+data class ManifestAgent(val command: String, val description: String)
+
+@Serializable
+data class ManifestHostedEntry(val name: String, val type: String)
+
+@Serializable
+data class ManifestPath(
+    val name: String,
+    val commands: List<PathCommandEntry>,
+    val hosted: List<ManifestHostedEntry>,
+)
+
+@Serializable
+data class Manifest(val agents: List<ManifestAgent>, val paths: List<ManifestPath>)
+
+const val HOSTED_TYPE_FILE = "file"
+const val HOSTED_TYPE_PATH = "path"
+
+/** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
+fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
+
+class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)

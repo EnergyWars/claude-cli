@@ -75,7 +75,7 @@ Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, inter
 
 `cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
 
-**Alle Endpunkte sind per Google Authenticator (TOTP) geschützt** – Ausnahme sind ausschließlich die beiden Setup-Endpunkte (`POST /auth/setup`, `POST /auth/setup/confirm`). Details siehe Abschnitt "Google-Authenticator-Schutz (TOTP)" weiter unten.
+**Alle Endpunkte sind per Google Authenticator (TOTP) geschützt** – Ausnahme sind ausschließlich `GET /health`, die beiden Setup-Endpunkte (`POST /auth/setup`, `POST /auth/setup/confirm`) und `GET /auth/status`. Details siehe Abschnitte "Google-Authenticator-Schutz (TOTP)" und "Erreichbarkeits-Check (`GET /health`)" weiter unten.
 
 Mit `-P, --paths-file <file>` kann beim Start eine JSON-Datei angegeben werden, die nur den `paths`-Teil enthält (gleiche Form wie `config.json`s `paths`-Feld, z. B. `{ "paths": [{ "name": "myapp", "path": "/my/path" }] }`) und `config.json`s `paths` für diesen Serverlauf vollständig ersetzt – so lassen sich Arbeitsverzeichnisse überschreiben, ohne `config.json` selbst anzufassen (z. B. pro Umgebung/Deployment). Ohne die Option gilt weiterhin `config.json`s `paths` unverändert.
 
@@ -98,6 +98,8 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 
 **Endpunkte:**
 
+- **`GET /health`** – kein Auth nötig, prüft nur Erreichbarkeit (`{ status: "ok", version }`). Siehe Abschnitt "Erreichbarkeits-Check (GET /health)".
+- **`GET /auth/status`** – nur aus dem lokalen Netz (sonst 404), liefert `{ active, pending }`. Siehe Abschnitt "Google-Authenticator-Schutz (TOTP)".
 - **`POST /`** – startet einen Command auf dem `main`-Agent.
 - **`POST /<agent>`** – startet einen Command auf dem benannten Agent aus `agents[]` (404, falls unbekannt).
 - **`GET /state/<id>`** – liefert Status und (live aktualisierten) Output eines Commands (404, falls unbekannt).
@@ -178,22 +180,29 @@ Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Res
 
 `-P, --paths-file <file>` (Option auf dem `server`-Subcommand in `src/index.ts`) liest die angegebene Datei über `loadPathsOverride(filePath)` (`src/config.ts`, validiert per `parsePathsOverride()`) und ersetzt via `applyPathsOverride(config, paths)` das `paths`-Array der geladenen `config.json` vollständig, bevor `startServer()` aufgerufen wird. Ungültige/fehlende Datei bricht den Start mit Fehlermeldung und Exit-Code 1 ab.
 
+## Erreichbarkeits-Check (`GET /health`)
+
+Kein `X-TOTP-Code` und keine Lokalnetz-Beschränkung nötig – die Route gibt nichts Sensibles preis, ein laufender `cl server` ist über den `401`-Statuscode auf jeder geschützten Route ohnehin schon erkennbar. Antwort: `{ "status": "ok", "version": "0.1.0" }`. Gedacht für Clients (z. B. eine App), die vor jedem Verbindungsaufbau bzw. unabhängig vom TOTP-Pairing-Status prüfen wollen, ob unter der eingetragenen Adresse überhaupt ein `cl server` läuft.
+
+Implementiert in `src/server.ts` (`handleGetHealth`), Version aus `src/version.ts`.
+
 ## Google-Authenticator-Schutz (TOTP)
 
-Alle `cl server`-Endpunkte verlangen einen gültigen TOTP-Code (Google Authenticator, RFC 6238, 6-stellig, 30-Sekunden-Schritt) im Header `X-TOTP-Code` – **mit Ausnahme** der beiden Setup-Endpunkte. Es kann jeweils nur **ein** Authenticator gleichzeitig aktiv sein.
+Alle `cl server`-Endpunkte verlangen einen gültigen TOTP-Code (Google Authenticator, RFC 6238, 6-stellig, 30-Sekunden-Schritt) im Header `X-TOTP-Code` – **mit Ausnahme** von `GET /health` und den drei `/auth/*`-Endpunkten. Es kann jeweils nur **ein** Authenticator gleichzeitig aktiv sein.
 
-**Einrichtung (nur aus dem lokalen Netz erreichbar, sonst `404`):**
+**Einrichtung + Statusabfrage (nur aus dem lokalen Netz erreichbar, sonst `404`):**
 
 1. **`POST /auth/setup`** – erzeugt ein neues, noch unbestätigtes Secret und liefert `{ "secret": "...", "otpauthUrl": "otpauth://totp/..." }`. `secret` kann manuell in Google Authenticator eingegeben werden, `otpauthUrl` eignet sich zum Erzeugen eines QR-Codes für den Scan-Import. Schlägt mit `409` fehl, solange bereits ein Authenticator **aktiv** ist (dann muss dieser zuerst per CLI entfernt werden, siehe unten). Ein erneuter Aufruf, solange das Setup noch nicht bestätigt ist, ersetzt das vorherige unbestätigte Secret durch ein neues.
 2. **`POST /auth/setup/confirm`** – Body `{ "code": "123456" }`, der aktuelle Code aus Google Authenticator für das per Schritt 1 erzeugte Secret. Bei korrektem Code (`200`) wird der Authenticator aktiv geschaltet; bei falschem Code `401` (Secret bleibt unbestätigt, ein weiterer Versuch ist möglich). `409`, falls bereits ein Authenticator aktiv ist.
+3. **`GET /auth/status`** – liefert `{ "active": boolean, "pending": boolean }`, niemals das Secret selbst. `active` ist `true`, sobald ein Authenticator bestätigt ist; `pending` ist `true`, solange ein per Schritt 1 erzeugtes Secret noch nicht bestätigt wurde. Erlaubt einem Client, den Pairing-Zustand vorab abzufragen, statt sich beim ersten `POST /auth/setup`-Versuch nur auf den `409`-Statuscode zu verlassen.
 
-Beide Setup-Endpunkte prüfen die Herkunft der Anfrage über `req.socket.remoteAddress` (niemals über spoofbare Header wie `X-Forwarded-For`) gegen private/loopback-Adressbereiche (`127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, IPv6-ULA `fc00::/7`, Link-Local `fe80::/10`) – außerhalb dieser Bereiche liefern beide Routen `404`, identisch zu einer unbekannten Route (kein Hinweis auf deren Existenz).
+Alle drei Endpunkte prüfen die Herkunft der Anfrage über `req.socket.remoteAddress` (niemals über spoofbare Header wie `X-Forwarded-For`) gegen private/loopback-Adressbereiche (`127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, IPv6-ULA `fc00::/7`, Link-Local `fe80::/10`) – außerhalb dieser Bereiche liefern alle drei Routen `404`, identisch zu einer unbekannten Route (kein Hinweis auf deren Existenz).
 
 **Schutz aller übrigen Endpunkte:** Jeder Request ohne oder mit ungültigem `X-TOTP-Code`-Header erhält `401`. Es gibt bewusst **keine Replay-Sperre** pro Code – derselbe (noch gültige) Code kann für mehrere Requests innerhalb desselben 30-Sekunden-Fensters wiederverwendet werden, da TOTP hier als reine Zugriffsschranke für ein persönliches Tool dient und nicht als Einmal-Login; eine Replay-Sperre würde legitime, schnell aufeinanderfolgende API-Aufrufe mit demselben Code sonst blockieren. Zur Absicherung gegen Uhr-Drift wird zusätzlich zum aktuellen Zeitfenster je ein Schritt davor/danach akzeptiert.
 
 **Entfernen (ausschließlich per CLI, kein Server-Endpunkt):** `cl totp remove` löscht das aktive/ausstehende Secret aus der Datenbank. Absicht: Ein Angreifer, der bereits vollen HTTP-Zugriff auf den Server hätte, könnte sonst den eigenen Authenticator entfernen und einen neuen einrichten. Da der Removal-Command nie als HTTP-Route exposed ist, erfordert das Entfernen zwingend Shell-Zugriff auf die Maschine, auf der `cl server` läuft.
 
-Implementiert in `src/totp.ts` (Base32-En-/Decoding, `generateSecret`, `generateTotp`, `verifyTotp` mit Zeitfenster-Toleranz, `buildOtpAuthUrl`), `src/network.ts` (`isLocalNetworkAddress`), `src/db.ts` (Tabelle `t_totp`, Single-Row via `CHECK (id = 1)`: `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) und `src/server.ts` (Routing, `isRequestAuthorized()`). CLI-Command `cl totp remove` in `src/index.ts`.
+Implementiert in `src/totp.ts` (Base32-En-/Decoding, `generateSecret`, `generateTotp`, `verifyTotp` mit Zeitfenster-Toleranz, `buildOtpAuthUrl`), `src/network.ts` (`isLocalNetworkAddress`), `src/db.ts` (Tabelle `t_totp`, Single-Row via `CHECK (id = 1)`: `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) und `src/server.ts` (Routing, `isRequestAuthorized()`, `handleGetAuthStatus()`). CLI-Command `cl totp remove` in `src/index.ts`.
 
 ## Pfad-Commands (`paths[].commands`)
 
@@ -336,16 +345,20 @@ Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAd
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 151 Tests über 10 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 165 Tests über 10 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
 - **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`, `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) gegen echte temporäre `.db`-Dateien.
 - **`src/totp.test.ts`** – Base32-En-/Decoding-Rundreise, `generateTotp`/`verifyTotp` (gültiger Code, Zeitfenster-Toleranz, falsches Secret/Format), `buildOtpAuthUrl`.
 - **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.
-- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands).
-- **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster).
+- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands, `GET /health` ohne Auth).
+- **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster) inkl. `GET /auth/status` bei jedem Zwischenschritt (`{active:false,pending:false}` → `{active:false,pending:true}` → `{active:true,pending:false}`).
 - **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove`/`cl inst`/`cl instr` End-to-End inkl. `SIGTERM`-Shutdown).
 - **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `formatInstallSummary` (Singular/Plural/leer), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden, Gerätenamen + Abschluss-Zusammenfassung) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.
+
+## Companion-App (`commander/`)
+
+Natives Android-Gegenstück zu diesem Server: eigenständiges Gradle-Projekt im Unterordner `commander/`, siehe `commander/FEATURES.md` für die volle Beschreibung. Kurzfassung: IP/Port eintragen, richtet den Google Authenticator selbst ein (kein externes Authenticator-App nötig – die App berechnet den TOTP-Code selbst aus dem Secret), zeigt danach alle über `GET /manifest` gemeldeten Agents/Pfade/Commands/Hosted-Dateien dynamisch an, kann Agents/Pfad-Commands starten und deren Status/Output live verfolgen sowie Hosted-Dateien (z. B. von `paths[].commands` gebaute APKs) herunterladen und öffnen/teilen.
