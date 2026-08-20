@@ -10,6 +10,12 @@
       "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben.",
       "contexts": ["main", "dev/code"],
       "model": "sonnet"
+    },
+    {
+      "name": "wtdev",
+      "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben. Nutzt aber git worktrees",
+      "contexts": ["main", "dev/code", "wtdev/todo"],
+      "model": "sonnet"
     }
   ],
   "databaseDirectory": "/home/simon/commands",
