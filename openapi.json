@@ -542,9 +542,229 @@
           }
         }
       }
+    },
+    "/tickets/{pathName}": {
+      "get": {
+        "summary": "Listet Tickets eines Pfads",
+        "description": "Ohne Query-Parameter \"status\" werden alle Tickets dieses Pfads geliefert (unabhaengig vom Status).",
+        "operationId": "listTickets",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Optionaler Status-Filter.",
+            "schema": { "$ref": "#/components/schemas/TicketStatus" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tickets dieses Pfads, ggf. nach Status gefiltert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TicketList" } }
+            }
+          },
+          "400": {
+            "description": "Ungueltiger Wert im Query-Parameter \"status\".",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Erstellt ein Ticket per Ticket-Agent",
+        "description": "Fuehrt synchron einen Agent aus (Model + Aufgabe aus config.json ticketAgent, siehe TicketAgentConfig) im Dateisystem-Verzeichnis des Pfad-Eintrags: Der Agent interpretiert \"text\" im Projektkontext und liefert Titel/Beschreibung/Aufgabe fuer ein neues Ticket (Status immer \"open\"). Antwortet erst nach Abschluss des Agents (kein 202/Polling wie bei den Agent-Endpunkten).",
+        "operationId": "createTicket",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TicketCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ticket wurde angelegt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"text\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "502": {
+            "description": "Der Ticket-Agent ist fehlgeschlagen oder seine Antwort enthielt kein gueltiges Ticket-JSON.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/tickets/{pathName}/{id}": {
+      "get": {
+        "summary": "Liefert ein einzelnes Ticket",
+        "operationId": "getTicket",
+        "parameters": [
+          { "$ref": "#/components/parameters/TicketPathName" },
+          { "$ref": "#/components/parameters/TicketId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Das Ticket.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Ticket mit dieser ID in diesem Pfad.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Bearbeitet ein Ticket (alles ausser der ID)",
+        "description": "Mindestens eines der Felder title/description/task/status muss angegeben werden.",
+        "operationId": "updateTicket",
+        "parameters": [
+          { "$ref": "#/components/parameters/TicketPathName" },
+          { "$ref": "#/components/parameters/TicketId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TicketUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Das aktualisierte Ticket.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, ungueltiger Status, oder kein Feld angegeben).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Ticket mit dieser ID in diesem Pfad.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Loescht ein Ticket",
+        "operationId": "deleteTicket",
+        "parameters": [
+          { "$ref": "#/components/parameters/TicketPathName" },
+          { "$ref": "#/components/parameters/TicketId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ticket wurde geloescht.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Ticket mit dieser ID in diesem Pfad.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
+    "parameters": {
+      "TicketPathName": {
+        "name": "pathName",
+        "in": "path",
+        "required": true,
+        "description": "Name eines Eintrags aus config.json (paths[].name).",
+        "schema": { "type": "string" }
+      },
+      "TicketId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Fortlaufende, eindeutige Ticket-ID.",
+        "schema": { "type": "integer" }
+      }
+    },
     "schemas": {
       "CommandRequest": {
         "type": "object",
@@ -787,6 +1007,75 @@
             "items": { "$ref": "#/components/schemas/ManifestPath" }
           }
         }
+      },
+      "TicketStatus": {
+        "type": "string",
+        "enum": ["open", "in progress", "closed"]
+      },
+      "Ticket": {
+        "type": "object",
+        "required": [
+          "id",
+          "pathName",
+          "title",
+          "description",
+          "task",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Fortlaufende, ueber alle Pfade hinweg eindeutige ID."
+          },
+          "pathName": {
+            "type": "string",
+            "description": "Name des Pfads (paths[].name), zu dem dieses Ticket gehoert. Nicht editierbar."
+          },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "task": {
+            "type": "string",
+            "description": "Konkrete, umsetzbare Aufgabenstellung, z. B. fuer einen Entwickler-Agenten."
+          },
+          "status": { "$ref": "#/components/schemas/TicketStatus" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "TicketList": {
+        "type": "object",
+        "required": ["tickets"],
+        "properties": {
+          "tickets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Ticket" }
+          }
+        }
+      },
+      "TicketCreateRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Kurzer, ggf. unklarer Text (z. B. \"ein neues Modul, das xyz kann\"), den der Ticket-Agent im Projektkontext interpretiert."
+          }
+        },
+        "additionalProperties": false
+      },
+      "TicketUpdateRequest": {
+        "type": "object",
+        "description": "Mindestens eines der Felder muss angegeben werden. \"pathName\" und \"id\" sind nicht editierbar.",
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "task": { "type": "string", "minLength": 1 },
+          "status": { "$ref": "#/components/schemas/TicketStatus" }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

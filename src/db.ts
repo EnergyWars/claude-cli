@@ -53,6 +53,19 @@ export function openDatabase(directory: string): DatabaseSync {
       created_at TEXT NOT NULL
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_path_name ON t_tickets (path_name)');
   return db;
 }
 
@@ -150,5 +163,106 @@ export function confirmTotpSecret(db: DatabaseSync): void {
 
 export function deleteTotpSecret(db: DatabaseSync): boolean {
   const result = db.prepare('DELETE FROM t_totp WHERE id = 1').run();
+  return result.changes > 0;
+}
+
+export type TicketStatus = 'open' | 'in progress' | 'closed';
+
+export const TICKET_STATUSES: readonly TicketStatus[] = ['open', 'in progress', 'closed'];
+
+export function isTicketStatus(value: string): value is TicketStatus {
+  return (TICKET_STATUSES as readonly string[]).includes(value);
+}
+
+export interface TicketRow {
+  id: number;
+  pathName: string;
+  title: string;
+  description: string;
+  task: string;
+  status: TicketStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketUpdate {
+  title?: string;
+  description?: string;
+  task?: string;
+  status?: TicketStatus;
+}
+
+function toTicketRow(row: Record<string, SQLOutputValue>): TicketRow {
+  return {
+    id: Number(row.id),
+    pathName: String(row.path_name),
+    title: String(row.title),
+    description: String(row.description),
+    task: String(row.task),
+    status: String(row.status) as TicketStatus,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export function insertTicket(
+  db: DatabaseSync,
+  row: { pathName: string; title: string; description: string; task: string },
+): TicketRow {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      'INSERT INTO t_tickets (path_name, title, description, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(row.pathName, row.title, row.description, row.task, 'open', now, now);
+  const ticket = getTicket(db, Number(result.lastInsertRowid));
+  if (!ticket) {
+    throw new Error('Ticket konnte nach dem Anlegen nicht gelesen werden.');
+  }
+  return ticket;
+}
+
+export function getTicket(db: DatabaseSync, id: number): TicketRow | undefined {
+  const row = db.prepare('SELECT * FROM t_tickets WHERE id = ?').get(id);
+  return row === undefined ? undefined : toTicketRow(row);
+}
+
+export function listTickets(
+  db: DatabaseSync,
+  pathName: string,
+  status?: TicketStatus,
+): TicketRow[] {
+  const rows =
+    status === undefined
+      ? db.prepare('SELECT * FROM t_tickets WHERE path_name = ? ORDER BY id ASC').all(pathName)
+      : db
+          .prepare('SELECT * FROM t_tickets WHERE path_name = ? AND status = ? ORDER BY id ASC')
+          .all(pathName, status);
+  return rows.map((row) => toTicketRow(row));
+}
+
+export function updateTicket(
+  db: DatabaseSync,
+  id: number,
+  update: TicketUpdate,
+): TicketRow | undefined {
+  const existing = getTicket(db, id);
+  if (!existing) {
+    return undefined;
+  }
+  const merged = {
+    title: update.title ?? existing.title,
+    description: update.description ?? existing.description,
+    task: update.task ?? existing.task,
+    status: update.status ?? existing.status,
+  };
+  db.prepare(
+    'UPDATE t_tickets SET title = ?, description = ?, task = ?, status = ?, updated_at = ? WHERE id = ?',
+  ).run(merged.title, merged.description, merged.task, merged.status, new Date().toISOString(), id);
+  return getTicket(db, id);
+}
+
+export function deleteTicket(db: DatabaseSync, id: number): boolean {
+  const result = db.prepare('DELETE FROM t_tickets WHERE id = ?').run(id);
   return result.changes > 0;
 }

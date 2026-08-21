@@ -8,14 +8,19 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   completeCommand,
   confirmTotpSecret,
+  deleteTicket,
   deleteTotpSecret,
   getCommand,
+  getTicket,
   getTotpSecret,
   insertCommand,
+  insertTicket,
+  listTickets,
   logAccess,
   openDatabase,
   setPendingTotpSecret,
   updateCommandOutput,
+  updateTicket,
 } from './db.js';
 
 let dbDir: string;
@@ -35,7 +40,7 @@ test('openDatabase: legt Verzeichnis und commands.db an', () => {
   assert.ok(existsSync(join(dbDir, 'commands.db')));
 });
 
-test('openDatabase: erzeugt t_access_log, t_commands und t_totp', () => {
+test('openDatabase: erzeugt t_access_log, t_commands, t_totp und t_tickets', () => {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .all()
@@ -43,6 +48,7 @@ test('openDatabase: erzeugt t_access_log, t_commands und t_totp', () => {
   assert.ok(tables.includes('t_access_log'));
   assert.ok(tables.includes('t_commands'));
   assert.ok(tables.includes('t_totp'));
+  assert.ok(tables.includes('t_tickets'));
 });
 
 test('insertCommand + getCommand: Roundtrip mit status "running"', () => {
@@ -164,4 +170,189 @@ test('deleteTotpSecret: entfernt das Secret und liefert true, sonst false', () =
   assert.equal(deleteTotpSecret(db), true);
   assert.equal(getTotpSecret(db), undefined);
   assert.equal(deleteTotpSecret(db), false);
+});
+
+test('insertTicket: legt ein Ticket mit Status "open" an und liefert es inkl. ID', () => {
+  const ticket = insertTicket(db, {
+    pathName: 'myapp',
+    title: 'Titel',
+    description: 'Beschreibung',
+    task: 'Aufgabe',
+  });
+  assert.equal(typeof ticket.id, 'number');
+  assert.equal(ticket.pathName, 'myapp');
+  assert.equal(ticket.title, 'Titel');
+  assert.equal(ticket.description, 'Beschreibung');
+  assert.equal(ticket.task, 'Aufgabe');
+  assert.equal(ticket.status, 'open');
+  assert.equal(typeof ticket.createdAt, 'string');
+  assert.equal(ticket.createdAt, ticket.updatedAt);
+});
+
+test('insertTicket: IDs sind fortlaufend und eindeutig ueber alle Pfade hinweg', () => {
+  const first = insertTicket(db, {
+    pathName: 'a',
+    title: 't1',
+    description: 'd1',
+    task: 'x1',
+  });
+  const second = insertTicket(db, {
+    pathName: 'b',
+    title: 't2',
+    description: 'd2',
+    task: 'x2',
+  });
+  assert.equal(second.id, first.id + 1);
+});
+
+test('getTicket: undefined fuer unbekannte ID', () => {
+  assert.equal(getTicket(db, 999_999), undefined);
+});
+
+test('listTickets: liefert nur Tickets des angegebenen Pfads, sortiert nach ID', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-tickets-'));
+  const ticketsDb = openDatabase(dir);
+  try {
+    const t1 = insertTicket(ticketsDb, {
+      pathName: 'proj-x',
+      title: 'Erstes',
+      description: 'd',
+      task: 't',
+    });
+    insertTicket(ticketsDb, {
+      pathName: 'proj-y',
+      title: 'Anderer Pfad',
+      description: 'd',
+      task: 't',
+    });
+    const t2 = insertTicket(ticketsDb, {
+      pathName: 'proj-x',
+      title: 'Zweites',
+      description: 'd',
+      task: 't',
+    });
+
+    const list = listTickets(ticketsDb, 'proj-x');
+    assert.deepEqual(
+      list.map((t) => t.id),
+      [t1.id, t2.id],
+    );
+  } finally {
+    ticketsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('listTickets: leeres Array fuer unbekannten oder ticket-losen Pfad', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-tickets-empty-'));
+  const ticketsDb = openDatabase(dir);
+  try {
+    assert.deepEqual(listTickets(ticketsDb, 'does-not-exist'), []);
+  } finally {
+    ticketsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('listTickets: Status-Filter liefert nur Tickets mit passendem Status', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-tickets-status-'));
+  const ticketsDb = openDatabase(dir);
+  try {
+    const openTicket = insertTicket(ticketsDb, {
+      pathName: 'proj',
+      title: 'Offen',
+      description: 'd',
+      task: 't',
+    });
+    const closedTicket = insertTicket(ticketsDb, {
+      pathName: 'proj',
+      title: 'Geschlossen',
+      description: 'd',
+      task: 't',
+    });
+    updateTicket(ticketsDb, closedTicket.id, { status: 'closed' });
+
+    assert.deepEqual(
+      listTickets(ticketsDb, 'proj', 'open').map((t) => t.id),
+      [openTicket.id],
+    );
+    assert.deepEqual(
+      listTickets(ticketsDb, 'proj', 'closed').map((t) => t.id),
+      [closedTicket.id],
+    );
+    assert.equal(listTickets(ticketsDb, 'proj', 'in progress').length, 0);
+    assert.equal(listTickets(ticketsDb, 'proj').length, 2);
+  } finally {
+    ticketsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('updateTicket: aktualisiert nur die uebergebenen Felder, laesst den Rest unveraendert', () => {
+  const ticket = insertTicket(db, {
+    pathName: 'update-test',
+    title: 'Alt',
+    description: 'Alte Beschreibung',
+    task: 'Alte Aufgabe',
+  });
+  const updated = updateTicket(db, ticket.id, { title: 'Neu' });
+  assert.ok(updated);
+  assert.equal(updated.title, 'Neu');
+  assert.equal(updated.description, 'Alte Beschreibung');
+  assert.equal(updated.task, 'Alte Aufgabe');
+  assert.equal(updated.status, 'open');
+});
+
+test('updateTicket: kann mehrere Felder gleichzeitig aktualisieren, inkl. Status', () => {
+  const ticket = insertTicket(db, {
+    pathName: 'update-test-2',
+    title: 'Alt',
+    description: 'Alt',
+    task: 'Alt',
+  });
+  const updated = updateTicket(db, ticket.id, {
+    title: 'Neu',
+    description: 'Neue Beschreibung',
+    task: 'Neue Aufgabe',
+    status: 'in progress',
+  });
+  assert.deepEqual(
+    updated && {
+      title: updated.title,
+      description: updated.description,
+      task: updated.task,
+      status: updated.status,
+    },
+    { title: 'Neu', description: 'Neue Beschreibung', task: 'Neue Aufgabe', status: 'in progress' },
+  );
+});
+
+test('updateTicket: aktualisiert updatedAt, laesst createdAt unveraendert', async () => {
+  const ticket = insertTicket(db, {
+    pathName: 'update-test-3',
+    title: 'Alt',
+    description: 'Alt',
+    task: 'Alt',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const updated = updateTicket(db, ticket.id, { status: 'closed' });
+  assert.ok(updated);
+  assert.equal(updated.createdAt, ticket.createdAt);
+  assert.notEqual(updated.updatedAt, ticket.createdAt);
+});
+
+test('updateTicket: liefert undefined fuer unbekannte ID, ohne zu werfen', () => {
+  assert.equal(updateTicket(db, 999_999, { title: 'x' }), undefined);
+});
+
+test('deleteTicket: entfernt das Ticket und liefert true, sonst false', () => {
+  const ticket = insertTicket(db, {
+    pathName: 'delete-test',
+    title: 'x',
+    description: 'y',
+    task: 'z',
+  });
+  assert.equal(deleteTicket(db, ticket.id), true);
+  assert.equal(getTicket(db, ticket.id), undefined);
+  assert.equal(deleteTicket(db, ticket.id), false);
 });

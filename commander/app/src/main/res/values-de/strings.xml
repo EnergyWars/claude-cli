@@ -40,6 +40,7 @@
     <string name="run_agent_start">Starten</string>
 
     <string name="path_detail_start_agent">Agent hier starten</string>
+    <string name="path_detail_open_tickets">Tickets</string>
     <string name="path_detail_commands_title">Commands</string>
     <string name="path_detail_files_title">Dateien</string>
     <string name="path_detail_files_empty">Keine Dateien.</string>
@@ -49,6 +50,23 @@
     <string name="command_detail_output_empty">Noch keine Ausgabe.</string>
     <string name="command_detail_exit_code">Exit-Code: %1$d</string>
     <string name="command_detail_downloads_title">Downloads</string>
+
+    <string name="tickets_title">Tickets</string>
+    <string name="tickets_empty">Noch keine Tickets.</string>
+    <string name="tickets_create_text_label">Was soll passieren?</string>
+    <string name="tickets_create_submit">Ticket erstellen</string>
+    <string name="tickets_filter_label">Status</string>
+    <string name="tickets_filter_all">Alle</string>
+    <string name="ticket_detail_title">Ticket</string>
+    <string name="ticket_detail_title_label">Titel</string>
+    <string name="ticket_detail_description_label">Beschreibung</string>
+    <string name="ticket_detail_task_label">Aufgabe</string>
+    <string name="ticket_detail_status_label">Status</string>
+    <string name="ticket_detail_save">Speichern</string>
+    <string name="ticket_detail_delete">Ticket löschen</string>
+    <string name="ticket_status_open">Offen</string>
+    <string name="ticket_status_in_progress">In Bearbeitung</string>
+    <string name="ticket_status_closed">Geschlossen</string>
 
     <string name="settings_title">Einstellungen</string>
     <string name="settings_display_title">Anzeige</string>

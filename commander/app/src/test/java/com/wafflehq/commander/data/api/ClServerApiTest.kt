@@ -147,6 +147,102 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"tickets":[{"id":1,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().listTickets("myapp")
+
+        assertEquals(1, result.tickets.size)
+        assertEquals("open", result.tickets.first().status)
+        val recorded = server.takeRequest()
+        assertEquals("/tickets/myapp", recorded.target)
+    }
+
+    @Test
+    fun `listTickets with status appends the status query parameter`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"tickets":[]}"""))
+
+        apiWithConnection().listTickets("myapp", status = "open")
+
+        val recorded = server.takeRequest()
+        assertEquals("/tickets/myapp?status=open", recorded.target)
+    }
+
+    @Test
+    fun `createTicket posts the text and parses the created ticket`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                code = 201,
+                body = """{"id":1,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}""",
+            ),
+        )
+
+        val result = apiWithConnection().createTicket("myapp", "ein neues Feature")
+
+        assertEquals(1, result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/tickets/myapp", recorded.target)
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"text\":\"ein neues Feature\""))
+    }
+
+    @Test
+    fun `getTicket requests the ticket by id`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"id":42,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}""",
+            ),
+        )
+
+        val result = apiWithConnection().getTicket("myapp", 42)
+
+        assertEquals(42, result.id)
+        val recorded = server.takeRequest()
+        assertEquals("/tickets/myapp/42", recorded.target)
+    }
+
+    @Test
+    fun `updateTicket sends a PATCH request with only the provided fields`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"id":1,"pathName":"myapp","title":"Neu","description":"d","task":"x","status":"closed","createdAt":"c","updatedAt":"u"}""",
+            ),
+        )
+
+        val result = apiWithConnection().updateTicket(
+            "myapp",
+            1,
+            TicketPatchRequest(title = "Neu", status = TICKET_STATUS_CLOSED),
+        )
+
+        assertEquals("Neu", result.title)
+        assertEquals(TICKET_STATUS_CLOSED, result.status)
+        val recorded = server.takeRequest()
+        assertEquals("PATCH", recorded.method)
+        assertEquals("/tickets/myapp/1", recorded.target)
+        val body = recorded.body?.utf8().orEmpty()
+        assertTrue(body.contains("\"title\":\"Neu\""))
+        assertTrue(body.contains("\"status\":\"closed\""))
+        assertFalse(body.contains("description"))
+    }
+
+    @Test
+    fun `deleteTicket sends a DELETE request`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"message":"Ticket \"1\" wurde geloescht."}"""))
+
+        val result = apiWithConnection().deleteTicket("myapp", 1)
+
+        assertTrue(result.message.isNotEmpty())
+        val recorded = server.takeRequest()
+        assertEquals("DELETE", recorded.method)
+        assertEquals("/tickets/myapp/1", recorded.target)
+    }
+
+    @Test
     fun `downloadHostedEntry writes the response body using the Content-Disposition filename`(): Unit = runBlocking {
         server.enqueue(
             MockResponse(

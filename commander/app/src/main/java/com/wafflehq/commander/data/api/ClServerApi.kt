@@ -37,6 +37,11 @@ class ClServerApi @Inject constructor(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    /** POST /tickets/:pathName runs the ticket agent synchronously server-side and can take much longer than 30s. */
+    private val ticketAgentClient = client.newBuilder()
+        .readTimeout(5, TimeUnit.MINUTES)
+        .build()
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun urlBuilder(host: String, port: Int): HttpUrl.Builder =
@@ -105,6 +110,35 @@ class ClServerApi @Inject constructor(
     suspend fun downloadHostedFile(pathName: String, hostedName: String, fileName: String, destinationDir: File): File =
         downloadTo(destinationDir, fileName, "files", pathName, hostedName, fileName)
 
+    suspend fun listTickets(pathName: String, status: String? = null): TicketList {
+        val connection = requireConnection()
+        val urlBuilder = urlBuilder(connection.host, connection.port).addPathSegment("tickets").addPathSegment(pathName)
+        if (status != null) urlBuilder.addQueryParameter("status", status)
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .get()
+        return execute(request)
+    }
+
+    suspend fun createTicket(pathName: String, text: String): Ticket {
+        val connection = requireConnection()
+        val request = Request.Builder()
+            .url(urlBuilder(connection.host, connection.port).addPathSegment("tickets").addPathSegment(pathName).build())
+            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .post(json.encodeToString(TicketCreateRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        return execute(request, ticketAgentClient)
+    }
+
+    suspend fun getTicket(pathName: String, id: Int): Ticket = authedGet("tickets", pathName, id.toString())
+
+    suspend fun updateTicket(pathName: String, id: Int, patch: TicketPatchRequest): Ticket =
+        authedPatch(json.encodeToString(patch), "tickets", pathName, id.toString())
+
+    suspend fun deleteTicket(pathName: String, id: Int): MessageResponse =
+        authedDelete("tickets", pathName, id.toString())
+
     private suspend inline fun <reified T> authedGet(vararg segments: String): T {
         val connection = requireConnection()
         val request = Request.Builder()
@@ -120,6 +154,24 @@ class ClServerApi @Inject constructor(
             .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
             .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
             .post(body.toRequestBody(JSON_MEDIA_TYPE))
+        return execute(request)
+    }
+
+    private suspend inline fun <reified T> authedPatch(body: String, vararg segments: String): T {
+        val connection = requireConnection()
+        val request = Request.Builder()
+            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
+            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .patch(body.toRequestBody(JSON_MEDIA_TYPE))
+        return execute(request)
+    }
+
+    private suspend inline fun <reified T> authedDelete(vararg segments: String): T {
+        val connection = requireConnection()
+        val request = Request.Builder()
+            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
+            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .delete()
         return execute(request)
     }
 
@@ -148,7 +200,7 @@ class ClServerApi @Inject constructor(
 
     private suspend inline fun <reified T> execute(builder: Request.Builder): T = execute(builder.build())
 
-    private suspend inline fun <reified T> execute(request: Request): T = withContext(Dispatchers.IO) {
+    private suspend inline fun <reified T> execute(request: Request, client: OkHttpClient = this.client): T = withContext(Dispatchers.IO) {
         val response = try {
             client.newCall(request).execute()
         } catch (error: java.io.IOException) {

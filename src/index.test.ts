@@ -327,6 +327,265 @@ test('cl totp remove: entfernt einen aktiven Authenticator; Server-Endpunkte sin
   }
 });
 
+function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}): string {
+  return JSON.stringify({
+    title: 'CLI-Ticket-Titel',
+    description: 'CLI-Ticket-Beschreibung',
+    task: 'CLI-Ticket-Aufgabe',
+    ...overrides,
+  });
+}
+
+interface CliTicket {
+  id: number;
+  pathName: string;
+  title: string;
+  description: string;
+  task: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+test('cl ticket from: legt per Ticket-Agent ein Ticket an und gibt es als JSON aus', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  try {
+    const result = await runCli(['ticket', 'from', 'default', 'ein neues Feature'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const ticket = JSON.parse(result.stdout) as CliTicket;
+    assert.equal(ticket.pathName, 'default');
+    assert.equal(ticket.title, 'CLI-Ticket-Titel');
+    assert.equal(ticket.description, 'CLI-Ticket-Beschreibung');
+    assert.equal(ticket.task, 'CLI-Ticket-Aufgabe');
+    assert.equal(ticket.status, 'open');
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket from: unbekannter Pfad bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['ticket', 'from', 'doesnotexist', 'text'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /doesnotexist/);
+  } finally {
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket from: nicht-parsebare Agent-Antwort bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: ['kein json'], exitCode: 0 });
+  try {
+    const result = await runCli(['ticket', 'from', 'default', 'text'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /kein gueltiges Ticket-JSON/);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket get (ohne ID): listet nur offene Tickets, cl ticket get <id>: liefert genau dieses Ticket', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const created = await runCli(['ticket', 'from', 'default', 'text'], { env });
+    const ticket = JSON.parse(created.stdout) as CliTicket;
+
+    const closedResult = await runCli(['ticket', 'from', 'default', 'text'], { env });
+    const closedTicket = JSON.parse(closedResult.stdout) as CliTicket;
+    await runCli(['ticket', 'update', 'default', String(closedTicket.id), '--status', 'closed'], {
+      env,
+    });
+
+    const listResult = await runCli(['ticket', 'get', 'default'], { env });
+    assert.equal(listResult.exitCode, 0);
+    const openTickets = JSON.parse(listResult.stdout) as CliTicket[];
+    const ids = openTickets.map((t) => t.id);
+    assert.ok(ids.includes(ticket.id));
+    assert.ok(!ids.includes(closedTicket.id));
+
+    const getResult = await runCli(['ticket', 'get', 'default', String(ticket.id)], { env });
+    assert.equal(getResult.exitCode, 0);
+    const fetched = JSON.parse(getResult.stdout) as CliTicket;
+    assert.deepEqual(fetched, ticket);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket get <path> <id>: unbekannte ID bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['ticket', 'get', 'default', '999999'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /999999/);
+  } finally {
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket list --status: filtert, ohne --status werden alle Status geliefert', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const first = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+    const second = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+    await runCli(['ticket', 'update', 'default', String(second.id), '--status', 'in progress'], {
+      env,
+    });
+
+    const all = JSON.parse(
+      (await runCli(['ticket', 'list', 'default'], { env })).stdout,
+    ) as CliTicket[];
+    assert.equal(all.length, 2);
+
+    const filtered = JSON.parse(
+      (await runCli(['ticket', 'list', 'default', '--status', 'in progress'], { env })).stdout,
+    ) as CliTicket[];
+    assert.deepEqual(
+      filtered.map((t) => t.id),
+      [second.id],
+    );
+    assert.notEqual(first.id, second.id);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket list --status invalid: bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['ticket', 'list', 'default', '--status', 'invalid'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket update: aendert Titel/Beschreibung/Aufgabe/Status ausser der ID', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const ticket = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+
+    const updateResult = await runCli(
+      [
+        'ticket',
+        'update',
+        'default',
+        String(ticket.id),
+        '--title',
+        'Neuer Titel',
+        '--status',
+        'closed',
+      ],
+      { env },
+    );
+    assert.equal(updateResult.exitCode, 0);
+    const updated = JSON.parse(updateResult.stdout) as CliTicket;
+    assert.equal(updated.id, ticket.id);
+    assert.equal(updated.title, 'Neuer Titel');
+    assert.equal(updated.status, 'closed');
+    assert.equal(updated.description, ticket.description);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket update: ohne jegliche Option bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const ticket = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+    const result = await runCli(['ticket', 'update', 'default', String(ticket.id)], { env });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket update: unbekannte ID bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['ticket', 'update', 'default', '999999', '--title', 'x'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket delete: loescht ein Ticket, danach ist "cl ticket get <id>" ein Fehler', async () => {
+  const ticketFixture = createFixtureRoot();
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const ticket = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+
+    const deleteResult = await runCli(['ticket', 'delete', 'default', String(ticket.id)], { env });
+    assert.equal(deleteResult.exitCode, 0);
+    assert.match(deleteResult.stdout, new RegExp(String(ticket.id)));
+
+    const getResult = await runCli(['ticket', 'get', 'default', String(ticket.id)], { env });
+    assert.notEqual(getResult.exitCode, 0);
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket delete: unbekannte ID bricht mit Fehler und Exit != 0 ab', async () => {
+  const ticketFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['ticket', 'delete', 'default', '999999'], {
+      env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket --help: listet die konfigurierten Pfade auf', async () => {
+  const result = await runCli(['ticket', '--help'], { env: baseEnv() });
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Pfade \(aus config\.json, paths\[\]\.name\)/);
+});
+
 test('cl task mytask: startet immer interaktiv, startCommand wird als Prompt ohne --print gesendet', async () => {
   const result = await runCli(['task', 'mytask'], { env: baseEnv() });
   assert.equal(result.exitCode, 0);

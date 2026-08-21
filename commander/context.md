@@ -21,38 +21,40 @@ Native Android-App (Kotlin/Compose), Fernsteuerungs-Client für `cl server` aus 
 - **Datei-Downloads/Sharing (`data/download/HostedFileDownloader.kt`):** Downloads landen unter `context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)` (kein Storage-Runtime-Permission nötig, funktioniert auf API 26–35 identisch). Öffnen/Teilen über `androidx.core.content.FileProvider` (`AndroidManifest.xml`-Provider-Deklaration, Autorität `${applicationId}.fileprovider`, Pfad-Spezifikation `res/xml/file_paths.xml`).
 - **Netzwerk-Erlaubnis:** `AndroidManifest.xml` deklariert `INTERNET`-Permission und `android:usesCleartextTraffic="true"` auf Application-Ebene – `cl server` spricht ausschließlich Klartext-HTTP (keine TLS-Option), Host/Port sind nutzerdefiniert (beliebige IP), eine Network-Security-Config mit festen Domains ist dafür nicht sinnvoll anwendbar.
 - **DI (`di/AppModule.kt`, `di/BindsModule.kt`):** `AppDatabase`/`CommandHistoryDao` weiterhin über `@Provides` (Room-Datenbanken/DAOs können keinen `@Inject`-Konstruktor haben). Alle übrigen Repositories (`SettingsRepository`, `ConnectionRepository`, `ClServerApi`, `CommandHistoryRepository`, `KeystoreCipher`, `HostedFileDownloader`) nutzen ausschließlich reine `@Inject`-Konstruktor-Injection (Context-Parameter mit `@ApplicationContext` qualifiziert) – **kein** zusätzliches `@Provides` für denselben Typ parallel zum `@Inject`-Konstruktor. Die Vorlage hatte genau diese Doppelung (`SettingsRepository`/`FeatureFilesRepository` sowohl mit `@Inject constructor` als auch mit einem `@Provides` in `AppModule`), was bei Dagger/Hilt einen `[Dagger/DuplicateBindings]`-Kompilierfehler verursacht hätte – beim Kopieren korrigiert (`SettingsRepository`s `@Provides` entfernt, `@ApplicationContext` direkt an den Konstruktor-Parameter).
-- **Navigation (`ui/navigation/AppNavHost.kt`, `Routes`):** `ConnectionGateViewModel` liefert `hasConnection: StateFlow<Boolean?>` (`null` = noch unbekannt); `AppNavHost` zeigt einen Ladeindikator, bis der Wert bekannt ist, und mountet den `NavHost` danach genau einmal mit `startDestination = HOME` oder `SETUP` – kein Re-Mounting bei späteren Connection-Änderungen (Trennen/Neuverbinden navigiert stattdessen explizit mit `popUpTo(0)`). Routen: `setup`, `home`, `settings`, `settings_display`, `run_agent?agent={agent}&path={path}` (beide optional, für Vorbelegung), `path_detail/{pathName}`, `command_detail/{id}?pathName={pathName}` (Pfadname optional mitgegeben, damit die Status-Seite pfadbezogene Hosted-Downloads anbieten kann, ohne dass die API dafür eine Reverse-Lookup-Route bräuchte).
+- **Navigation (`ui/navigation/AppNavHost.kt`, `Routes`):** `ConnectionGateViewModel` liefert `hasConnection: StateFlow<Boolean?>` (`null` = noch unbekannt); `AppNavHost` zeigt einen Ladeindikator, bis der Wert bekannt ist, und mountet den `NavHost` danach genau einmal mit `startDestination = HOME` oder `SETUP` – kein Re-Mounting bei späteren Connection-Änderungen (Trennen/Neuverbinden navigiert stattdessen explizit mit `popUpTo(0)`). Routen: `setup`, `home`, `settings`, `settings_display`, `run_agent?agent={agent}&path={path}` (beide optional, für Vorbelegung), `path_detail/{pathName}`, `command_detail/{id}?pathName={pathName}` (Pfadname optional mitgegeben, damit die Status-Seite pfadbezogene Hosted-Downloads anbieten kann, ohne dass die API dafür eine Reverse-Lookup-Route bräuchte), `tickets/{pathName}`, `tickets/{pathName}/{id}`.
+- **Tickets (`ui/tickets/`):** Client fuer `cl server`s `/tickets/...`-Endpunkte. `ApiModels.kt` ergaenzt `Ticket`/`TicketList`/`TicketCreateRequest`/`TicketPatchRequest` (Status als `String`-Konstanten `TICKET_STATUS_OPEN`/`_IN_PROGRESS`/`_CLOSED`, analog zu `CommandState.status`, keine Enum-Serialisierung). `ClServerApi.kt` ergaenzt `listTickets(pathName, status?)` (Query-Parameter direkt am `HttpUrl.Builder`, kein generischer `authedGet`-Umbau), `createTicket`/`getTicket`/`updateTicket`/`deleteTicket` sowie zwei neue private Helper `authedPatch`/`authedDelete` (analog `authedPost`/`authedGet`, PATCH/DELETE existierten vorher nicht). Erreichbar von der Pfad-Detailseite ueber einen neuen Button „Tickets“ (`onOpenTickets`). `TicketListScreen`/`TicketListViewModel`: Textfeld + Button zum Anlegen (`POST /tickets/:pathName`, navigiert nach Erfolg direkt zur Detailseite des neuen Tickets), Status-Dropdown-Filter (leerer String = alle Status, kein Query-Parameter), Liste als `LazyColumn` mit `AppStatusPill` pro Zeile. `TicketDetailScreen`/`TicketDetailViewModel`: Textfelder fuer Titel/Beschreibung/Aufgabe + Status-Dropdown, "Speichern" (`PATCH`, sendet immer alle drei Textfelder + Status), "Ticket löschen" (`DELETE`, navigiert danach zurueck). `ui/tickets/TicketStatusUi.kt` buendelt die Status→Rolle/Label-Zuordnung (`ticketStatusRole`/`ticketStatusLabel`, analog `statusRole()` in `CommandDetailScreen.kt`) fuer Wiederverwendung zwischen Liste und Detail. Kein Dialog/Bottom-Sheet (die App kennt bislang keine) – Anlegen/Bearbeiten/Loeschen laufen jeweils als eigene Screens/Aktionen, konsistent mit `RunAgentScreen`/`PathDetailScreen`.
 
 ## Dateistruktur
 
-| Datei/Verzeichnis | Zweck |
-| --- | --- |
-| `app/src/main/java/com/wafflehq/commander/data/totp/TotpGenerator.kt` | RFC 6238/4226 TOTP-Client |
-| `app/src/main/java/com/wafflehq/commander/data/crypto/KeystoreCipher.kt` | AES-256-GCM via Android-Keystore |
-| `app/src/main/java/com/wafflehq/commander/data/connection/ConnectionRepository.kt` | Verbindungsspeicher (Host/Port/Secret), `ConnectionSource`-Interface |
-| `app/src/main/java/com/wafflehq/commander/data/api/ApiModels.kt` | `@Serializable`-Modelle nach `openapi.json` |
-| `app/src/main/java/com/wafflehq/commander/data/api/ClServerApi.kt` | OkHttp-Client fuer `cl server` |
-| `app/src/main/java/com/wafflehq/commander/data/db/AppDatabase.kt` | Room: `CommandHistoryEntity`/`CommandHistoryDao` |
-| `app/src/main/java/com/wafflehq/commander/data/history/CommandHistoryRepository.kt` | Lokaler Command-Verlauf |
-| `app/src/main/java/com/wafflehq/commander/data/download/HostedFileDownloader.kt` | Download + FileProvider-Share-Intent |
-| `app/src/main/java/com/wafflehq/commander/data/settings/*` | Theme-Mode (aus Vorlage, feature-files-Teile entfernt) |
-| `app/src/main/java/com/wafflehq/commander/di/AppModule.kt` | `@Provides` fuer `AppDatabase`/`CommandHistoryDao` |
-| `app/src/main/java/com/wafflehq/commander/di/BindsModule.kt` | `@Binds ConnectionRepository -> ConnectionSource` |
-| `app/src/main/java/com/wafflehq/commander/ui/setup/*` | Verbindungsaufbau/Pairing |
-| `app/src/main/java/com/wafflehq/commander/ui/home/*` | Dashboard (Manifest + Verlauf) |
-| `app/src/main/java/com/wafflehq/commander/ui/run/*` | Agent starten |
-| `app/src/main/java/com/wafflehq/commander/ui/pathdetail/*` | Pfad-Commands + Hosted-Dateien |
-| `app/src/main/java/com/wafflehq/commander/ui/command/*` | Live-Status/Output eines Commands |
-| `app/src/main/java/com/wafflehq/commander/ui/settings/*` | Theme-Toggle + Verbindungstrennen (aus Vorlage, Feature-Zeile entfernt) |
-| `app/src/main/java/com/wafflehq/commander/ui/navigation/AppNavHost.kt` | `Routes`, `NavHost`, Connection-Gate |
-| `app/src/main/java/com/wafflehq/commander/ui/navigation/ConnectionGateViewModel.kt` | Start-Destination-Entscheidung |
-| `app/src/main/res/xml/file_paths.xml` | FileProvider-Pfad-Spezifikation |
-| `app/src/test/java/com/wafflehq/commander/data/totp/TotpGeneratorTest.kt` | RFC-6238-Testvektoren |
-| `app/src/test/java/com/wafflehq/commander/data/api/ClServerApiTest.kt` | HTTP-Vertrag gegen MockWebServer |
-| `verify-theme.sh`, `theme-hashes.sha256` | Aus dem `base-project`-Skill, `APP_NAME="commander"` angepasst |
+| Datei/Verzeichnis                                                                   | Zweck                                                                      |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `app/src/main/java/com/wafflehq/commander/data/totp/TotpGenerator.kt`               | RFC 6238/4226 TOTP-Client                                                  |
+| `app/src/main/java/com/wafflehq/commander/data/crypto/KeystoreCipher.kt`            | AES-256-GCM via Android-Keystore                                           |
+| `app/src/main/java/com/wafflehq/commander/data/connection/ConnectionRepository.kt`  | Verbindungsspeicher (Host/Port/Secret), `ConnectionSource`-Interface       |
+| `app/src/main/java/com/wafflehq/commander/data/api/ApiModels.kt`                    | `@Serializable`-Modelle nach `openapi.json`                                |
+| `app/src/main/java/com/wafflehq/commander/data/api/ClServerApi.kt`                  | OkHttp-Client fuer `cl server`                                             |
+| `app/src/main/java/com/wafflehq/commander/data/db/AppDatabase.kt`                   | Room: `CommandHistoryEntity`/`CommandHistoryDao`                           |
+| `app/src/main/java/com/wafflehq/commander/data/history/CommandHistoryRepository.kt` | Lokaler Command-Verlauf                                                    |
+| `app/src/main/java/com/wafflehq/commander/data/download/HostedFileDownloader.kt`    | Download + FileProvider-Share-Intent                                       |
+| `app/src/main/java/com/wafflehq/commander/data/settings/*`                          | Theme-Mode (aus Vorlage, feature-files-Teile entfernt)                     |
+| `app/src/main/java/com/wafflehq/commander/di/AppModule.kt`                          | `@Provides` fuer `AppDatabase`/`CommandHistoryDao`                         |
+| `app/src/main/java/com/wafflehq/commander/di/BindsModule.kt`                        | `@Binds ConnectionRepository -> ConnectionSource`                          |
+| `app/src/main/java/com/wafflehq/commander/ui/setup/*`                               | Verbindungsaufbau/Pairing                                                  |
+| `app/src/main/java/com/wafflehq/commander/ui/home/*`                                | Dashboard (Manifest + Verlauf)                                             |
+| `app/src/main/java/com/wafflehq/commander/ui/run/*`                                 | Agent starten                                                              |
+| `app/src/main/java/com/wafflehq/commander/ui/pathdetail/*`                          | Pfad-Commands + Hosted-Dateien                                             |
+| `app/src/main/java/com/wafflehq/commander/ui/command/*`                             | Live-Status/Output eines Commands                                          |
+| `app/src/main/java/com/wafflehq/commander/ui/settings/*`                            | Theme-Toggle + Verbindungstrennen (aus Vorlage, Feature-Zeile entfernt)    |
+| `app/src/main/java/com/wafflehq/commander/ui/navigation/AppNavHost.kt`              | `Routes`, `NavHost`, Connection-Gate                                       |
+| `app/src/main/java/com/wafflehq/commander/ui/navigation/ConnectionGateViewModel.kt` | Start-Destination-Entscheidung                                             |
+| `app/src/main/java/com/wafflehq/commander/ui/tickets/*`                             | Ticket-Liste (inkl. Anlegen/Filtern) + Ticket-Detail (Bearbeiten/Loeschen) |
+| `app/src/main/res/xml/file_paths.xml`                                               | FileProvider-Pfad-Spezifikation                                            |
+| `app/src/test/java/com/wafflehq/commander/data/totp/TotpGeneratorTest.kt`           | RFC-6238-Testvektoren                                                      |
+| `app/src/test/java/com/wafflehq/commander/data/api/ClServerApiTest.kt`              | HTTP-Vertrag gegen MockWebServer                                           |
+| `verify-theme.sh`, `theme-hashes.sha256`                                            | Aus dem `base-project`-Skill, `APP_NAME="commander"` angepasst             |
 
 ## Feature-Implementierungsstatus
 
-Siehe `FEATURES.md`. Aktuell umgesetzt: Verbindungsaufbau/Pairing, Verbindungsspeicher (Keystore-verschlüsselt), TOTP-Client, Dashboard (Manifest-getrieben), Agent starten, Pfad-Details (Commands + Hosted-Dateien inkl. verschachtelter Verzeichnisse), Live-Command-Status mit Polling, lokaler Command-Verlauf, Datei-Downloads mit Öffnen/Teilen, Theme-Einstellungen + Verbindung trennen.
+Siehe `FEATURES.md`. Aktuell umgesetzt: Verbindungsaufbau/Pairing, Verbindungsspeicher (Keystore-verschlüsselt), TOTP-Client, Dashboard (Manifest-getrieben), Agent starten, Pfad-Details (Commands + Hosted-Dateien inkl. verschachtelter Verzeichnisse), Live-Command-Status mit Polling, lokaler Command-Verlauf, Datei-Downloads mit Öffnen/Teilen, Theme-Einstellungen + Verbindung trennen, Tickets pro Pfad (Anlegen per Text, Auflisten/Filtern nach Status, Bearbeiten, Löschen).
 
 **Noch nicht umgesetzt / bewusst ausgeklammert:** Compose-UI-Tests (kein Espresso/Compose-Testing im Katalog – für dieses persönliche Werkzeug bewusst nicht Teil des Scopes, siehe Plan); eigenes Launcher-Icon (Default-Icon aus der Vorlage übernommen); Server-seitiges Löschen/Verwalten des TOTP-Authenticators aus der App heraus (bleibt laut Server-Design CLI-only, `cl totp remove`).

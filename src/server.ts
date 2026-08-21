@@ -7,13 +7,23 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   completeCommand,
   confirmTotpSecret,
+  deleteTicket,
   getCommand,
+  getTicket,
   getTotpSecret,
   insertCommand,
+  insertTicket,
+  isTicketStatus,
+  listTickets,
   logAccess,
   openDatabase,
   setPendingTotpSecret,
+  TICKET_STATUSES,
   updateCommandOutput,
+  updateTicket,
+  type TicketRow,
+  type TicketStatus,
+  type TicketUpdate,
 } from './db.js';
 import {
   type AgentDefinition,
@@ -34,6 +44,7 @@ import {
 } from './config.js';
 import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
+import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
 
@@ -110,6 +121,75 @@ function parseCommandRequestBody(raw: unknown): CommandRequestBody {
   return typeof record.model === 'string'
     ? { command: record.command, model: record.model, path: record.path }
     : { command: record.command, path: record.path };
+}
+
+interface TicketCreateBody {
+  text: string;
+}
+
+function parseTicketCreateBody(raw: unknown): TicketCreateBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.text !== 'string' || record.text.trim() === '') {
+    throw new Error('Feld "text" (nicht-leerer String) ist erforderlich.');
+  }
+  return { text: record.text };
+}
+
+function ticketStatusList(): string {
+  return TICKET_STATUSES.map((status) => `"${status}"`).join(', ');
+}
+
+function parseTicketStatusQuery(value: string | null): TicketStatus | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  if (!isTicketStatus(value)) {
+    throw new Error(`Query-Parameter "status" muss einer von ${ticketStatusList()} sein.`);
+  }
+  return value;
+}
+
+function parseTicketUpdateBody(raw: unknown): TicketUpdate {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  const update: TicketUpdate = {};
+
+  if (record.title !== undefined) {
+    if (typeof record.title !== 'string' || record.title.trim() === '') {
+      throw new Error('Feld "title" muss ein nicht-leerer String sein, falls angegeben.');
+    }
+    update.title = record.title;
+  }
+  if (record.description !== undefined) {
+    if (typeof record.description !== 'string' || record.description.trim() === '') {
+      throw new Error('Feld "description" muss ein nicht-leerer String sein, falls angegeben.');
+    }
+    update.description = record.description;
+  }
+  if (record.task !== undefined) {
+    if (typeof record.task !== 'string' || record.task.trim() === '') {
+      throw new Error('Feld "task" muss ein nicht-leerer String sein, falls angegeben.');
+    }
+    update.task = record.task;
+  }
+  if (record.status !== undefined) {
+    if (typeof record.status !== 'string' || !isTicketStatus(record.status)) {
+      throw new Error(`Feld "status" muss einer von ${ticketStatusList()} sein, falls angegeben.`);
+    }
+    update.status = record.status;
+  }
+
+  if (Object.keys(update).length === 0) {
+    throw new Error(
+      'Mindestens eines der Felder "title", "description", "task", "status" muss angegeben werden.',
+    );
+  }
+  return update;
 }
 
 function parseAuthSetupConfirmBody(raw: unknown): AuthSetupConfirmBody {
@@ -359,6 +439,173 @@ function handleGetHostedFile(
   sendFileDownload(res, filePath);
 }
 
+function getTicketInPath(
+  db: DatabaseSync,
+  pathName: string,
+  idParam: string,
+): TicketRow | undefined {
+  if (!/^\d+$/.test(idParam)) {
+    return undefined;
+  }
+  const ticket = getTicket(db, Number(idParam));
+  return ticket?.pathName === pathName ? ticket : undefined;
+}
+
+function handleGetTickets(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  statusParam: string | null,
+): void {
+  try {
+    resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  let status: TicketStatus | undefined;
+  try {
+    status = parseTicketStatusQuery(statusParam);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  sendJson(res, 200, { tickets: listTickets(db, pathName, status) });
+}
+
+async function handlePostTicket(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  bodyText: string,
+): Promise<void> {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: TicketCreateBody;
+  try {
+    body = parseTicketCreateBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let output: TicketAgentOutput;
+  try {
+    output = await runTicketAgent(pathEntry.path, config.ticketAgent, body.text);
+  } catch (error) {
+    sendJson(res, 502, {
+      error: `Ticket-Agent fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+  const ticket = insertTicket(db, { pathName, ...output });
+  sendJson(res, 201, ticket);
+}
+
+function handleGetTicket(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  idParam: string,
+): void {
+  try {
+    resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  const ticket = getTicketInPath(db, pathName, idParam);
+  if (!ticket) {
+    sendJson(res, 404, {
+      error: `Ticket "${idParam}" wurde in Pfad "${pathName}" nicht gefunden.`,
+    });
+    return;
+  }
+  sendJson(res, 200, ticket);
+}
+
+function handlePatchTicket(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  idParam: string,
+  bodyText: string,
+): void {
+  try {
+    resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  const existing = getTicketInPath(db, pathName, idParam);
+  if (!existing) {
+    sendJson(res, 404, {
+      error: `Ticket "${idParam}" wurde in Pfad "${pathName}" nicht gefunden.`,
+    });
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let update: TicketUpdate;
+  try {
+    update = parseTicketUpdateBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  sendJson(res, 200, updateTicket(db, existing.id, update));
+}
+
+function handleDeleteTicket(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  idParam: string,
+): void {
+  try {
+    resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  const existing = getTicketInPath(db, pathName, idParam);
+  if (!existing) {
+    sendJson(res, 404, {
+      error: `Ticket "${idParam}" wurde in Pfad "${pathName}" nicht gefunden.`,
+    });
+    return;
+  }
+  deleteTicket(db, existing.id);
+  sendJson(res, 200, { message: `Ticket "${String(existing.id)}" wurde geloescht.` });
+}
+
 function handlePostCommand(
   db: DatabaseSync,
   config: Config,
@@ -485,6 +732,18 @@ async function handleRequest(
       handleGetHostedEntry(config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'GET' && segments.length === 4 && segments[0] === 'files') {
       handleGetHostedFile(config, res, segments[1] ?? '', segments[2] ?? '', segments[3] ?? '');
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'tickets') {
+      handleGetTickets(db, config, res, segments[1] ?? '', url.searchParams.get('status'));
+    } else if (method === 'POST' && segments.length === 2 && segments[0] === 'tickets') {
+      bodyText = await readRequestBody(req);
+      await handlePostTicket(db, config, res, segments[1] ?? '', bodyText);
+    } else if (method === 'GET' && segments.length === 3 && segments[0] === 'tickets') {
+      handleGetTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
+    } else if (method === 'PATCH' && segments.length === 3 && segments[0] === 'tickets') {
+      bodyText = await readRequestBody(req);
+      handlePatchTicket(db, config, res, segments[1] ?? '', segments[2] ?? '', bodyText);
+    } else if (method === 'DELETE' && segments.length === 3 && segments[0] === 'tickets') {
+      handleDeleteTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'POST' && segments.length <= 1) {
       bodyText = await readRequestBody(req);
       handlePostCommand(db, config, res, segments[0], bodyText);
@@ -526,6 +785,11 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/files/:pathName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);
+  console.log(`  GET  ${base}/tickets/:pathName`);
+  console.log(`  POST ${base}/tickets/:pathName`);
+  console.log(`  GET  ${base}/tickets/:pathName/:id`);
+  console.log(`  PATCH ${base}/tickets/:pathName/:id`);
+  console.log(`  DELETE ${base}/tickets/:pathName/:id`);
 }
 
 export interface RunningServer {

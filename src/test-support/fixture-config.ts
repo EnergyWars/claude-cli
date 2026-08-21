@@ -37,6 +37,11 @@ export interface FixtureTask {
   startCommand?: string;
 }
 
+export interface FixtureTicketAgent {
+  model?: string;
+  task?: string;
+}
+
 export interface FixtureConfigOptions {
   main?: { description?: string; contexts?: string[]; model?: string };
   agents?: FixtureAgent[];
@@ -44,6 +49,7 @@ export interface FixtureConfigOptions {
   contexts?: Record<string, string>;
   paths?: FixturePathEntry[];
   tasks?: FixtureTask[];
+  ticketAgent?: FixtureTicketAgent;
 }
 
 export interface Fixture {
@@ -76,6 +82,11 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
       startCommand: 'mach was',
       ...task,
     })),
+    ticketAgent: {
+      model: 'haiku',
+      task: 'Test-Ticket-Agent-Aufgabe',
+      ...options.ticketAgent,
+    },
   };
   writeFileSync(join(rootDir, 'config.json'), JSON.stringify(config, null, 2));
 

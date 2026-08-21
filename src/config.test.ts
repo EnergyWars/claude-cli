@@ -42,6 +42,7 @@ function validRawConfig(): unknown {
         startCommand: 'raeum auf',
       },
     ],
+    ticketAgent: { model: 'haiku', task: 'Erstelle ein Ticket aus dem Text.' },
   };
 }
 
@@ -185,6 +186,36 @@ test('parseConfig: wirft wenn ein Task-Eintrag "model" fehlt', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
+test('parseConfig: wirft ohne Feld "ticketAgent"', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  delete raw.ticketAgent;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn "ticketAgent.model" fehlt', () => {
+  const raw = validRawConfig() as { ticketAgent: Record<string, unknown> };
+  delete raw.ticketAgent.model;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn "ticketAgent.task" fehlt', () => {
+  const raw = validRawConfig() as { ticketAgent: Record<string, unknown> };
+  delete raw.ticketAgent.task;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn "ticketAgent.task" leer ist', () => {
+  const raw = validRawConfig() as { ticketAgent: Record<string, unknown> };
+  raw.ticketAgent.task = '   ';
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn "ticketAgent.model" leer ist', () => {
+  const raw = validRawConfig() as { ticketAgent: Record<string, unknown> };
+  raw.ticketAgent.model = '';
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
 function firstAgentOf(raw: unknown): Record<string, unknown> {
   const record = raw as { agents: Record<string, unknown>[] };
   const [firstAgent] = record.agents;
@@ -240,6 +271,12 @@ test('parseConfig: wirft bei Agent-Namen "instr"', () => {
   assert.throws(() => parseConfig(raw), /reservierten Commands/);
 });
 
+test('parseConfig: wirft bei Agent-Namen "ticket"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).name = 'ticket';
+  assert.throws(() => parseConfig(raw), /reservierten Commands/);
+});
+
 test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
   const config: Config = {
     main: { description: 'Main-Desc', contexts: ['main'], model: 'sonnet' },
@@ -250,6 +287,7 @@ test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
     databaseDirectory: '/tmp/x',
     paths: [],
     tasks: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
   };
   assert.deepEqual(listAgents(config), [
     { command: 'cl', description: 'Main-Desc' },
@@ -316,6 +354,7 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
   };
 
   assert.deepEqual(listHostedNames(config, 'myapp'), ['notes', 'docs']);
@@ -357,6 +396,7 @@ test('listHostedSummaries: liefert Name + Typ der Hosted-Eintraege eines Pfads',
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
   };
 
   assert.deepEqual(listHostedSummaries(config, 'myapp'), [
@@ -387,6 +427,7 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
   };
 
   assert.deepEqual(listPathCommands(config, 'myapp'), [
@@ -495,6 +536,7 @@ test('loadPathsOverride/applyPathsOverride: liest Datei und ersetzt config.paths
       databaseDirectory: '/tmp/x',
       paths: [{ name: 'original', path: '/original' }],
       tasks: [],
+      ticketAgent: { model: 'haiku', task: 'Test-Task' },
     };
     const overridden = applyPathsOverride(config, paths);
     assert.deepEqual(overridden.paths, [{ name: 'override', path: '/override' }]);
@@ -530,6 +572,7 @@ test('listTasks: jeder Task als "cl task <name>" mit description', () => {
       { name: 'a', description: 'A-Desc', contexts: [], model: 'sonnet', startCommand: 'x' },
       { name: 'b', description: 'B-Desc', contexts: [], model: 'opus', startCommand: 'y' },
     ],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
   };
   assert.deepEqual(listTasks(config), [
     { command: 'cl task a', description: 'A-Desc' },

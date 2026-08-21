@@ -73,6 +73,36 @@ data class Manifest(val agents: List<ManifestAgent>, val paths: List<ManifestPat
 const val HOSTED_TYPE_FILE = "file"
 const val HOSTED_TYPE_PATH = "path"
 
+const val TICKET_STATUS_OPEN = "open"
+const val TICKET_STATUS_IN_PROGRESS = "in progress"
+const val TICKET_STATUS_CLOSED = "closed"
+
+@Serializable
+data class Ticket(
+    val id: Int,
+    val pathName: String,
+    val title: String,
+    val description: String,
+    val task: String,
+    val status: String,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class TicketList(val tickets: List<Ticket>)
+
+@Serializable
+data class TicketCreateRequest(val text: String)
+
+@Serializable
+data class TicketPatchRequest(
+    val title: String? = null,
+    val description: String? = null,
+    val task: String? = null,
+    val status: String? = null,
+)
+
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
 

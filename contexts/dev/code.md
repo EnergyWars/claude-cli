@@ -21,3 +21,4 @@
 - Verwende niemals alpha oder beta versionen von eiongebundenen Bibliotheken
 - Keine deprecated Inhalte verwenden
 - Jede Datenbankmigration MUSS vollständig durch Tests abgedeckt sein
+- Du kümmerst dich nur um Tests, die dein eigenes Feature betreffen. alle anderen darfst du nicht ausführen, außer du wirst aufgefordert

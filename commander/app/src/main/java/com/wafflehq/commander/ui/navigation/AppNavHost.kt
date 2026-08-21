@@ -31,6 +31,8 @@ import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
 import com.wafflehq.commander.ui.settings.SettingsScreen
 import com.wafflehq.commander.ui.setup.SetupScreen
 import com.wafflehq.commander.ui.theme.AppTheme
+import com.wafflehq.commander.ui.tickets.TicketDetailScreen
+import com.wafflehq.commander.ui.tickets.TicketListScreen
 import kotlinx.coroutines.launch
 
 object Routes {
@@ -41,6 +43,8 @@ object Routes {
     const val RUN_AGENT = "run_agent?agent={agent}&path={path}"
     const val PATH_DETAIL = "path_detail/{pathName}"
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
+    const val TICKETS = "tickets/{pathName}"
+    const val TICKET_DETAIL = "tickets/{pathName}/{id}"
 
     fun runAgent(agentCommand: String? = null, pathName: String? = null): String {
         val params = buildList {
@@ -56,6 +60,10 @@ object Routes {
         val query = pathName?.let { "?pathName=${Uri.encode(it)}" }.orEmpty()
         return "command_detail/${Uri.encode(id)}$query"
     }
+
+    fun tickets(pathName: String): String = "tickets/${Uri.encode(pathName)}"
+
+    fun ticketDetail(pathName: String, id: Int): String = "tickets/${Uri.encode(pathName)}/$id"
 }
 
 private fun NavController.switchTo(route: String) {
@@ -147,6 +155,7 @@ fun AppNavHost() {
                     onBack = { navController.popBackStack() },
                     onStartAgent = { pathName -> navController.navigate(Routes.runAgent(pathName = pathName)) },
                     onCommandStarted = { commandId, pathName -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
+                    onOpenTickets = { pathName -> navController.navigate(Routes.tickets(pathName)) },
                 )
             }
             composable(
@@ -157,6 +166,24 @@ fun AppNavHost() {
                 ),
             ) {
                 CommandDetailScreen(onBack = { navController.popBackStack() })
+            }
+            composable(
+                route = Routes.TICKETS,
+                arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+            ) {
+                TicketListScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenTicket = { pathName, id -> navController.navigate(Routes.ticketDetail(pathName, id)) },
+                )
+            }
+            composable(
+                route = Routes.TICKET_DETAIL,
+                arguments = listOf(
+                    navArgument("pathName") { type = NavType.StringType },
+                    navArgument("id") { type = NavType.IntType },
+                ),
+            ) {
+                TicketDetailScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

@@ -55,6 +55,16 @@ Da `cl server` selbst keine Liste aller Commands anbietet, merkt sich die App lo
 
 `data/download/HostedFileDownloader.kt` kapselt Download (`ClServerApi.downloadHostedEntry`/`downloadHostedFile`, Zieldateiname aus dem `Content-Disposition`-Header) und das anschließende Öffnen/Teilen über einen `FileProvider` (`res/xml/file_paths.xml`, Autorität `<applicationId>.fileprovider`) – kein Speicher-Runtime-Permission nötig, funktioniert auf allen unterstützten API-Leveln (26–35) identisch.
 
+## Tickets
+
+Von der Pfad-Detailseite aus über den Button „Tickets“ erreichbar – ein pro Pfad geführter Ticket-Tracker gegen `cl server`s `/tickets/...`-Endpunkte.
+
+**Liste:** Zeigt alle Tickets des Pfads (`GET /tickets/<pathName>`), jede Zeile mit Titel, kurzer Beschreibung (max. zwei Zeilen) und einer Status-Pille (Offen/In Bearbeitung/Geschlossen). Ein Status-Dropdown filtert die Liste (Query-Parameter `status`, „Alle“ = ohne Filter). Ein Textfeld + „Ticket erstellen“ oben auf der Seite schickt den eingegebenen Text an `POST /tickets/<pathName>` – ein Agent auf dem Server interpretiert ihn im Projektkontext und legt daraus Titel/Beschreibung/Aufgabe an; nach Erfolg öffnet die App automatisch die Detailseite des neuen Tickets.
+
+**Detail:** Textfelder für Titel, Beschreibung und Aufgabe sowie ein Status-Dropdown, alle vorausgefüllt mit dem aktuellen Stand (`GET /tickets/<pathName>/<id>`). „Speichern“ schickt alle vier Werte per `PATCH /tickets/<pathName>/<id>`. „Ticket löschen“ ruft `DELETE /tickets/<pathName>/<id>` auf und kehrt danach zur Liste zurück.
+
+Implementiert in `ui/tickets/` (`TicketListScreen`/`TicketListViewModel`, `TicketDetailScreen`/`TicketDetailViewModel`, `TicketStatusUi.kt` für die Status→Farbe/Label-Zuordnung), `data/api/ClServerApi.kt` (`listTickets`/`createTicket`/`getTicket`/`updateTicket`/`deleteTicket`), `data/api/ApiModels.kt` (`Ticket`/`TicketList`/`TicketCreateRequest`/`TicketPatchRequest`). Getestet in `data/api/ClServerApiTest.kt` (alle fünf Aufrufe gegen MockWebServer, inkl. Query-Parameter und PATCH/DELETE-Methode).
+
 ## Einstellungen
 
 Wiederverwendet die Basisvorlage: Theme-Umschalter (System/Hell/Dunkel, DataStore-persistiert). Zusätzlich ein „Verbindung“-Abschnitt: zeigt Host:Port der aktiven Verbindung, „Verbindung trennen“ löscht sie und führt zurück zum Setup-Screen.

@@ -45,6 +45,7 @@ fun PathDetailScreen(
     onBack: () -> Unit,
     onStartAgent: (pathName: String) -> Unit,
     onCommandStarted: (commandId: String, pathName: String) -> Unit,
+    onOpenTickets: (pathName: String) -> Unit,
     viewModel: PathDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -80,6 +81,12 @@ fun PathDetailScreen(
                 text = stringResource(R.string.path_detail_start_agent),
                 role = AppRole.Primary,
                 onClick = { onStartAgent(viewModel.pathName) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            AppButton(
+                text = stringResource(R.string.path_detail_open_tickets),
+                role = AppRole.Secondary,
+                onClick = { onOpenTickets(viewModel.pathName) },
                 modifier = Modifier.fillMaxWidth(),
             )
 

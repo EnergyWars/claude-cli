@@ -48,6 +48,7 @@ before(async () => {
           { key: 'fail', command: 'exit 5', displayName: 'Fail', description: 'Schlaegt fehl' },
         ],
       },
+      { name: 'other', path: hostedDir },
     ],
   });
   mock = createMockClaude({ outputChunks: ['erste Zeile\n', 'zweite Zeile\n'], chunkDelayMs: 30 });
@@ -197,7 +198,7 @@ test('GET /paths: listet nur die Namen aus config.json', async () => {
   const res = await fetch(`${baseUrl()}/paths`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { paths: string[] };
-  assert.deepEqual(body.paths, ['default']);
+  assert.deepEqual(body.paths, ['default', 'other']);
 });
 
 test('GET /paths: 401 ohne "X-TOTP-Code"-Header', async () => {
@@ -221,7 +222,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
     { command: 'cl dev', description: 'Dev-Agent' },
   ]);
   assert.ok(!('tasks' in body));
-  assert.equal(body.paths.length, 1);
+  assert.equal(body.paths.length, 2);
   const [defaultPath] = body.paths;
   assert.ok(defaultPath);
   assert.equal(defaultPath.name, 'default');
@@ -395,6 +396,249 @@ test('POST /paths/default/commands/fail: nicht-null Exit-Code wird als "failed" 
 test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key', async () => {
   const res = await fetch(`${baseUrl()}/paths/default/commands/doesnotexist`, {
     method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+interface TicketBody {
+  id: number;
+  pathName: string;
+  title: string;
+  description: string;
+  task: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+async function withTicketAgentOutput<T>(outputChunks: string[], fn: () => Promise<T>): Promise<T> {
+  const ticketMock = createMockClaude({ outputChunks, exitCode: 0 });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(ticketMock.binDir);
+  try {
+    return await fn();
+  } finally {
+    process.env.PATH = previous;
+    ticketMock.cleanup();
+  }
+}
+
+function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}): string {
+  return JSON.stringify({
+    title: 'Ticket-Titel',
+    description: 'Ticket-Beschreibung',
+    task: 'Ticket-Aufgabe',
+    ...overrides,
+  });
+}
+
+async function createTicket(pathName = 'default', text = 'ein neues Feature'): Promise<TicketBody> {
+  return withTicketAgentOutput([validTicketAgentOutput()], async () => {
+    const res = await fetch(`${baseUrl()}/tickets/${pathName}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ text }),
+    });
+    assert.equal(res.status, 201);
+    return (await res.json()) as TicketBody;
+  });
+}
+
+test('POST /tickets/default: erstellt ein Ticket via Ticket-Agent, antwortet mit 201 + Ticket', async () => {
+  const ticket = await createTicket();
+  assert.equal(typeof ticket.id, 'number');
+  assert.equal(ticket.pathName, 'default');
+  assert.equal(ticket.title, 'Ticket-Titel');
+  assert.equal(ticket.description, 'Ticket-Beschreibung');
+  assert.equal(ticket.task, 'Ticket-Aufgabe');
+  assert.equal(ticket.status, 'open');
+});
+
+test('POST /tickets/default: 400 bei fehlendem "text"', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /tickets/default: 400 bei ungueltigem JSON-Body', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: '{invalid',
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /tickets/doesnotexist: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/doesnotexist`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ text: 'x' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /tickets/default: 502 wenn die Agent-Antwort kein gueltiges Ticket-JSON enthaelt', async () => {
+  const res = await withTicketAgentOutput(['kein json hier'], async () =>
+    fetch(`${baseUrl()}/tickets/default`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ text: 'x' }),
+    }),
+  );
+  assert.equal(res.status, 502);
+});
+
+test('POST /tickets/default: 401 ohne "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'x' }),
+  });
+  assert.equal(res.status, 401);
+});
+
+test('GET /tickets/default: listet alle Tickets des Pfads ohne Status-Filter', async () => {
+  const first = await createTicket();
+  const second = await createTicket();
+
+  const res = await fetch(`${baseUrl()}/tickets/default`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { tickets: TicketBody[] };
+  const ids = body.tickets.map((t) => t.id);
+  assert.ok(ids.includes(first.id));
+  assert.ok(ids.includes(second.id));
+});
+
+test('GET /tickets/default?status=open: filtert nach Status', async () => {
+  const openTicket = await createTicket();
+  const toClose = await createTicket();
+  await fetch(`${baseUrl()}/tickets/default/${String(toClose.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status: 'closed' }),
+  });
+
+  const res = await fetch(`${baseUrl()}/tickets/default?status=open`, { headers: authHeaders() });
+  const body = (await res.json()) as { tickets: TicketBody[] };
+  const ids = body.tickets.map((t) => t.id);
+  assert.ok(ids.includes(openTicket.id));
+  assert.ok(!ids.includes(toClose.id));
+});
+
+test('GET /tickets/default?status=invalid: 400 bei ungueltigem Status', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default?status=invalid`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('GET /tickets/doesnotexist: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/doesnotexist`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /tickets/default: 401 ohne "X-TOTP-Code"-Header', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /tickets/default/:id: liefert genau dieses Ticket', async () => {
+  const ticket = await createTicket();
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as TicketBody;
+  assert.deepEqual(body, ticket);
+});
+
+test('GET /tickets/default/:id: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default/999999`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /tickets/default/:id: 404 wenn die ID zu einem anderen Pfad gehoert', async () => {
+  const otherTicket = await createTicket('other');
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(otherTicket.id)}`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('PATCH /tickets/default/:id: aktualisiert Felder und liefert das aktualisierte Ticket', async () => {
+  const ticket = await createTicket();
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title: 'Neuer Titel', status: 'in progress' }),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as TicketBody;
+  assert.equal(body.title, 'Neuer Titel');
+  assert.equal(body.status, 'in progress');
+  assert.equal(body.description, ticket.description);
+});
+
+test('PATCH /tickets/default/:id: 400 bei ungueltigem Status', async () => {
+  const ticket = await createTicket();
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status: 'invalid' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('PATCH /tickets/default/:id: 400 ohne jegliches Feld', async () => {
+  const ticket = await createTicket();
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('PATCH /tickets/default/:id: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default/999999`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title: 'x' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('PATCH /tickets/doesnotexist/:id: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/doesnotexist/1`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title: 'x' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('DELETE /tickets/default/:id: loescht das Ticket, danach 404 beim erneuten Abruf', async () => {
+  const ticket = await createTicket();
+  const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 200);
+
+  const getRes = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
+    headers: authHeaders(),
+  });
+  assert.equal(getRes.status, 404);
+});
+
+test('DELETE /tickets/default/:id: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/tickets/default/999999`, {
+    method: 'DELETE',
     headers: authHeaders(),
   });
   assert.equal(res.status, 404);
