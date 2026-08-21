@@ -12,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppButton
@@ -21,6 +20,7 @@ import com.wafflehq.commander.ui.components.SettingsGroup
 import com.wafflehq.commander.ui.components.SettingsGroupDivider
 import com.wafflehq.commander.ui.components.SettingsListContent
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppTheme
 

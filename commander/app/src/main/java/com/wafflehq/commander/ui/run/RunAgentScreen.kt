@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
@@ -23,6 +22,7 @@ import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppTextField
 import com.wafflehq.commander.ui.components.SettingsDropdownField
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 
