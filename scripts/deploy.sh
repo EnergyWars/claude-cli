@@ -14,7 +14,9 @@ if [ ! -f "$ENTRY" ]; then
 fi
 
 # Deployed file must be self-contained (no node_modules alongside it in ~/.local/bin).
-"$ESBUILD" "$ENTRY" --bundle --platform=node --format=esm --outfile="$BUNDLE"
+"$ESBUILD" "$ENTRY" --bundle --platform=node --format=esm \
+  --banner:js="import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" \
+  --outfile="$BUNDLE"
 
 mkdir -p "$TARGET_DIR"
 cp "$BUNDLE" "$TARGET_DIR/$TARGET_NAME"
