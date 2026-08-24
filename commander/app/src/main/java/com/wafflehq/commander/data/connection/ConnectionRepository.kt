@@ -3,10 +3,12 @@ package com.wafflehq.commander.data.connection
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.wafflehq.commander.data.crypto.KeystoreCipher
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -17,39 +19,75 @@ private val Context.connectionDataStore by preferencesDataStore(name = "connecti
 data class Connection(
     val host: String,
     val port: Int,
-    val totpSecret: String,
 )
 
-/** Read-only view used by [com.wafflehq.commander.data.api.ClServerApi] - lets tests fake the current connection without an Android Context. */
+data class AuthSession(
+    val token: String,
+    val expiresAt: Instant,
+)
+
+data class Session(
+    val connection: Connection,
+    val auth: AuthSession?,
+)
+
+/** Read-only view used by [com.wafflehq.commander.data.api.ClServerApi] - lets tests fake the current session without an Android Context. */
 interface ConnectionSource {
-    val connection: Flow<Connection?>
+    val session: Flow<Session?>
+}
+
+/** Write-only view for [com.wafflehq.commander.data.api.ClServerApi] to drop a rejected/expired session without needing the full repository. */
+interface SessionInvalidator {
+    suspend fun clearAuthSession()
 }
 
 @Singleton
 class ConnectionRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val cipher: KeystoreCipher,
-) : ConnectionSource {
+) : ConnectionSource, SessionInvalidator {
     private val hostKey = stringPreferencesKey("host")
     private val portKey = intPreferencesKey("port")
-    private val encryptedSecretKey = stringPreferencesKey("totp_secret_encrypted")
+    private val tokenEncryptedKey = stringPreferencesKey("token_encrypted")
+    private val tokenExpiresAtEpochSecondsKey = longPreferencesKey("token_expires_at_epoch_seconds")
 
-    override val connection: Flow<Connection?> = context.connectionDataStore.data.map { prefs ->
+    override val session: Flow<Session?> = context.connectionDataStore.data.map { prefs ->
         val host = prefs[hostKey]
         val port = prefs[portKey]
-        val encryptedSecret = prefs[encryptedSecretKey]
-        if (host == null || port == null || encryptedSecret == null) {
+        if (host == null || port == null) {
             null
         } else {
-            Connection(host = host, port = port, totpSecret = cipher.decrypt(encryptedSecret))
+            val encryptedToken = prefs[tokenEncryptedKey]
+            val expiresAtEpochSeconds = prefs[tokenExpiresAtEpochSecondsKey]
+            val auth = if (encryptedToken == null || expiresAtEpochSeconds == null) {
+                null
+            } else {
+                AuthSession(cipher.decrypt(encryptedToken), Instant.ofEpochSecond(expiresAtEpochSeconds))
+            }
+            Session(Connection(host = host, port = port), auth)
         }
     }
 
-    suspend fun save(connection: Connection) {
+    suspend fun saveConnection(host: String, port: Int) {
         context.connectionDataStore.edit { prefs ->
-            prefs[hostKey] = connection.host
-            prefs[portKey] = connection.port
-            prefs[encryptedSecretKey] = cipher.encrypt(connection.totpSecret)
+            prefs[hostKey] = host
+            prefs[portKey] = port
+            prefs.remove(tokenEncryptedKey)
+            prefs.remove(tokenExpiresAtEpochSecondsKey)
+        }
+    }
+
+    suspend fun saveAuthSession(token: String, expiresAt: Instant) {
+        context.connectionDataStore.edit { prefs ->
+            prefs[tokenEncryptedKey] = cipher.encrypt(token)
+            prefs[tokenExpiresAtEpochSecondsKey] = expiresAt.epochSecond
+        }
+    }
+
+    override suspend fun clearAuthSession() {
+        context.connectionDataStore.edit { prefs ->
+            prefs.remove(tokenEncryptedKey)
+            prefs.remove(tokenExpiresAtEpochSecondsKey)
         }
     }
 

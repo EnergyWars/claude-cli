@@ -4,6 +4,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { basename, extname, join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
+import QRCode from 'qrcode';
+
 import {
   completeCommand,
   confirmTotpSecret,
@@ -42,11 +44,14 @@ import {
   resolvePathCommand,
   resolvePathEntry,
 } from './config.js';
+import { signJwt, verifyJwt } from './jwt.js';
 import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
 import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
+
+const JWT_TTL_SECONDS = 60 * 60;
 
 const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
@@ -75,7 +80,7 @@ interface CommandRequestBody {
   path: string;
 }
 
-interface AuthSetupConfirmBody {
+interface AuthCodeBody {
   code: string;
 }
 
@@ -192,7 +197,7 @@ function parseTicketUpdateBody(raw: unknown): TicketUpdate {
   return update;
 }
 
-function parseAuthSetupConfirmBody(raw: unknown): AuthSetupConfirmBody {
+function parseAuthCodeBody(raw: unknown): AuthCodeBody {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('Body muss ein JSON-Objekt sein.');
   }
@@ -203,17 +208,27 @@ function parseAuthSetupConfirmBody(raw: unknown): AuthSetupConfirmBody {
   return { code: record.code };
 }
 
-function isRequestAuthorized(db: DatabaseSync, req: IncomingMessage): boolean {
+function issueAuthToken(jwtSecret: string): { token: string; expiresAt: string } {
+  const nowMs = Date.now();
+  const token = signJwt({}, jwtSecret, { expiresInSeconds: JWT_TTL_SECONDS, nowMs });
+  const expiresAt = new Date(nowMs + JWT_TTL_SECONDS * 1000).toISOString();
+  return { token, expiresAt };
+}
+
+function authorizeRequest(db: DatabaseSync, req: IncomingMessage): boolean {
   const totp = getTotpSecret(db);
   if (!totp?.confirmed) {
     return false;
   }
-  const header = req.headers['x-totp-code'];
-  const code = Array.isArray(header) ? header[0] : header;
-  if (typeof code !== 'string') {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
     return false;
   }
-  return verifyTotp(totp.secret, code);
+  const token = header.slice('Bearer '.length).trim();
+  if (token.length === 0) {
+    return false;
+  }
+  return verifyJwt(token, totp.jwtSecret).valid;
 }
 
 function handlePostAuthSetup(db: DatabaseSync, res: ServerResponse): void {
@@ -230,6 +245,70 @@ function handlePostAuthSetup(db: DatabaseSync, res: ServerResponse): void {
   sendJson(res, 200, { secret, otpauthUrl: buildOtpAuthUrl(secret, 'cl-server', 'cl') });
 }
 
+function sendHtml(res: ServerResponse, statusCode: number, html: string): void {
+  res.writeHead(statusCode, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function htmlPage(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 48px auto; padding: 0 16px; color: #1a1a1a; }
+  .qr { margin: 24px 0; }
+  .qr svg { width: 240px; height: 240px; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+  .hint { color: #555; font-size: 0.9em; }
+</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
+async function handleGetAuthSetup(db: DatabaseSync, res: ServerResponse): Promise<void> {
+  let totp = getTotpSecret(db);
+  if (totp?.confirmed) {
+    sendHtml(
+      res,
+      200,
+      htmlPage(
+        'cl server – bereits eingerichtet',
+        `<h1>Bereits eingerichtet</h1>
+<p>Es ist bereits ein Google Authenticator aktiv. Um einen neuen einzurichten, zuerst auf dem Server <code>cl totp remove</code> ausfuehren.</p>`,
+      ),
+    );
+    return;
+  }
+  if (!totp) {
+    setPendingTotpSecret(db, generateSecret());
+    totp = getTotpSecret(db);
+  }
+  if (!totp) {
+    throw new Error('TOTP-Secret konnte nicht angelegt werden.');
+  }
+  const otpauthUrl = buildOtpAuthUrl(totp.secret, 'cl-server', 'cl');
+  const qrSvg = await QRCode.toString(otpauthUrl, { type: 'svg' });
+  sendHtml(
+    res,
+    200,
+    htmlPage(
+      'cl server – Einrichtung',
+      `<h1>Google Authenticator einrichten</h1>
+<p>Scanne diesen QR-Code mit Google Authenticator (oder einer kompatiblen App):</p>
+<div class="qr">${qrSvg}</div>
+<p class="hint">Falls Scannen nicht moeglich ist, trage dieses Secret manuell ein:</p>
+<p><code>${totp.secret}</code></p>
+<p>Gib danach den 6-stelligen Code in der commander-App ein, um die Einrichtung abzuschliessen.</p>`,
+    ),
+  );
+}
+
 function handlePostAuthSetupConfirm(db: DatabaseSync, res: ServerResponse, bodyText: string): void {
   let parsedBody: unknown;
   try {
@@ -239,9 +318,9 @@ function handlePostAuthSetupConfirm(db: DatabaseSync, res: ServerResponse, bodyT
     return;
   }
 
-  let body: AuthSetupConfirmBody;
+  let body: AuthCodeBody;
   try {
-    body = parseAuthSetupConfirmBody(parsedBody);
+    body = parseAuthCodeBody(parsedBody);
   } catch (error) {
     sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     return;
@@ -263,11 +342,47 @@ function handlePostAuthSetupConfirm(db: DatabaseSync, res: ServerResponse, bodyT
     return;
   }
   confirmTotpSecret(db);
-  sendJson(res, 200, { message: 'Google Authenticator aktiviert.' });
+  const { token, expiresAt } = issueAuthToken(existing.jwtSecret);
+  sendJson(res, 200, { message: 'Google Authenticator aktiviert.', token, expiresAt });
+}
+
+function handlePostAuthLogin(db: DatabaseSync, res: ServerResponse, bodyText: string): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: AuthCodeBody;
+  try {
+    body = parseAuthCodeBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const totp = getTotpSecret(db);
+  if (!totp?.confirmed) {
+    sendJson(res, 400, { error: 'Kein aktiver Google Authenticator eingerichtet.' });
+    return;
+  }
+  if (!verifyTotp(totp.secret, body.code)) {
+    sendJson(res, 401, { error: 'Ungueltiger Code.' });
+    return;
+  }
+  const { token, expiresAt } = issueAuthToken(totp.jwtSecret);
+  sendJson(res, 200, { token, expiresAt });
 }
 
 function handleGetHealth(res: ServerResponse): void {
   sendJson(res, 200, { status: 'ok', version: VERSION });
+}
+
+function handleGetStatus(res: ServerResponse): void {
+  res.writeHead(204);
+  res.end();
 }
 
 function handleGetAuthStatus(db: DatabaseSync, res: ServerResponse): void {
@@ -685,6 +800,8 @@ async function handleRequest(
     if (segments[0] === 'auth') {
       if (!isLocalNetworkAddress(req.socket.remoteAddress)) {
         sendJson(res, 404, { error: 'Route nicht gefunden.' });
+      } else if (method === 'GET' && segments.length === 2 && segments[1] === 'setup') {
+        await handleGetAuthSetup(db, res);
       } else if (method === 'POST' && segments.length === 2 && segments[1] === 'setup') {
         handlePostAuthSetup(db, res);
       } else if (
@@ -695,6 +812,9 @@ async function handleRequest(
       ) {
         bodyText = await readRequestBody(req);
         handlePostAuthSetupConfirm(db, res, bodyText);
+      } else if (method === 'POST' && segments.length === 2 && segments[1] === 'login') {
+        bodyText = await readRequestBody(req);
+        handlePostAuthLogin(db, res, bodyText);
       } else if (method === 'GET' && segments.length === 2 && segments[1] === 'status') {
         handleGetAuthStatus(db, res);
       } else {
@@ -702,9 +822,11 @@ async function handleRequest(
       }
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'health') {
       handleGetHealth(res);
-    } else if (!isRequestAuthorized(db, req)) {
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'status') {
+      handleGetStatus(res);
+    } else if (!authorizeRequest(db, req)) {
       sendJson(res, 401, {
-        error: 'TOTP-Code fehlt oder ist ungueltig (Header "X-TOTP-Code").',
+        error: 'JWT fehlt oder ist ungueltig/abgelaufen (Header "Authorization: Bearer <token>").',
       });
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'state') {
       handleGetState(db, res, segments[1] ?? '');
@@ -764,10 +886,15 @@ async function handleRequest(
 function printEndpoints(config: Config, port: number): void {
   const base = `http://localhost:${port.toString()}`;
   console.log('Endpunkte:');
-  console.log('(ausser /health und /auth/setup* verlangen alle den Header "X-TOTP-Code")');
+  console.log(
+    '(ausser /health, /status und /auth/* verlangen alle den Header "Authorization: Bearer <jwt>")',
+  );
   console.log(`  GET  ${base}/health                (kein Auth noetig)`);
+  console.log(`  GET  ${base}/status                (kein Auth noetig, 204 leer, fuer Auto-Discovery)`);
+  console.log(`  GET  ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404 - zeigt QR-Code)`);
   console.log(`  POST ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404)`);
-  console.log(`  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404)`);
+  console.log(`  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`);
+  console.log(`  POST ${base}/auth/login           (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`);
   console.log(`  GET  ${base}/auth/status          (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {

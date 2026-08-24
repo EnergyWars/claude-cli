@@ -21,12 +21,13 @@ import { runCli } from './test-support/run-cli.js';
 async function setupAndConfirmTotp(baseUrl: string): Promise<string> {
   const setupRes = await fetch(`${baseUrl}/auth/setup`, { method: 'POST' });
   const { secret } = (await setupRes.json()) as { secret: string };
-  await fetch(`${baseUrl}/auth/setup/confirm`, {
+  const confirmRes = await fetch(`${baseUrl}/auth/setup/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code: generateTotp(secret) }),
   });
-  return secret;
+  const { token } = (await confirmRes.json()) as { token: string };
+  return token;
 }
 
 let fixture: Fixture;
@@ -171,9 +172,9 @@ test('cl server: startet, druckt Endpunkte, beantwortet Requests, beendet sich a
     assert.ok(port);
     const url = `http://localhost:${port}`;
 
-    const secret = await setupAndConfirmTotp(url);
+    const token = await setupAndConfirmTotp(url);
     const res = await fetch(`${url}/state/unknown`, {
-      headers: { 'X-TOTP-Code': generateTotp(secret) },
+      headers: { Authorization: `Bearer ${token}` },
     });
     assert.equal(res.status, 404);
   } finally {
@@ -220,8 +221,8 @@ test('cl server --paths-file: ueberschreibt die paths aus config.json vollstaend
     assert.ok(port);
     const url = `http://localhost:${port}`;
 
-    const secret = await setupAndConfirmTotp(url);
-    const res = await fetch(`${url}/paths`, { headers: { 'X-TOTP-Code': generateTotp(secret) } });
+    const token = await setupAndConfirmTotp(url);
+    const res = await fetch(`${url}/paths`, { headers: { Authorization: `Bearer ${token}` } });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { paths: string[] };
     assert.deepEqual(body.paths, ['override']);
@@ -280,9 +281,9 @@ test('cl totp remove: entfernt einen aktiven Authenticator; Server-Endpunkte sin
     assert.ok(port);
     const url = `http://localhost:${port}`;
 
-    const secret = await setupAndConfirmTotp(url);
+    const token = await setupAndConfirmTotp(url);
     const authorized = await fetch(`${url}/paths`, {
-      headers: { 'X-TOTP-Code': generateTotp(secret) },
+      headers: { Authorization: `Bearer ${token}` },
     });
     assert.equal(authorized.status, 200);
   } finally {

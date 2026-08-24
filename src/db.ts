@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite';
@@ -15,6 +16,23 @@ export interface CommandRow {
   exitCode: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function ensureColumns(
+  db: DatabaseSync,
+  table: string,
+  columns: { name: string; definition: string }[],
+): void {
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+      (row) => row.name,
+    ),
+  );
+  for (const column of columns) {
+    if (!existing.has(column.name)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column.definition}`);
+    }
+  }
 }
 
 export function openDatabase(directory: string): DatabaseSync {
@@ -37,7 +55,6 @@ export function openDatabase(directory: string): DatabaseSync {
       agent TEXT NOT NULL,
       model TEXT NOT NULL,
       command TEXT NOT NULL,
-      path TEXT NOT NULL,
       status TEXT NOT NULL,
       output TEXT NOT NULL DEFAULT '',
       exit_code INTEGER,
@@ -45,6 +62,9 @@ export function openDatabase(directory: string): DatabaseSync {
       updated_at TEXT NOT NULL
     )
   `);
+  ensureColumns(db, 't_commands', [
+    { name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" },
+  ]);
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_totp (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -53,6 +73,10 @@ export function openDatabase(directory: string): DatabaseSync {
       created_at TEXT NOT NULL
     )
   `);
+  ensureColumns(db, 't_totp', [{ name: 'jwt_secret', definition: 'jwt_secret TEXT' }]);
+  db.prepare('UPDATE t_totp SET jwt_secret = ? WHERE id = 1 AND jwt_secret IS NULL').run(
+    randomBytes(32).toString('hex'),
+  );
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,6 +159,7 @@ export interface TotpRow {
   secret: string;
   confirmed: boolean;
   createdAt: string;
+  jwtSecret: string;
 }
 
 function toTotpRow(row: Record<string, SQLOutputValue>): TotpRow {
@@ -142,19 +167,23 @@ function toTotpRow(row: Record<string, SQLOutputValue>): TotpRow {
     secret: String(row.secret),
     confirmed: Number(row.confirmed) === 1,
     createdAt: String(row.created_at),
+    jwtSecret: String(row.jwt_secret),
   };
 }
 
 export function getTotpSecret(db: DatabaseSync): TotpRow | undefined {
-  const row = db.prepare('SELECT secret, confirmed, created_at FROM t_totp WHERE id = 1').get();
+  const row = db
+    .prepare('SELECT secret, confirmed, created_at, jwt_secret FROM t_totp WHERE id = 1')
+    .get();
   return row === undefined ? undefined : toTotpRow(row);
 }
 
 export function setPendingTotpSecret(db: DatabaseSync, secret: string): void {
+  const jwtSecret = randomBytes(32).toString('hex');
   db.prepare(
-    `INSERT INTO t_totp (id, secret, confirmed, created_at) VALUES (1, ?, 0, ?)
-     ON CONFLICT(id) DO UPDATE SET secret = excluded.secret, confirmed = 0, created_at = excluded.created_at`,
-  ).run(secret, new Date().toISOString());
+    `INSERT INTO t_totp (id, secret, confirmed, created_at, jwt_secret) VALUES (1, ?, 0, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET secret = excluded.secret, confirmed = 0, created_at = excluded.created_at, jwt_secret = excluded.jwt_secret`,
+  ).run(secret, new Date().toISOString(), jwtSecret);
 }
 
 export function confirmTotpSecret(db: DatabaseSync): void {

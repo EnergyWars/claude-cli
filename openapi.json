@@ -31,6 +31,19 @@
         }
       }
     },
+    "/status": {
+      "get": {
+        "summary": "Leere 204-Antwort, kein Auth noetig, fuer Auto-Discovery",
+        "description": "Kein X-TOTP-Code noetig und keine Lokalnetz-Beschraenkung. Antwortet immer mit 204 und leerem Body - gedacht, damit ein Client beim Scannen des lokalen /24-Subnetzes pro Adresse moeglichst schnell und ohne JSON-Parsing feststellen kann, ob dort ein cl server laeuft.",
+        "operationId": "getStatus",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Server laeuft."
+          }
+        }
+      }
+    },
     "/auth/setup": {
       "post": {
         "summary": "Richtet einen neuen Google Authenticator ein (Schritt 1: Secret generieren)",

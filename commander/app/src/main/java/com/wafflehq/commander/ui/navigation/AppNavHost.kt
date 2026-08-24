@@ -9,6 +9,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ import androidx.navigation.navArgument
 import com.wafflehq.commander.ui.command.CommandDetailScreen
 import com.wafflehq.commander.ui.components.AppDrawer
 import com.wafflehq.commander.ui.home.HomeScreen
+import com.wafflehq.commander.ui.login.LoginScreen
 import com.wafflehq.commander.ui.pathdetail.PathDetailScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
 import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
@@ -36,6 +38,7 @@ import kotlinx.coroutines.launch
 
 object Routes {
     const val SETUP = "setup"
+    const val LOGIN = "login"
     const val HOME = "home"
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings_display"
@@ -76,10 +79,9 @@ private fun NavController.switchTo(route: String) {
 @Composable
 fun AppNavHost() {
     val gateViewModel: ConnectionGateViewModel = hiltViewModel()
-    val hasConnection by gateViewModel.hasConnection.collectAsStateWithLifecycle()
-    val resolvedConnection = hasConnection
+    val gateState by gateViewModel.gateState.collectAsStateWithLifecycle()
 
-    if (resolvedConnection == null) {
+    if (gateState is GateState.Loading) {
         Surface(color = AppTheme.colors.background, modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -93,6 +95,12 @@ fun AppNavHost() {
     val scope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    LaunchedEffect(gateState) {
+        if (gateState is GateState.NeedsLogin && currentRoute != Routes.LOGIN && currentRoute != Routes.SETUP) {
+            navController.navigate(Routes.LOGIN) { popUpTo(0) }
+        }
+    }
 
     val openMenu: () -> Unit = { scope.launch { drawerState.open() } }
     val navigateHome: () -> Unit = { navController.switchTo(Routes.HOME) }
@@ -118,10 +126,20 @@ fun AppNavHost() {
     ) {
         NavHost(
             navController = navController,
-            startDestination = if (resolvedConnection) Routes.HOME else Routes.SETUP,
+            startDestination = when (gateState) {
+                GateState.NoConnection -> Routes.SETUP
+                GateState.NeedsLogin -> Routes.LOGIN
+                GateState.Ready, GateState.Loading -> Routes.HOME
+            },
         ) {
             composable(Routes.SETUP) {
-                SetupScreen(onConnected = { navController.navigate(Routes.HOME) { popUpTo(0) } })
+                SetupScreen(onConnectionSaved = { navController.navigate(Routes.LOGIN) { popUpTo(0) } })
+            }
+            composable(Routes.LOGIN) {
+                LoginScreen(
+                    onLoggedIn = { navController.navigate(Routes.HOME) { popUpTo(0) } },
+                    onChangeConnection = { navController.navigate(Routes.SETUP) { popUpTo(0) } },
+                )
             }
             composable(Routes.HOME) {
                 HomeScreen(

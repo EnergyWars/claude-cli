@@ -1,9 +1,10 @@
 package com.wafflehq.commander.data.api
 
-import com.wafflehq.commander.data.connection.Connection
 import com.wafflehq.commander.data.connection.ConnectionSource
-import com.wafflehq.commander.data.totp.TotpGenerator
+import com.wafflehq.commander.data.connection.Session
+import com.wafflehq.commander.data.connection.SessionInvalidator
 import java.io.File
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,12 +25,13 @@ import okio.buffer
 import okio.sink
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-private const val TOTP_HEADER = "X-TOTP-Code"
+private const val AUTHORIZATION_HEADER = "Authorization"
 private val CONTENT_DISPOSITION_FILENAME = Regex("filename=\"([^\"]+)\"")
 
 @Singleton
 class ClServerApi @Inject constructor(
     private val connectionSource: ConnectionSource,
+    private val sessionInvalidator: SessionInvalidator,
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -42,14 +44,26 @@ class ClServerApi @Inject constructor(
         .readTimeout(5, TimeUnit.MINUTES)
         .build()
 
+    /** Short timeouts for scanning many local-network addresses at once during auto-discovery. */
+    private val discoveryClient = client.newBuilder()
+        .connectTimeout(400, TimeUnit.MILLISECONDS)
+        .readTimeout(400, TimeUnit.MILLISECONDS)
+        .build()
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun urlBuilder(host: String, port: Int): HttpUrl.Builder =
         HttpUrl.Builder().scheme("http").host(host).port(port)
 
-    private suspend fun requireConnection(): Connection =
-        connectionSource.connection.first()
+    private suspend fun requireSession(): Session {
+        val session = connectionSource.session.first()
             ?: throw ApiException(null, "Keine Verbindung konfiguriert.")
+        val auth = session.auth
+        if (auth == null || !auth.expiresAt.isAfter(Instant.now())) {
+            throw AuthRequiredException("Nicht eingeloggt.")
+        }
+        return session
+    }
 
     // -- Unauthenticated / pairing calls (host+port passed explicitly, no saved Connection yet) --
 
@@ -59,34 +73,31 @@ class ClServerApi @Inject constructor(
     suspend fun authStatus(host: String, port: Int): AuthStatusResponse =
         execute(Request.Builder().url(urlBuilder(host, port).addPathSegments("auth/status").build()).get())
 
-    suspend fun setupAuth(host: String, port: Int): AuthSetupResponse =
-        execute(
-            Request.Builder()
-                .url(urlBuilder(host, port).addPathSegments("auth/setup").build())
-                .post("".toRequestBody(null))
-        )
+    /** GET /status: 204 without a body, used to probe candidate addresses during auto-discovery. */
+    suspend fun probeStatus(host: String, port: Int): Boolean = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(urlBuilder(host, port).addPathSegment("status").build()).get().build()
+        try {
+            discoveryClient.newCall(request).execute().use { it.code == 204 }
+        } catch (error: java.io.IOException) {
+            false
+        }
+    }
 
-    suspend fun confirmAuthSetup(host: String, port: Int, code: String): MessageResponse =
+    suspend fun confirmAuthSetup(host: String, port: Int, code: String): AuthTokenResponse =
         execute(
             Request.Builder()
                 .url(urlBuilder(host, port).addPathSegments("auth/setup/confirm").build())
-                .post(json.encodeToString(AuthSetupConfirmRequest(code)).toRequestBody(JSON_MEDIA_TYPE))
+                .post(json.encodeToString(AuthCodeRequest(code)).toRequestBody(JSON_MEDIA_TYPE))
         )
 
-    /** Tests a manually-entered secret against a protected endpoint without saving it. */
-    suspend fun verifySecret(host: String, port: Int, secret: String): Boolean = try {
-        execute<PathList>(
+    suspend fun login(host: String, port: Int, code: String): AuthTokenResponse =
+        execute(
             Request.Builder()
-                .url(urlBuilder(host, port).addPathSegments("paths").build())
-                .header(TOTP_HEADER, TotpGenerator.generate(secret))
-                .get(),
+                .url(urlBuilder(host, port).addPathSegments("auth/login").build())
+                .post(json.encodeToString(AuthCodeRequest(code)).toRequestBody(JSON_MEDIA_TYPE))
         )
-        true
-    } catch (error: ApiException) {
-        if (error.httpCode == 401) false else throw error
-    }
 
-    // -- Authenticated calls (use the saved Connection) --
+    // -- Authenticated calls (use the saved Session) --
 
     // Kein getPaths()/getPathCommands(): GET /manifest liefert beides bereits gebuendelt.
     suspend fun getManifest(): Manifest = authedGet("manifest")
@@ -111,21 +122,25 @@ class ClServerApi @Inject constructor(
         downloadTo(destinationDir, fileName, "files", pathName, hostedName, fileName)
 
     suspend fun listTickets(pathName: String, status: String? = null): TicketList {
-        val connection = requireConnection()
-        val urlBuilder = urlBuilder(connection.host, connection.port).addPathSegment("tickets").addPathSegment(pathName)
+        val session = requireSession()
+        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
+            .addPathSegment("tickets").addPathSegment(pathName)
         if (status != null) urlBuilder.addQueryParameter("status", status)
         val request = Request.Builder()
             .url(urlBuilder.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .get()
         return execute(request)
     }
 
     suspend fun createTicket(pathName: String, text: String): Ticket {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).addPathSegment("tickets").addPathSegment(pathName).build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .addPathSegment("tickets").addPathSegment(pathName).build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .post(json.encodeToString(TicketCreateRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
             .build()
         return execute(request, ticketAgentClient)
@@ -140,46 +155,61 @@ class ClServerApi @Inject constructor(
         authedDelete("tickets", pathName, id.toString())
 
     private suspend inline fun <reified T> authedGet(vararg segments: String): T {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .get()
         return execute(request)
     }
 
     private suspend inline fun <reified T> authedPost(body: String, vararg segments: String): T {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .post(body.toRequestBody(JSON_MEDIA_TYPE))
         return execute(request)
     }
 
     private suspend inline fun <reified T> authedPatch(body: String, vararg segments: String): T {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .patch(body.toRequestBody(JSON_MEDIA_TYPE))
         return execute(request)
     }
 
     private suspend inline fun <reified T> authedDelete(vararg segments: String): T {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .delete()
         return execute(request)
     }
 
     private suspend fun downloadTo(destinationDir: File, fallbackFileName: String, vararg segments: String): File {
-        val connection = requireConnection()
+        val session = requireSession()
         val request = Request.Builder()
-            .url(urlBuilder(connection.host, connection.port).apply { segments.forEach(::addPathSegment) }.build())
-            .header(TOTP_HEADER, TotpGenerator.generate(connection.totpSecret))
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .get()
             .build()
         return withContext(Dispatchers.IO) {
@@ -207,7 +237,13 @@ class ClServerApi @Inject constructor(
             throw ApiException(null, error.message ?: "Netzwerkfehler.", error)
         }
         response.use {
-            if (!it.isSuccessful) throw errorFrom(it)
+            if (!it.isSuccessful) {
+                val error = errorFrom(it)
+                if (it.code == 401) {
+                    sessionInvalidator.clearAuthSession()
+                }
+                throw error
+            }
             val text = it.body?.string().orEmpty()
             try {
                 json.decodeFromString(text)

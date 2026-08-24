@@ -18,10 +18,16 @@
     <string name="setup_port_label">Port</string>
     <string name="setup_connect">Connect</string>
     <string name="setup_connecting">Connecting…</string>
+    <string name="setup_discover">Auto discover</string>
+    <string name="setup_discovering">Scanning local network…</string>
     <string name="setup_error_title">Error</string>
-    <string name="setup_existing_title">Authenticator already set up</string>
-    <string name="setup_existing_body">This server already has an active Google Authenticator. Enter the secret you saved back then, or remove it on the server via "cl totp remove".</string>
-    <string name="setup_secret_label">Secret</string>
+
+    <string name="login_lede">Open %1$s in a browser on this network, scan the QR code with your authenticator app, then enter the current code below.</string>
+    <string name="login_code_label">6-digit code</string>
+    <string name="login_checking">Checking…</string>
+    <string name="login_error_title">Error</string>
+    <string name="login_submit">Continue</string>
+    <string name="login_change_connection">Change connection</string>
 
     <string name="home_agents_title">Agents</string>
     <string name="home_paths_title">Paths</string>

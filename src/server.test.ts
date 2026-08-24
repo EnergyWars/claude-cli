@@ -16,7 +16,7 @@ let running: RunningServer;
 let previousRootDir: string | undefined;
 let previousPath: string | undefined;
 let hostedDir: string;
-let totpSecret: string;
+let authToken: string;
 
 before(async () => {
   hostedDir = mkdtempSync(join(tmpdir(), 'cl-hosted-'));
@@ -63,12 +63,13 @@ before(async () => {
 
   const setupRes = await fetch(`${baseUrl()}/auth/setup`, { method: 'POST' });
   const setupBody = (await setupRes.json()) as { secret: string };
-  totpSecret = setupBody.secret;
-  await fetch(`${baseUrl()}/auth/setup/confirm`, {
+  const confirmRes = await fetch(`${baseUrl()}/auth/setup/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: generateTotp(totpSecret) }),
+    body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
   });
+  const confirmBody = (await confirmRes.json()) as { token: string };
+  authToken = confirmBody.token;
 });
 
 after(async () => {
@@ -89,19 +90,26 @@ function baseUrl(): string {
 }
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return { 'X-TOTP-Code': generateTotp(totpSecret), ...extra };
+  return { Authorization: `Bearer ${authToken}`, ...extra };
 }
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-test('GET /health: 200 ohne "X-TOTP-Code"-Header', async () => {
+test('GET /health: 200 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/health`);
   assert.equal(res.status, 200);
   const body = (await res.json()) as { status: string; version: string };
   assert.equal(body.status, 'ok');
   assert.equal(typeof body.version, 'string');
+});
+
+test('GET /status: 204 ohne Body und ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/status`);
+  assert.equal(res.status, 204);
+  const body = await res.text();
+  assert.equal(body, '');
 });
 
 test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () => {
@@ -115,7 +123,7 @@ test('POST /: startet den main-Agent, antwortet sofort mit 202 + id', async () =
   assert.match(body.id, /^[0-9a-f-]{36}$/);
 });
 
-test('POST /: 401 ohne gueltigen "X-TOTP-Code"-Header', async () => {
+test('POST /: 401 ohne gueltigen Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -201,7 +209,7 @@ test('GET /paths: listet nur die Namen aus config.json', async () => {
   assert.deepEqual(body.paths, ['default', 'other']);
 });
 
-test('GET /paths: 401 ohne "X-TOTP-Code"-Header', async () => {
+test('GET /paths: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/paths`);
   assert.equal(res.status, 401);
 });
@@ -236,7 +244,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
   ]);
 });
 
-test('GET /manifest: 401 ohne "X-TOTP-Code"-Header', async () => {
+test('GET /manifest: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/manifest`);
   assert.equal(res.status, 401);
 });
@@ -493,7 +501,7 @@ test('POST /tickets/default: 502 wenn die Agent-Antwort kein gueltiges Ticket-JS
   assert.equal(res.status, 502);
 });
 
-test('POST /tickets/default: 401 ohne "X-TOTP-Code"-Header', async () => {
+test('POST /tickets/default: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/tickets/default`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -542,7 +550,7 @@ test('GET /tickets/doesnotexist: 404 bei unbekanntem Pfad', async () => {
   assert.equal(res.status, 404);
 });
 
-test('GET /tickets/default: 401 ohne "X-TOTP-Code"-Header', async () => {
+test('GET /tickets/default: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/tickets/default`);
   assert.equal(res.status, 401);
 });

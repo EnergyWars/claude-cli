@@ -177,7 +177,7 @@ program
   .addHelpText(
     'after',
     () =>
-      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, Auto-Mode-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\n${formatTasksHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'POST /auth/setup' und 'POST /auth/setup/confirm' verlangen den Header 'X-TOTP-Code' mit einem gueltigen Google-Authenticator-Code; die beiden Setup-Endpunkte sind nur aus dem lokalen Netz erreichbar (sonst 404) und nur nutzbar, solange kein Authenticator aktiv ist.\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
+      `\nStartet Claude Code interaktiv mit dem gewaehlten Agent (Model, System-Prompt aus dessen Contexts, Auto-Mode-Permissions).\n\n${formatAgentsHelp()}\n\n${formatModelsHelp()}\n\n${formatTasksHelp()}\n\nBeispiel Headless:\n  $ cl sonnet mainagent -h 'mache irgendwas cooles'\n  $ cl sonnet mainagent -h    # fragt den Prompt interaktiv ab\n\n'cl server' startet einen HTTP-Server, der alle Agents headless als POST-Endpunkte exposed (siehe 'cl server --help'). Alle Endpunkte ausser 'GET /health', 'GET /status' und '/auth/*' verlangen den Header 'Authorization: Bearer <jwt>'; ein JWT (1h gueltig) erhaelt man ueber 'POST /auth/setup/confirm' (Erstregistrierung) oder 'POST /auth/login' (danach), jeweils mit einem gueltigen Google-Authenticator-Code. Der QR-Code zum Einrichten wird unter 'GET /auth/setup' angezeigt (Browser, nur aus dem lokalen Netz erreichbar, sonst 404).\n\n'cl task <name>' startet einen Task aus config.json (tasks[].name) als interaktive claude-Session (Model/Contexts wie bei Agents, startCommand wird automatisch abgeschickt), niemals ueber 'cl server' aufrufbar.\n\n'cl totp remove' entfernt den aktiven/ausstehenden Google Authenticator - ausschliesslich per CLI, nie als Server-Endpunkt erreichbar.\n`,
   )
   .action(async (agent: string | undefined, options: CommandOptions) => {
     const headlessPrompt = await resolveHeadlessPrompt(options.headless);
@@ -201,7 +201,7 @@ for (const model of MODEL_COMMANDS) {
 program
   .command('server')
   .description(
-    'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output. Alle Endpunkte ausser POST /auth/setup(/confirm) verlangen den Header X-TOTP-Code (Google Authenticator).',
+    'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output. Alle Endpunkte ausser /health, /status und /auth/* verlangen den Header Authorization: Bearer <jwt> (via POST /auth/setup/confirm bzw. POST /auth/login erhalten, 1h gueltig).',
   )
   .option('-p, --port <port>', 'Port fuer den HTTP-Server', String(DEFAULT_SERVER_PORT))
   .option(

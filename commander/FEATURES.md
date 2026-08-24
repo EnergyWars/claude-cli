@@ -2,7 +2,7 @@
 
 ## Verbindungsaufbau (Setup)
 
-Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für Host/IP und Port (Default `8787`), Button „Verbinden“. Ablauf beim Tippen auf „Verbinden“:
+Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für Host/IP und Port (Default `8787`), Button „Automatisch suchen“, Button „Verbinden“. Ablauf beim Tippen auf „Verbinden“:
 
 1. `GET /health` – prüft Erreichbarkeit, unabhängig vom Pairing-Status.
 2. `GET /auth/status` – liefert `{ active, pending }`.
@@ -11,6 +11,10 @@ Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für
 3. Bei Erfolg wird die Verbindung (Host, Port, TOTP-Secret) gespeichert (siehe „Verbindungsspeicher“) und die App wechselt zum Dashboard.
 
 Fehlerfälle (Server nicht erreichbar, außerhalb des lokalen Netzes für Setup/Status, falscher manueller Code) werden als Fehlermeldung angezeigt.
+
+### Automatische Server-Suche (Auto-Discovery)
+
+Button „Automatisch suchen“ neben den Host/Port-Feldern: ermittelt die eigene lokale IPv4-Adresse des Geräts (`java.net.NetworkInterface`, erste nicht-Loopback-IPv4-Adresse), nimmt deren `/24`-Subnetz an (die ersten drei Oktette) und fragt parallel (max. 32 gleichzeitig) `GET http://<ip>:<port>/status` für jede Adresse `.1` bis `.254` ab – der Port kommt aus dem Port-Feld (Default `8787`, nicht separat abfragbar). Die erste Adresse, die mit `204` antwortet, wird sofort ins Host-Feld übernommen (Scan der übrigen Adressen wird abgebrochen); antwortet keine, erscheint eine Fehlermeldung „Kein Server im lokalen Netz gefunden.“. Der Nutzer muss danach weiterhin selbst „Verbinden“ tippen (Discovery befüllt nur das Feld, pairing/verbindet nicht automatisch). Kurze Timeouts (400 ms) pro Adresse, damit der Scan bei 254 Adressen nicht spürbar lange dauert.
 
 ## Verbindungsspeicher
 

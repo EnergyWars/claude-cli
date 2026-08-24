@@ -75,7 +75,7 @@ Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, inter
 
 `cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
 
-**Alle Endpunkte sind per Google Authenticator (TOTP) geschützt** – Ausnahme sind ausschließlich `GET /health`, die beiden Setup-Endpunkte (`POST /auth/setup`, `POST /auth/setup/confirm`) und `GET /auth/status`. Details siehe Abschnitte "Google-Authenticator-Schutz (TOTP)" und "Erreichbarkeits-Check (`GET /health`)" weiter unten.
+**Alle Endpunkte sind per Google Authenticator (TOTP) geschützt** – Ausnahme sind ausschließlich `GET /health`, `GET /status`, die beiden Setup-Endpunkte (`POST /auth/setup`, `POST /auth/setup/confirm`) und `GET /auth/status`. Details siehe Abschnitte "Google-Authenticator-Schutz (TOTP)", "Erreichbarkeits-Check (`GET /health`)" und "Discovery-Check (`GET /status`)" weiter unten.
 
 Mit `-P, --paths-file <file>` kann beim Start eine JSON-Datei angegeben werden, die nur den `paths`-Teil enthält (gleiche Form wie `config.json`s `paths`-Feld, z. B. `{ "paths": [{ "name": "myapp", "path": "/my/path" }] }`) und `config.json`s `paths` für diesen Serverlauf vollständig ersetzt – so lassen sich Arbeitsverzeichnisse überschreiben, ohne `config.json` selbst anzufassen (z. B. pro Umgebung/Deployment). Ohne die Option gilt weiterhin `config.json`s `paths` unverändert.
 
@@ -99,6 +99,7 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 **Endpunkte:**
 
 - **`GET /health`** – kein Auth nötig, prüft nur Erreichbarkeit (`{ status: "ok", version }`). Siehe Abschnitt "Erreichbarkeits-Check (GET /health)".
+- **`GET /status`** – kein Auth nötig, antwortet immer mit `204` und leerem Body. Siehe Abschnitt "Discovery-Check (GET /status)".
 - **`GET /auth/status`** – nur aus dem lokalen Netz (sonst 404), liefert `{ active, pending }`. Siehe Abschnitt "Google-Authenticator-Schutz (TOTP)".
 - **`POST /`** – startet einen Command auf dem `main`-Agent.
 - **`POST /<agent>`** – startet einen Command auf dem benannten Agent aus `agents[]` (404, falls unbekannt).
@@ -186,9 +187,15 @@ Kein `X-TOTP-Code` und keine Lokalnetz-Beschränkung nötig – die Route gibt n
 
 Implementiert in `src/server.ts` (`handleGetHealth`), Version aus `src/version.ts`.
 
+## Discovery-Check (`GET /status`)
+
+Kein `X-TOTP-Code` und keine Lokalnetz-Beschränkung nötig. Antwortet **immer** mit `204` und leerem Body (kein JSON). Anders als `GET /health` gibt es keinerlei Payload zurück – bewusst minimal, damit ein Client damit zügig viele Adressen abfragen kann (z. B. beim Scannen des lokalen `/24`-Subnetzes nach einem erreichbaren `cl server`, siehe `commander`-App: Verbindungsaufbau → Automatische Server-Suche). `GET /health` bleibt der Endpunkt für einen bewussten, informativen Erreichbarkeits-Check inkl. Versionsnummer.
+
+Implementiert in `src/server.ts` (`handleGetStatus`).
+
 ## Google-Authenticator-Schutz (TOTP)
 
-Alle `cl server`-Endpunkte verlangen einen gültigen TOTP-Code (Google Authenticator, RFC 6238, 6-stellig, 30-Sekunden-Schritt) im Header `X-TOTP-Code` – **mit Ausnahme** von `GET /health` und den drei `/auth/*`-Endpunkten. Es kann jeweils nur **ein** Authenticator gleichzeitig aktiv sein.
+Alle `cl server`-Endpunkte verlangen einen gültigen TOTP-Code (Google Authenticator, RFC 6238, 6-stellig, 30-Sekunden-Schritt) im Header `X-TOTP-Code` – **mit Ausnahme** von `GET /health`, `GET /status` und den drei `/auth/*`-Endpunkten. Es kann jeweils nur **ein** Authenticator gleichzeitig aktiv sein.
 
 **Einrichtung + Statusabfrage (nur aus dem lokalen Netz erreichbar, sonst `404`):**
 

@@ -9,10 +9,10 @@ data class HealthResponse(val status: String, val version: String)
 data class AuthStatusResponse(val active: Boolean, val pending: Boolean)
 
 @Serializable
-data class AuthSetupResponse(val secret: String, val otpauthUrl: String)
+data class AuthCodeRequest(val code: String)
 
 @Serializable
-data class AuthSetupConfirmRequest(val code: String)
+data class AuthTokenResponse(val token: String, val expiresAt: String, val message: String? = null)
 
 @Serializable
 data class MessageResponse(val message: String)
@@ -107,3 +107,6 @@ data class TicketPatchRequest(
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
 
 class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/** Thrown by [com.wafflehq.commander.data.api.ClServerApi] when a Connection exists but its JWT is missing/expired. */
+class AuthRequiredException(message: String) : Exception(message)

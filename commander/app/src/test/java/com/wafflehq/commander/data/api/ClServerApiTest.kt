@@ -1,9 +1,12 @@
 package com.wafflehq.commander.data.api
 
+import com.wafflehq.commander.data.connection.AuthSession
 import com.wafflehq.commander.data.connection.Connection
 import com.wafflehq.commander.data.connection.ConnectionSource
-import com.wafflehq.commander.data.totp.TotpGenerator
+import com.wafflehq.commander.data.connection.Session
+import com.wafflehq.commander.data.connection.SessionInvalidator
 import java.io.File
+import java.time.Instant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
@@ -17,20 +20,31 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
-private const val SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+private const val FAKE_TOKEN = "fake.jwt.token"
 
-private class FakeConnectionSource(connection: Connection?) : ConnectionSource {
-    override val connection = MutableStateFlow(connection)
+private class FakeConnectionSource(session: Session?) : ConnectionSource {
+    override val session = MutableStateFlow(session)
+}
+
+private class FakeSessionInvalidator : SessionInvalidator {
+    var clearCount = 0
+        private set
+
+    override suspend fun clearAuthSession() {
+        clearCount++
+    }
 }
 
 class ClServerApiTest {
 
     private lateinit var server: MockWebServer
+    private lateinit var invalidator: FakeSessionInvalidator
 
     @Before
     fun setUp() {
         server = MockWebServer()
         server.start()
+        invalidator = FakeSessionInvalidator()
     }
 
     @After
@@ -38,11 +52,27 @@ class ClServerApiTest {
         server.close()
     }
 
-    private fun apiWithConnection(): ClServerApi =
-        ClServerApi(FakeConnectionSource(Connection(server.hostName, server.port, SECRET)))
+    private fun apiWithConnection(): ClServerApi = ClServerApi(
+        FakeConnectionSource(
+            Session(
+                Connection(server.hostName, server.port),
+                AuthSession(FAKE_TOKEN, Instant.now().plusSeconds(3600)),
+            ),
+        ),
+        invalidator,
+    )
 
-    private fun apiWithoutConnection(): ClServerApi =
-        ClServerApi(FakeConnectionSource(null))
+    private fun apiWithExpiredSession(): ClServerApi = ClServerApi(
+        FakeConnectionSource(
+            Session(
+                Connection(server.hostName, server.port),
+                AuthSession(FAKE_TOKEN, Instant.now().minusSeconds(1)),
+            ),
+        ),
+        invalidator,
+    )
+
+    private fun apiWithoutConnection(): ClServerApi = ClServerApi(FakeConnectionSource(null), invalidator)
 
     @Test
     fun `health parses a successful response`() = runBlocking {
@@ -81,44 +111,108 @@ class ClServerApiTest {
     }
 
     @Test
-    fun `verifySecret returns false on 401 without throwing`() = runBlocking {
-        server.enqueue(MockResponse(code = 401, body = """{"error":"nope"}"""))
+    fun `probeStatus returns true on 204`() = runBlocking {
+        server.enqueue(MockResponse(code = 204))
 
-        val valid = apiWithoutConnection().verifySecret(server.hostName, server.port, SECRET)
+        val result = apiWithoutConnection().probeStatus(server.hostName, server.port)
 
-        assertFalse(valid)
+        assertTrue(result)
+        assertEquals("/status", server.takeRequest().target)
     }
 
     @Test
-    fun `verifySecret returns true on 200`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"paths":["myapp"]}"""))
+    fun `probeStatus returns false on any other status code`() = runBlocking {
+        server.enqueue(MockResponse(code = 200, body = "{}"))
 
-        val valid = apiWithoutConnection().verifySecret(server.hostName, server.port, SECRET)
+        val result = apiWithoutConnection().probeStatus(server.hostName, server.port)
 
-        assertTrue(valid)
+        assertFalse(result)
     }
 
     @Test
-    fun `verifySecret rethrows non-401 errors`() = runBlocking {
-        server.enqueue(MockResponse(code = 500, body = """{"error":"boom"}"""))
+    fun `probeStatus returns false instead of throwing on network failure`() = runBlocking {
+        val host = server.hostName
+        val port = server.port
+        server.close()
 
-        try {
-            apiWithoutConnection().verifySecret(server.hostName, server.port, SECRET)
-            fail("expected ApiException")
-        } catch (error: ApiException) {
-            assertEquals(500, error.httpCode)
-        }
+        val result = apiWithoutConnection().probeStatus(host, port)
+
+        assertFalse(result)
     }
 
     @Test
-    fun `authenticated requests send a valid X-TOTP-Code header`() = runBlocking {
+    fun `login parses the returned token and expiry`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"token":"abc.def.ghi","expiresAt":"2030-01-01T00:00:00.000Z"}"""))
+
+        val result = apiWithoutConnection().login(server.hostName, server.port, "123456")
+
+        assertEquals("abc.def.ghi", result.token)
+        assertEquals("2030-01-01T00:00:00.000Z", result.expiresAt)
+        val recorded = server.takeRequest()
+        assertEquals("/auth/login", recorded.target)
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"code\":\"123456\""))
+    }
+
+    @Test
+    fun `confirmAuthSetup parses the returned token and expiry`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"message":"Google Authenticator aktiviert.","token":"abc.def.ghi","expiresAt":"2030-01-01T00:00:00.000Z"}""",
+            ),
+        )
+
+        val result = apiWithoutConnection().confirmAuthSetup(server.hostName, server.port, "123456")
+
+        assertEquals("abc.def.ghi", result.token)
+        val recorded = server.takeRequest()
+        assertEquals("/auth/setup/confirm", recorded.target)
+    }
+
+    @Test
+    fun `authenticated requests send a valid Authorization Bearer header`() = runBlocking {
         server.enqueue(MockResponse(body = """{"agents":[],"paths":[]}"""))
 
         apiWithConnection().getManifest()
 
         val recorded = server.takeRequest()
-        val code = recorded.headers["X-TOTP-Code"]
-        assertEquals(TotpGenerator.generate(SECRET), code)
+        assertEquals("Bearer $FAKE_TOKEN", recorded.headers["Authorization"])
+    }
+
+    @Test
+    fun `authedGet throws AuthRequiredException when no auth session is present`() = runBlocking {
+        val api = ClServerApi(
+            FakeConnectionSource(Session(Connection(server.hostName, server.port), auth = null)),
+            invalidator,
+        )
+        try {
+            api.getManifest()
+            fail("expected AuthRequiredException")
+        } catch (error: AuthRequiredException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun `authedGet throws AuthRequiredException when the stored token is expired`() = runBlocking {
+        try {
+            apiWithExpiredSession().getManifest()
+            fail("expected AuthRequiredException")
+        } catch (error: AuthRequiredException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun `a 401 response clears the auth session`() = runBlocking {
+        server.enqueue(MockResponse(code = 401, body = """{"error":"JWT ungueltig."}"""))
+
+        try {
+            apiWithConnection().getManifest()
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals(401, error.httpCode)
+        }
+        assertEquals(1, invalidator.clearCount)
     }
 
     @Test

@@ -1,4 +1,4 @@
-package com.wafflehq.commander.ui.setup
+package com.wafflehq.commander.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,19 +33,18 @@ import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
-fun SetupScreen(
-    onConnectionSaved: () -> Unit,
-    viewModel: SetupViewModel = hiltViewModel(),
+fun LoginScreen(
+    onLoggedIn: () -> Unit,
+    onChangeConnection: () -> Unit,
+    viewModel: LoginViewModel = hiltViewModel(),
 ) {
-    val host by viewModel.host.collectAsStateWithLifecycle()
-    val port by viewModel.port.collectAsStateWithLifecycle()
+    val connectionLabel by viewModel.connectionLabel.collectAsStateWithLifecycle()
+    val code by viewModel.code.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
-    val checking = status is SetupStatus.Checking
-    val discovering = status is SetupStatus.Discovering
-    val busy = checking || discovering
+    val checking = status is LoginStatus.Checking
 
     LaunchedEffect(status) {
-        if (status is SetupStatus.Connected) onConnectionSaved()
+        if (status is LoginStatus.LoggedIn) onLoggedIn()
     }
 
     Surface(color = AppTheme.colors.background, modifier = Modifier.fillMaxSize()) {
@@ -62,55 +61,61 @@ fun SetupScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 color = AppTheme.colors.onSurface,
             )
+            if (connectionLabel != null) {
+                Text(
+                    text = connectionLabel.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppTheme.colors.onSurfaceVariant,
+                )
+            }
             Text(
-                text = stringResource(R.string.setup_lede),
+                text = connectionLabel
+                    ?.let { stringResource(R.string.login_lede, "http://$it/auth/setup") }
+                    .orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = AppTheme.colors.onSurfaceVariant,
             )
 
             AppTextField(
-                value = host,
-                onValueChange = viewModel::onHostChange,
-                label = stringResource(R.string.setup_host_label),
+                value = code,
+                onValueChange = viewModel::onCodeChange,
+                label = stringResource(R.string.login_code_label),
                 role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppTextField(
-                value = port,
-                onValueChange = viewModel::onPortChange,
-                label = stringResource(R.string.setup_port_label),
-                role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppButton(
-                text = stringResource(R.string.setup_discover),
-                role = AppRole.Secondary,
-                variant = ButtonVariant.Outlined,
-                onClick = viewModel::discover,
-                enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            val error = status as? SetupStatus.Error
+            val error = status as? LoginStatus.Error
             if (error != null) {
-                AppBanner(title = stringResource(R.string.setup_error_title), body = error.message, role = AppRole.Error)
+                AppBanner(title = stringResource(R.string.login_error_title), body = error.message, role = AppRole.Error)
             }
 
-            if (busy) {
+            if (checking) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     Text(
-                        text = stringResource(if (discovering) R.string.setup_discovering else R.string.setup_connecting),
+                        text = stringResource(R.string.login_checking),
                         color = AppTheme.colors.onSurfaceVariant,
                     )
                 }
             }
 
             AppButton(
-                text = stringResource(R.string.setup_connect),
+                text = stringResource(R.string.login_submit),
                 role = AppRole.Primary,
-                onClick = viewModel::connect,
-                enabled = !busy,
+                onClick = viewModel::submit,
+                enabled = !checking,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            AppButton(
+                text = stringResource(R.string.login_change_connection),
+                role = AppRole.Secondary,
+                variant = ButtonVariant.Text,
+                onClick = {
+                    viewModel.changeConnection()
+                    onChangeConnection()
+                },
+                enabled = !checking,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

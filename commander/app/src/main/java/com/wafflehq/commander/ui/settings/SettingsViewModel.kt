@@ -26,8 +26,8 @@ class SettingsViewModel @Inject constructor(
             initialValue = ThemeMode.SYSTEM,
         )
 
-    val connectionLabel: StateFlow<String?> = connectionRepository.connection
-        .map { connection -> connection?.let { "${it.host}:${it.port}" } }
+    val connectionLabel: StateFlow<String?> = connectionRepository.session
+        .map { session -> session?.connection?.let { "${it.host}:${it.port}" } }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),

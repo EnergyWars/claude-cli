@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 
 import {
   completeCommand,
@@ -38,6 +38,78 @@ after(() => {
 
 test('openDatabase: legt Verzeichnis und commands.db an', () => {
   assert.ok(existsSync(join(dbDir, 'commands.db')));
+});
+
+test('openDatabase: ergaenzt fehlende Spalte "path" in einer alten t_commands-Tabelle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-migration-'));
+  try {
+    const legacyDb = new DatabaseSync(join(dir, 'commands.db'));
+    legacyDb.exec(`
+      CREATE TABLE t_commands (
+        id TEXT PRIMARY KEY,
+        agent TEXT NOT NULL,
+        model TEXT NOT NULL,
+        command TEXT NOT NULL,
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    legacyDb.close();
+
+    const migratedDb = openDatabase(dir);
+    try {
+      insertCommand(migratedDb, {
+        id: 'legacy-cmd',
+        agent: 'main',
+        model: 'sonnet',
+        command: 'x',
+        path: '/tmp',
+      });
+      const row = getCommand(migratedDb, 'legacy-cmd');
+      assert.ok(row);
+      assert.equal(row.path, '/tmp');
+    } finally {
+      migratedDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('openDatabase: ergaenzt fehlende Spalte "jwt_secret" in einer alten t_totp-Zeile', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-migration-totp-'));
+  try {
+    const legacyDb = new DatabaseSync(join(dir, 'commands.db'));
+    legacyDb.exec(`
+      CREATE TABLE t_totp (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        secret TEXT NOT NULL,
+        confirmed INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    `);
+    legacyDb
+      .prepare('INSERT INTO t_totp (id, secret, confirmed, created_at) VALUES (1, ?, 1, ?)')
+      .run('LEGACYSECRETAAAAAAAAAAAAAAAAAAA', new Date().toISOString());
+    legacyDb.close();
+
+    const migratedDb = openDatabase(dir);
+    try {
+      const row = getTotpSecret(migratedDb);
+      assert.ok(row);
+      assert.equal(row.secret, 'LEGACYSECRETAAAAAAAAAAAAAAAAAAA');
+      assert.equal(row.confirmed, true);
+      assert.equal(typeof row.jwtSecret, 'string');
+      assert.ok(row.jwtSecret.length > 0);
+    } finally {
+      migratedDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('openDatabase: erzeugt t_access_log, t_commands, t_totp und t_tickets', () => {
@@ -140,21 +212,26 @@ test('getTotpSecret: undefined ohne vorherigen Aufruf von setPendingTotpSecret',
   }
 });
 
-test('setPendingTotpSecret: legt unbestaetigtes Secret an', () => {
+test('setPendingTotpSecret: legt unbestaetigtes Secret inkl. jwt_secret an', () => {
   setPendingTotpSecret(db, 'SECRETAAAAAAAAAAAAAAAAAAAAAAAAA');
   const row = getTotpSecret(db);
   assert.ok(row);
   assert.equal(row.secret, 'SECRETAAAAAAAAAAAAAAAAAAAAAAAAA');
   assert.equal(row.confirmed, false);
+  assert.equal(typeof row.jwtSecret, 'string');
+  assert.ok(row.jwtSecret.length > 0);
 });
 
-test('setPendingTotpSecret: ein zweiter Aufruf ersetzt das vorherige (unbestaetigte) Secret', () => {
+test('setPendingTotpSecret: ein zweiter Aufruf ersetzt das vorherige (unbestaetigte) Secret und rotiert das jwt_secret', () => {
   setPendingTotpSecret(db, 'FIRSTSECRETAAAAAAAAAAAAAAAAAAAA');
+  const first = getTotpSecret(db);
+  assert.ok(first);
   setPendingTotpSecret(db, 'SECONDSECRETAAAAAAAAAAAAAAAAAAA');
   const row = getTotpSecret(db);
   assert.ok(row);
   assert.equal(row.secret, 'SECONDSECRETAAAAAAAAAAAAAAAAAAA');
   assert.equal(row.confirmed, false);
+  assert.notEqual(row.jwtSecret, first.jwtSecret);
 });
 
 test('confirmTotpSecret: markiert das ausstehende Secret als bestaetigt/aktiv', () => {
