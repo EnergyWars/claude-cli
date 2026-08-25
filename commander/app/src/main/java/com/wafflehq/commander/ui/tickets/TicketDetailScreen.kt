@@ -14,6 +14,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -22,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
+import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppTextField
 import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsDropdownField
@@ -37,6 +41,7 @@ fun TicketDetailScreen(
     viewModel: TicketDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
@@ -138,9 +143,23 @@ fun TicketDetailScreen(
                 text = stringResource(R.string.ticket_detail_delete),
                 role = AppRole.Error,
                 variant = ButtonVariant.Outlined,
-                onClick = viewModel::delete,
+                onClick = { showDeleteConfirm = true },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+
+    if (showDeleteConfirm) {
+        AppConfirmDialog(
+            title = stringResource(R.string.ticket_detail_delete_confirm_title),
+            body = stringResource(R.string.ticket_detail_delete_confirm_body),
+            confirmText = stringResource(R.string.ticket_detail_delete),
+            dismissText = stringResource(R.string.label_cancel),
+            onConfirm = {
+                showDeleteConfirm = false
+                viewModel.delete()
+            },
+            onDismiss = { showDeleteConfirm = false },
+        )
     }
 }

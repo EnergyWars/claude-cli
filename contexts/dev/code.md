@@ -22,3 +22,4 @@
 - Keine deprecated Inhalte verwenden
 - Jede Datenbankmigration MUSS vollständig durch Tests abgedeckt sein
 - Du kümmerst dich nur um Tests, die dein eigenes Feature betreffen. alle anderen darfst du nicht ausführen, außer du wirst aufgefordert
+- Du schreibst unit-tests, führst sie aber NIEMALS selber aus. Kein gradle compile, kein gradle debug. Keine Gradle befehle.

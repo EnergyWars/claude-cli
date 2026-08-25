@@ -4,6 +4,7 @@
 
     <string name="label_back">Zurück</string>
     <string name="label_settings">Einstellungen</string>
+    <string name="label_cancel">Abbrechen</string>
 
     <string name="setup_lede">Trage die Adresse deines cl-Servers ein.</string>
     <string name="setup_host_label">Host / IP</string>
@@ -59,6 +60,7 @@
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">Alle</string>
     <string name="tickets_pending_label">Lädt Ticket %1$d…</string>
+    <string name="tickets_pending_dismiss">Entfernen</string>
     <string name="ticket_detail_title">Ticket</string>
     <string name="ticket_detail_original_request_label">Original-Anweisung</string>
     <string name="ticket_detail_summary_label">Zusammenfassung</string>
@@ -69,6 +71,8 @@
     <string name="ticket_detail_ip_unknown">unbekannt</string>
     <string name="ticket_detail_save">Speichern</string>
     <string name="ticket_detail_delete">Ticket löschen</string>
+    <string name="ticket_detail_delete_confirm_title">Ticket löschen?</string>
+    <string name="ticket_detail_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
     <string name="ticket_status_open">Offen</string>
     <string name="ticket_status_in_progress">In Bearbeitung</string>
     <string name="ticket_status_done">Fertig</string>

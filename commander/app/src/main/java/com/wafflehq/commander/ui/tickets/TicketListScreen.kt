@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,11 +26,14 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.Ticket
+import com.wafflehq.commander.data.tickets.PendingTicketCreation
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppCard
+import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.AppTextField
+import com.wafflehq.commander.ui.components.IconButtonVariant
 import com.wafflehq.commander.ui.components.SettingsDropdownField
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -104,7 +109,10 @@ fun TicketListScreen(
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
                 items(state.pendingCreations, key = { "pending-${it.tempId}" }) { pending ->
-                    TicketPendingRow(pending = pending)
+                    TicketPendingRow(
+                        pending = pending,
+                        onDismiss = { viewModel.onDismissPendingCreation(pending.tempId) },
+                    )
                 }
                 items(state.tickets, key = { it.id }) { ticket ->
                     TicketRow(
@@ -118,7 +126,7 @@ fun TicketListScreen(
 }
 
 @Composable
-private fun TicketPendingRow(pending: PendingTicketCreation) {
+private fun TicketPendingRow(pending: PendingTicketCreation, onDismiss: () -> Unit) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -132,6 +140,14 @@ private fun TicketPendingRow(pending: PendingTicketCreation) {
                 text = stringResource(R.string.tickets_pending_label, pending.tempId),
                 style = MaterialTheme.typography.titleSmall,
                 color = AppTheme.colors.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            AppIconButton(
+                icon = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.tickets_pending_dismiss),
+                role = AppRole.Neutral,
+                variant = IconButtonVariant.Standard,
+                onClick = onDismiss,
             )
         }
     }
