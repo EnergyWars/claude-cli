@@ -41,10 +41,13 @@ fun TicketListScreen(
     viewModel: TicketListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isGlobal = viewModel.pathName == null
 
-    LaunchedEffect(state.createdTicketId) {
-        state.createdTicketId?.let { id ->
-            onOpenTicket(viewModel.pathName, id)
+    LaunchedEffect(state.createdTicketId, state.createdTicketPathName) {
+        val id = state.createdTicketId
+        val pathName = state.createdTicketPathName
+        if (id != null && pathName != null) {
+            onOpenTicket(pathName, id)
             viewModel.consumeCreatedTicket()
         }
     }
@@ -53,7 +56,7 @@ fun TicketListScreen(
         TICKET_STATUS_ORDER.map { ticketStatusLabel(it) }
 
     SettingsScaffold(
-        title = stringResource(R.string.tickets_title),
+        title = stringResource(if (isGlobal) R.string.home_tickets_title else R.string.tickets_title),
         onBack = onBack,
         backDescription = stringResource(R.string.label_back),
     ) { padding ->
@@ -64,6 +67,18 @@ fun TicketListScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
+            if (isGlobal) {
+                val pathLabels = state.availablePaths
+                if (pathLabels.isNotEmpty()) {
+                    SettingsDropdownField(
+                        label = stringResource(R.string.tickets_create_path_label),
+                        value = pathLabels.getOrElse(state.selectedPathIndex) { pathLabels[0] },
+                        options = pathLabels,
+                        selectedIndex = state.selectedPathIndex,
+                        onSelect = viewModel::onPathSelected,
+                    )
+                }
+            }
             AppTextField(
                 value = state.createText,
                 onValueChange = viewModel::onCreateTextChange,
@@ -75,7 +90,9 @@ fun TicketListScreen(
                 text = stringResource(R.string.tickets_create_submit),
                 role = AppRole.Primary,
                 onClick = viewModel::createTicket,
-                enabled = !state.creating && state.createText.isNotBlank(),
+                enabled = !state.creating &&
+                    state.createText.isNotBlank() &&
+                    (!isGlobal || state.availablePaths.isNotEmpty()),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -104,7 +121,11 @@ fun TicketListScreen(
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
                 items(state.tickets, key = { it.id }) { ticket ->
-                    TicketRow(ticket = ticket, onClick = { onOpenTicket(viewModel.pathName, ticket.id) })
+                    TicketRow(
+                        ticket = ticket,
+                        showPathName = isGlobal,
+                        onClick = { onOpenTicket(ticket.pathName, ticket.id) },
+                    )
                 }
             }
         }
@@ -112,7 +133,7 @@ fun TicketListScreen(
 }
 
 @Composable
-private fun TicketRow(ticket: Ticket, onClick: () -> Unit) {
+private fun TicketRow(ticket: Ticket, showPathName: Boolean, onClick: () -> Unit) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -123,12 +144,13 @@ private fun TicketRow(ticket: Ticket, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
-                Text(ticket.title, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
+                Text(ticket.summary, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val meta = if (showPathName) "${ticket.pathName} · ${ticket.category}" else ticket.category
                 Text(
-                    text = ticket.description,
+                    text = meta,
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTheme.colors.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

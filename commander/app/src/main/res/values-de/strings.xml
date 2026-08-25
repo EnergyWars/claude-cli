@@ -35,6 +35,9 @@
     <string name="home_history_title">Verlauf</string>
     <string name="home_error_title">Verbindung fehlgeschlagen</string>
     <string name="home_retry">Erneut versuchen</string>
+    <string name="home_tickets_title">Tickets</string>
+    <string name="home_tickets_subtitle">Alle Tickets verwalten</string>
+    <string name="home_tickets_open_count">%1$d offen</string>
 
     <string name="run_agent_title">Agent starten</string>
     <string name="run_agent_agent_label">Agent</string>
@@ -61,18 +64,21 @@
     <string name="tickets_empty">Noch keine Tickets.</string>
     <string name="tickets_create_text_label">Was soll passieren?</string>
     <string name="tickets_create_submit">Ticket erstellen</string>
+    <string name="tickets_create_path_label">Projekt</string>
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">Alle</string>
     <string name="ticket_detail_title">Ticket</string>
-    <string name="ticket_detail_title_label">Titel</string>
-    <string name="ticket_detail_description_label">Beschreibung</string>
-    <string name="ticket_detail_task_label">Aufgabe</string>
+    <string name="ticket_detail_original_request_label">Original-Anweisung</string>
+    <string name="ticket_detail_summary_label">Zusammenfassung</string>
+    <string name="ticket_detail_claude_instruction_label">Claude-Anweisung</string>
+    <string name="ticket_detail_category_label">Kategorie</string>
     <string name="ticket_detail_status_label">Status</string>
     <string name="ticket_detail_save">Speichern</string>
     <string name="ticket_detail_delete">Ticket löschen</string>
     <string name="ticket_status_open">Offen</string>
     <string name="ticket_status_in_progress">In Bearbeitung</string>
-    <string name="ticket_status_closed">Geschlossen</string>
+    <string name="ticket_status_done">Fertig</string>
+    <string name="ticket_status_rejected">Abgelehnt</string>
 
     <string name="settings_title">Einstellungen</string>
     <string name="settings_display_title">Anzeige</string>

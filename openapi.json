@@ -556,6 +556,42 @@
         }
       }
     },
+    "/tickets": {
+      "get": {
+        "summary": "Listet Tickets ueber alle Pfade hinweg",
+        "description": "Ohne Query-Parameter \"status\" werden alle Tickets aller Pfade geliefert (unabhaengig vom Status).",
+        "operationId": "listAllTickets",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Optionaler Status-Filter.",
+            "schema": { "$ref": "#/components/schemas/TicketStatus" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alle Tickets, ggf. nach Status gefiltert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/TicketList" } }
+            }
+          },
+          "400": {
+            "description": "Ungueltiger Wert im Query-Parameter \"status\".",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/tickets/{pathName}": {
       "get": {
         "summary": "Listet Tickets eines Pfads",
@@ -606,7 +642,7 @@
       },
       "post": {
         "summary": "Erstellt ein Ticket per Ticket-Agent",
-        "description": "Fuehrt synchron einen Agent aus (Model + Aufgabe aus config.json ticketAgent, siehe TicketAgentConfig) im Dateisystem-Verzeichnis des Pfad-Eintrags: Der Agent interpretiert \"text\" im Projektkontext und liefert Titel/Beschreibung/Aufgabe fuer ein neues Ticket (Status immer \"open\"). Antwortet erst nach Abschluss des Agents (kein 202/Polling wie bei den Agent-Endpunkten).",
+        "description": "\"text\" wird unveraendert als \"originalRequest\" gespeichert. Fuehrt synchron einen Agent aus (Model + Aufgabe aus config.json ticketAgent, siehe TicketAgentConfig) im Dateisystem-Verzeichnis des Pfad-Eintrags: Der Agent interpretiert \"text\" im Projektkontext und liefert summary/claudeInstruction/category fuer ein neues Ticket (Status immer \"open\"). Antwortet erst nach Abschluss des Agents (kein 202/Polling wie bei den Agent-Endpunkten).",
         "operationId": "createTicket",
         "parameters": [
           {
@@ -690,7 +726,7 @@
       },
       "patch": {
         "summary": "Bearbeitet ein Ticket (alles ausser der ID)",
-        "description": "Mindestens eines der Felder title/description/task/status muss angegeben werden.",
+        "description": "Mindestens eines der Felder originalRequest/summary/claudeInstruction/category/status muss angegeben werden.",
         "operationId": "updateTicket",
         "parameters": [
           { "$ref": "#/components/parameters/TicketPathName" },
@@ -1023,16 +1059,17 @@
       },
       "TicketStatus": {
         "type": "string",
-        "enum": ["open", "in progress", "closed"]
+        "enum": ["open", "in progress", "done", "rejected"]
       },
       "Ticket": {
         "type": "object",
         "required": [
           "id",
           "pathName",
-          "title",
-          "description",
-          "task",
+          "originalRequest",
+          "summary",
+          "claudeInstruction",
+          "category",
           "status",
           "createdAt",
           "updatedAt"
@@ -1046,11 +1083,21 @@
             "type": "string",
             "description": "Name des Pfads (paths[].name), zu dem dieses Ticket gehoert. Nicht editierbar."
           },
-          "title": { "type": "string" },
-          "description": { "type": "string" },
-          "task": {
+          "originalRequest": {
             "type": "string",
-            "description": "Konkrete, umsetzbare Aufgabenstellung, z. B. fuer einen Entwickler-Agenten."
+            "description": "Die urspruengliche, unveraenderte Anweisung des Users (\"text\" aus POST /tickets/:pathName)."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Kurze Beschreibung des Ziels und des aktuellen Ist-Zustands."
+          },
+          "claudeInstruction": {
+            "type": "string",
+            "description": "Konkrete Anweisung, wie man sie Claude spaeter geben wuerde, um das Feature/den Fix umzusetzen."
+          },
+          "category": {
+            "type": "string",
+            "description": "Schlagwort zur Gruppierung zusammenhaengender Tickets."
           },
           "status": { "$ref": "#/components/schemas/TicketStatus" },
           "createdAt": { "type": "string", "format": "date-time" },
@@ -1083,9 +1130,10 @@
         "type": "object",
         "description": "Mindestens eines der Felder muss angegeben werden. \"pathName\" und \"id\" sind nicht editierbar.",
         "properties": {
-          "title": { "type": "string", "minLength": 1 },
-          "description": { "type": "string", "minLength": 1 },
-          "task": { "type": "string", "minLength": 1 },
+          "originalRequest": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "claudeInstruction": { "type": "string", "minLength": 1 },
+          "category": { "type": "string", "minLength": 1 },
           "status": { "$ref": "#/components/schemas/TicketStatus" }
         },
         "additionalProperties": false

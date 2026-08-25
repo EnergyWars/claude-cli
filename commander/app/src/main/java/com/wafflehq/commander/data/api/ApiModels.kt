@@ -75,15 +75,17 @@ const val HOSTED_TYPE_PATH = "path"
 
 const val TICKET_STATUS_OPEN = "open"
 const val TICKET_STATUS_IN_PROGRESS = "in progress"
-const val TICKET_STATUS_CLOSED = "closed"
+const val TICKET_STATUS_DONE = "done"
+const val TICKET_STATUS_REJECTED = "rejected"
 
 @Serializable
 data class Ticket(
     val id: Int,
     val pathName: String,
-    val title: String,
-    val description: String,
-    val task: String,
+    val originalRequest: String,
+    val summary: String,
+    val claudeInstruction: String,
+    val category: String,
     val status: String,
     val createdAt: String,
     val updatedAt: String,
@@ -97,9 +99,10 @@ data class TicketCreateRequest(val text: String)
 
 @Serializable
 data class TicketPatchRequest(
-    val title: String? = null,
-    val description: String? = null,
-    val task: String? = null,
+    val originalRequest: String? = null,
+    val summary: String? = null,
+    val claudeInstruction: String? = null,
+    val category: String? = null,
     val status: String? = null,
 )
 

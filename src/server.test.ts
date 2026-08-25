@@ -412,9 +412,10 @@ test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key
 interface TicketBody {
   id: number;
   pathName: string;
-  title: string;
-  description: string;
-  task: string;
+  originalRequest: string;
+  summary: string;
+  claudeInstruction: string;
+  category: string;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -434,9 +435,9 @@ async function withTicketAgentOutput<T>(outputChunks: string[], fn: () => Promis
 
 function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}): string {
   return JSON.stringify({
-    title: 'Ticket-Titel',
-    description: 'Ticket-Beschreibung',
-    task: 'Ticket-Aufgabe',
+    summary: 'Ticket-Zusammenfassung',
+    claudeInstruction: 'Ticket-Claude-Anweisung',
+    category: 'Backend',
     ...overrides,
   });
 }
@@ -454,12 +455,13 @@ async function createTicket(pathName = 'default', text = 'ein neues Feature'): P
 }
 
 test('POST /tickets/default: erstellt ein Ticket via Ticket-Agent, antwortet mit 201 + Ticket', async () => {
-  const ticket = await createTicket();
+  const ticket = await createTicket('default', 'ein neues Feature');
   assert.equal(typeof ticket.id, 'number');
   assert.equal(ticket.pathName, 'default');
-  assert.equal(ticket.title, 'Ticket-Titel');
-  assert.equal(ticket.description, 'Ticket-Beschreibung');
-  assert.equal(ticket.task, 'Ticket-Aufgabe');
+  assert.equal(ticket.originalRequest, 'ein neues Feature');
+  assert.equal(ticket.summary, 'Ticket-Zusammenfassung');
+  assert.equal(ticket.claudeInstruction, 'Ticket-Claude-Anweisung');
+  assert.equal(ticket.category, 'Backend');
   assert.equal(ticket.status, 'open');
 });
 
@@ -528,7 +530,7 @@ test('GET /tickets/default?status=open: filtert nach Status', async () => {
   await fetch(`${baseUrl()}/tickets/default/${String(toClose.id)}`, {
     method: 'PATCH',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ status: 'closed' }),
+    body: JSON.stringify({ status: 'done' }),
   });
 
   const res = await fetch(`${baseUrl()}/tickets/default?status=open`, { headers: authHeaders() });
@@ -536,6 +538,44 @@ test('GET /tickets/default?status=open: filtert nach Status', async () => {
   const ids = body.tickets.map((t) => t.id);
   assert.ok(ids.includes(openTicket.id));
   assert.ok(!ids.includes(toClose.id));
+});
+
+test('GET /tickets: listet Tickets ueber alle Pfade hinweg', async () => {
+  const first = await createTicket('default');
+  const second = await createTicket('other');
+
+  const res = await fetch(`${baseUrl()}/tickets`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { tickets: TicketBody[] };
+  const ids = body.tickets.map((t) => t.id);
+  assert.ok(ids.includes(first.id));
+  assert.ok(ids.includes(second.id));
+});
+
+test('GET /tickets?status=rejected: filtert global nach Status', async () => {
+  const rejected = await createTicket();
+  await fetch(`${baseUrl()}/tickets/default/${String(rejected.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ status: 'rejected' }),
+  });
+  const stillOpen = await createTicket();
+
+  const res = await fetch(`${baseUrl()}/tickets?status=rejected`, { headers: authHeaders() });
+  const body = (await res.json()) as { tickets: TicketBody[] };
+  const ids = body.tickets.map((t) => t.id);
+  assert.ok(ids.includes(rejected.id));
+  assert.ok(!ids.includes(stillOpen.id));
+});
+
+test('GET /tickets?status=invalid: 400 bei ungueltigem Status', async () => {
+  const res = await fetch(`${baseUrl()}/tickets?status=invalid`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /tickets: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/tickets`);
+  assert.equal(res.status, 401);
 });
 
 test('GET /tickets/default?status=invalid: 400 bei ungueltigem Status', async () => {
@@ -583,13 +623,13 @@ test('PATCH /tickets/default/:id: aktualisiert Felder und liefert das aktualisie
   const res = await fetch(`${baseUrl()}/tickets/default/${String(ticket.id)}`, {
     method: 'PATCH',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ title: 'Neuer Titel', status: 'in progress' }),
+    body: JSON.stringify({ summary: 'Neue Zusammenfassung', status: 'in progress' }),
   });
   assert.equal(res.status, 200);
   const body = (await res.json()) as TicketBody;
-  assert.equal(body.title, 'Neuer Titel');
+  assert.equal(body.summary, 'Neue Zusammenfassung');
   assert.equal(body.status, 'in progress');
-  assert.equal(body.description, ticket.description);
+  assert.equal(body.claudeInstruction, ticket.claudeInstruction);
 });
 
 test('PATCH /tickets/default/:id: 400 bei ungueltigem Status', async () => {
@@ -616,7 +656,7 @@ test('PATCH /tickets/default/:id: 404 bei unbekannter ID', async () => {
   const res = await fetch(`${baseUrl()}/tickets/default/999999`, {
     method: 'PATCH',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ title: 'x' }),
+    body: JSON.stringify({ summary: 'x' }),
   });
   assert.equal(res.status, 404);
 });
@@ -625,7 +665,7 @@ test('PATCH /tickets/doesnotexist/:id: 404 bei unbekanntem Pfad', async () => {
   const res = await fetch(`${baseUrl()}/tickets/doesnotexist/1`, {
     method: 'PATCH',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ title: 'x' }),
+    body: JSON.stringify({ summary: 'x' }),
   });
   assert.equal(res.status, 404);
 });

@@ -81,16 +81,47 @@ export function openDatabase(directory: string): DatabaseSync {
     CREATE TABLE IF NOT EXISTS t_tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       path_name TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      task TEXT NOT NULL,
+      original_request TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      claude_instruction TEXT NOT NULL,
+      category TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
   `);
+  ensureColumns(db, 't_tickets', [
+    { name: 'original_request', definition: "original_request TEXT NOT NULL DEFAULT ''" },
+    { name: 'summary', definition: "summary TEXT NOT NULL DEFAULT ''" },
+    { name: 'claude_instruction', definition: "claude_instruction TEXT NOT NULL DEFAULT ''" },
+    { name: 'category', definition: "category TEXT NOT NULL DEFAULT ''" },
+  ]);
+  migrateLegacyTicketColumns(db);
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_path_name ON t_tickets (path_name)');
   return db;
+}
+
+/**
+ * Fruehere Ticket-Spalten (title/description/task, Status "closed") auf das aktuelle Schema
+ * (original_request/summary/claude_instruction/category, Status "done") heben. Rein additiv:
+ * die alten Spalten bleiben (ungenutzt) bestehen, es wird nichts geloescht.
+ */
+function migrateLegacyTicketColumns(db: DatabaseSync): void {
+  const columns = new Set(
+    (db.prepare('PRAGMA table_info(t_tickets)').all() as { name: string }[]).map(
+      (row) => row.name,
+    ),
+  );
+  if (columns.has('title') && columns.has('description') && columns.has('task')) {
+    db.exec(`
+      UPDATE t_tickets SET
+        original_request = CASE WHEN original_request = '' THEN title ELSE original_request END,
+        summary = CASE WHEN summary = '' THEN description ELSE summary END,
+        claude_instruction = CASE WHEN claude_instruction = '' THEN task ELSE claude_instruction END,
+        category = CASE WHEN category = '' THEN 'Allgemein' ELSE category END
+    `);
+  }
+  db.exec("UPDATE t_tickets SET status = 'done' WHERE status = 'closed'");
 }
 
 export function logAccess(
@@ -195,9 +226,14 @@ export function deleteTotpSecret(db: DatabaseSync): boolean {
   return result.changes > 0;
 }
 
-export type TicketStatus = 'open' | 'in progress' | 'closed';
+export type TicketStatus = 'open' | 'in progress' | 'done' | 'rejected';
 
-export const TICKET_STATUSES: readonly TicketStatus[] = ['open', 'in progress', 'closed'];
+export const TICKET_STATUSES: readonly TicketStatus[] = [
+  'open',
+  'in progress',
+  'done',
+  'rejected',
+];
 
 export function isTicketStatus(value: string): value is TicketStatus {
   return (TICKET_STATUSES as readonly string[]).includes(value);
@@ -206,18 +242,20 @@ export function isTicketStatus(value: string): value is TicketStatus {
 export interface TicketRow {
   id: number;
   pathName: string;
-  title: string;
-  description: string;
-  task: string;
+  originalRequest: string;
+  summary: string;
+  claudeInstruction: string;
+  category: string;
   status: TicketStatus;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface TicketUpdate {
-  title?: string;
-  description?: string;
-  task?: string;
+  originalRequest?: string;
+  summary?: string;
+  claudeInstruction?: string;
+  category?: string;
   status?: TicketStatus;
 }
 
@@ -225,9 +263,10 @@ function toTicketRow(row: Record<string, SQLOutputValue>): TicketRow {
   return {
     id: Number(row.id),
     pathName: String(row.path_name),
-    title: String(row.title),
-    description: String(row.description),
-    task: String(row.task),
+    originalRequest: String(row.original_request),
+    summary: String(row.summary),
+    claudeInstruction: String(row.claude_instruction),
+    category: String(row.category),
     status: String(row.status) as TicketStatus,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
@@ -236,14 +275,29 @@ function toTicketRow(row: Record<string, SQLOutputValue>): TicketRow {
 
 export function insertTicket(
   db: DatabaseSync,
-  row: { pathName: string; title: string; description: string; task: string },
+  row: {
+    pathName: string;
+    originalRequest: string;
+    summary: string;
+    claudeInstruction: string;
+    category: string;
+  },
 ): TicketRow {
   const now = new Date().toISOString();
   const result = db
     .prepare(
-      'INSERT INTO t_tickets (path_name, title, description, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO t_tickets (path_name, original_request, summary, claude_instruction, category, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(row.pathName, row.title, row.description, row.task, 'open', now, now);
+    .run(
+      row.pathName,
+      row.originalRequest,
+      row.summary,
+      row.claudeInstruction,
+      row.category,
+      'open',
+      now,
+      now,
+    );
   const ticket = getTicket(db, Number(result.lastInsertRowid));
   if (!ticket) {
     throw new Error('Ticket konnte nach dem Anlegen nicht gelesen werden.');
@@ -270,6 +324,14 @@ export function listTickets(
   return rows.map((row) => toTicketRow(row));
 }
 
+export function listAllTickets(db: DatabaseSync, status?: TicketStatus): TicketRow[] {
+  const rows =
+    status === undefined
+      ? db.prepare('SELECT * FROM t_tickets ORDER BY id ASC').all()
+      : db.prepare('SELECT * FROM t_tickets WHERE status = ? ORDER BY id ASC').all(status);
+  return rows.map((row) => toTicketRow(row));
+}
+
 export function updateTicket(
   db: DatabaseSync,
   id: number,
@@ -280,14 +342,23 @@ export function updateTicket(
     return undefined;
   }
   const merged = {
-    title: update.title ?? existing.title,
-    description: update.description ?? existing.description,
-    task: update.task ?? existing.task,
+    originalRequest: update.originalRequest ?? existing.originalRequest,
+    summary: update.summary ?? existing.summary,
+    claudeInstruction: update.claudeInstruction ?? existing.claudeInstruction,
+    category: update.category ?? existing.category,
     status: update.status ?? existing.status,
   };
   db.prepare(
-    'UPDATE t_tickets SET title = ?, description = ?, task = ?, status = ?, updated_at = ? WHERE id = ?',
-  ).run(merged.title, merged.description, merged.task, merged.status, new Date().toISOString(), id);
+    'UPDATE t_tickets SET original_request = ?, summary = ?, claude_instruction = ?, category = ?, status = ?, updated_at = ? WHERE id = ?',
+  ).run(
+    merged.originalRequest,
+    merged.summary,
+    merged.claudeInstruction,
+    merged.category,
+    merged.status,
+    new Date().toISOString(),
+    id,
+  );
   return getTicket(db, id);
 }
 

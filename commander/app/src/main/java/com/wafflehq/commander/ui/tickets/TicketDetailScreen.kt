@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +28,7 @@ import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
+import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
 fun TicketDetailScreen(
@@ -63,26 +66,42 @@ fun TicketDetailScreen(
                 return@Column
             }
 
+            val pathName = state.ticket?.pathName
+            if (pathName != null) {
+                Text(
+                    text = pathName,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTheme.colors.onSurfaceVariant,
+                )
+            }
+
             AppTextField(
-                value = state.titleInput,
-                onValueChange = viewModel::onTitleChange,
-                label = stringResource(R.string.ticket_detail_title_label),
+                value = state.originalRequestInput,
+                onValueChange = viewModel::onOriginalRequestChange,
+                label = stringResource(R.string.ticket_detail_original_request_label),
+                role = AppRole.Primary,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
+            )
+            AppTextField(
+                value = state.summaryInput,
+                onValueChange = viewModel::onSummaryChange,
+                label = stringResource(R.string.ticket_detail_summary_label),
+                role = AppRole.Primary,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+            )
+            AppTextField(
+                value = state.claudeInstructionInput,
+                onValueChange = viewModel::onClaudeInstructionChange,
+                label = stringResource(R.string.ticket_detail_claude_instruction_label),
+                role = AppRole.Primary,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+            )
+            AppTextField(
+                value = state.categoryInput,
+                onValueChange = viewModel::onCategoryChange,
+                label = stringResource(R.string.ticket_detail_category_label),
                 role = AppRole.Primary,
                 modifier = Modifier.fillMaxWidth(),
-            )
-            AppTextField(
-                value = state.descriptionInput,
-                onValueChange = viewModel::onDescriptionChange,
-                label = stringResource(R.string.ticket_detail_description_label),
-                role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
-            )
-            AppTextField(
-                value = state.taskInput,
-                onValueChange = viewModel::onTaskChange,
-                label = stringResource(R.string.ticket_detail_task_label),
-                role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
             )
             SettingsDropdownField(
                 label = stringResource(R.string.ticket_detail_status_label),
@@ -97,9 +116,10 @@ fun TicketDetailScreen(
                 role = AppRole.Primary,
                 onClick = viewModel::save,
                 enabled = !state.saving &&
-                    state.titleInput.isNotBlank() &&
-                    state.descriptionInput.isNotBlank() &&
-                    state.taskInput.isNotBlank(),
+                    state.originalRequestInput.isNotBlank() &&
+                    state.summaryInput.isNotBlank() &&
+                    state.claudeInstructionInput.isNotBlank() &&
+                    state.categoryInput.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             )
             AppButton(

@@ -16,6 +16,7 @@ import {
   insertCommand,
   insertTicket,
   isTicketStatus,
+  listAllTickets,
   listTickets,
   logAccess,
   openDatabase,
@@ -164,23 +165,29 @@ function parseTicketUpdateBody(raw: unknown): TicketUpdate {
   const record = raw as Record<string, unknown>;
   const update: TicketUpdate = {};
 
-  if (record.title !== undefined) {
-    if (typeof record.title !== 'string' || record.title.trim() === '') {
-      throw new Error('Feld "title" muss ein nicht-leerer String sein, falls angegeben.');
+  if (record.originalRequest !== undefined) {
+    if (typeof record.originalRequest !== 'string' || record.originalRequest.trim() === '') {
+      throw new Error('Feld "originalRequest" muss ein nicht-leerer String sein, falls angegeben.');
     }
-    update.title = record.title;
+    update.originalRequest = record.originalRequest;
   }
-  if (record.description !== undefined) {
-    if (typeof record.description !== 'string' || record.description.trim() === '') {
-      throw new Error('Feld "description" muss ein nicht-leerer String sein, falls angegeben.');
+  if (record.summary !== undefined) {
+    if (typeof record.summary !== 'string' || record.summary.trim() === '') {
+      throw new Error('Feld "summary" muss ein nicht-leerer String sein, falls angegeben.');
     }
-    update.description = record.description;
+    update.summary = record.summary;
   }
-  if (record.task !== undefined) {
-    if (typeof record.task !== 'string' || record.task.trim() === '') {
-      throw new Error('Feld "task" muss ein nicht-leerer String sein, falls angegeben.');
+  if (record.claudeInstruction !== undefined) {
+    if (typeof record.claudeInstruction !== 'string' || record.claudeInstruction.trim() === '') {
+      throw new Error('Feld "claudeInstruction" muss ein nicht-leerer String sein, falls angegeben.');
     }
-    update.task = record.task;
+    update.claudeInstruction = record.claudeInstruction;
+  }
+  if (record.category !== undefined) {
+    if (typeof record.category !== 'string' || record.category.trim() === '') {
+      throw new Error('Feld "category" muss ein nicht-leerer String sein, falls angegeben.');
+    }
+    update.category = record.category;
   }
   if (record.status !== undefined) {
     if (typeof record.status !== 'string' || !isTicketStatus(record.status)) {
@@ -191,7 +198,7 @@ function parseTicketUpdateBody(raw: unknown): TicketUpdate {
 
   if (Object.keys(update).length === 0) {
     throw new Error(
-      'Mindestens eines der Felder "title", "description", "task", "status" muss angegeben werden.',
+      'Mindestens eines der Felder "originalRequest", "summary", "claudeInstruction", "category", "status" muss angegeben werden.',
     );
   }
   return update;
@@ -589,6 +596,21 @@ function handleGetTickets(
   sendJson(res, 200, { tickets: listTickets(db, pathName, status) });
 }
 
+function handleGetAllTickets(
+  db: DatabaseSync,
+  res: ServerResponse,
+  statusParam: string | null,
+): void {
+  let status: TicketStatus | undefined;
+  try {
+    status = parseTicketStatusQuery(statusParam);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  sendJson(res, 200, { tickets: listAllTickets(db, status) });
+}
+
 async function handlePostTicket(
   db: DatabaseSync,
   config: Config,
@@ -629,7 +651,7 @@ async function handlePostTicket(
     });
     return;
   }
-  const ticket = insertTicket(db, { pathName, ...output });
+  const ticket = insertTicket(db, { pathName, originalRequest: body.text, ...output });
   sendJson(res, 201, ticket);
 }
 
@@ -854,6 +876,8 @@ async function handleRequest(
       handleGetHostedEntry(config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'GET' && segments.length === 4 && segments[0] === 'files') {
       handleGetHostedFile(config, res, segments[1] ?? '', segments[2] ?? '', segments[3] ?? '');
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'tickets') {
+      handleGetAllTickets(db, res, url.searchParams.get('status'));
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'tickets') {
       handleGetTickets(db, config, res, segments[1] ?? '', url.searchParams.get('status'));
     } else if (method === 'POST' && segments.length === 2 && segments[0] === 'tickets') {
@@ -912,6 +936,7 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/files/:pathName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);
+  console.log(`  GET  ${base}/tickets`);
   console.log(`  GET  ${base}/tickets/:pathName`);
   console.log(`  POST ${base}/tickets/:pathName`);
   console.log(`  GET  ${base}/tickets/:pathName/:id`);

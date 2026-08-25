@@ -17,9 +17,10 @@ import kotlinx.coroutines.launch
 
 data class TicketDetailUiState(
     val ticket: Ticket? = null,
-    val titleInput: String = "",
-    val descriptionInput: String = "",
-    val taskInput: String = "",
+    val originalRequestInput: String = "",
+    val summaryInput: String = "",
+    val claudeInstructionInput: String = "",
+    val categoryInput: String = "",
     val statusIndex: Int = 0,
     val loading: Boolean = true,
     val saving: Boolean = false,
@@ -55,16 +56,20 @@ class TicketDetailViewModel @Inject constructor(
         }
     }
 
-    fun onTitleChange(value: String) {
-        _uiState.update { it.copy(titleInput = value) }
+    fun onOriginalRequestChange(value: String) {
+        _uiState.update { it.copy(originalRequestInput = value) }
     }
 
-    fun onDescriptionChange(value: String) {
-        _uiState.update { it.copy(descriptionInput = value) }
+    fun onSummaryChange(value: String) {
+        _uiState.update { it.copy(summaryInput = value) }
     }
 
-    fun onTaskChange(value: String) {
-        _uiState.update { it.copy(taskInput = value) }
+    fun onClaudeInstructionChange(value: String) {
+        _uiState.update { it.copy(claudeInstructionInput = value) }
+    }
+
+    fun onCategoryChange(value: String) {
+        _uiState.update { it.copy(categoryInput = value) }
     }
 
     fun onStatusSelected(index: Int) {
@@ -80,9 +85,10 @@ class TicketDetailViewModel @Inject constructor(
                     pathName,
                     id,
                     TicketPatchRequest(
-                        title = state.titleInput,
-                        description = state.descriptionInput,
-                        task = state.taskInput,
+                        originalRequest = state.originalRequestInput,
+                        summary = state.summaryInput,
+                        claudeInstruction = state.claudeInstructionInput,
+                        category = state.categoryInput,
                         status = TICKET_STATUS_ORDER.getOrNull(state.statusIndex),
                     ),
                 )
@@ -106,9 +112,10 @@ class TicketDetailViewModel @Inject constructor(
 
     private fun TicketDetailUiState.applying(ticket: Ticket): TicketDetailUiState = copy(
         ticket = ticket,
-        titleInput = ticket.title,
-        descriptionInput = ticket.description,
-        taskInput = ticket.task,
+        originalRequestInput = ticket.originalRequest,
+        summaryInput = ticket.summary,
+        claudeInstructionInput = ticket.claudeInstruction,
+        categoryInput = ticket.category,
         statusIndex = TICKET_STATUS_ORDER.indexOf(ticket.status).coerceAtLeast(0),
     )
 }

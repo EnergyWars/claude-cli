@@ -49,8 +49,9 @@ class ConnectionGateViewModel @Inject constructor(
             else -> GateState.Ready
         }
 
-        if (isLoggedIn && auth != null) {
-            val delayMs = Duration.between(Instant.now(), auth.expiresAt).toMillis().coerceAtLeast(0)
+        if (isLoggedIn) {
+            val expiresAt = requireNotNull(auth).expiresAt
+            val delayMs = Duration.between(Instant.now(), expiresAt).toMillis().coerceAtLeast(0)
             expiryWatcher = viewModelScope.launch {
                 delay(delayMs)
                 _gateState.value = GateState.NeedsLogin

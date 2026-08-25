@@ -45,7 +45,7 @@ object Routes {
     const val RUN_AGENT = "run_agent?agent={agent}&path={path}"
     const val PATH_DETAIL = "path_detail/{pathName}"
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
-    const val TICKETS = "tickets/{pathName}"
+    const val TICKETS = "tickets?pathName={pathName}"
     const val TICKET_DETAIL = "tickets/{pathName}/{id}"
 
     fun runAgent(agentCommand: String? = null, pathName: String? = null): String {
@@ -63,7 +63,8 @@ object Routes {
         return "command_detail/${Uri.encode(id)}$query"
     }
 
-    fun tickets(pathName: String): String = "tickets/${Uri.encode(pathName)}"
+    fun tickets(pathName: String? = null): String =
+        if (pathName != null) "tickets?pathName=${Uri.encode(pathName)}" else "tickets"
 
     fun ticketDetail(pathName: String, id: Int): String = "tickets/${Uri.encode(pathName)}/$id"
 }
@@ -149,6 +150,7 @@ fun AppNavHost() {
                     onOpenAgent = { agentCommand -> navController.navigate(Routes.runAgent(agentCommand = agentCommand)) },
                     onOpenPath = { pathName -> navController.navigate(Routes.pathDetail(pathName)) },
                     onOpenCommand = { id, pathName -> navController.navigate(Routes.commandDetail(id, pathName)) },
+                    onOpenTickets = { navController.navigate(Routes.tickets()) },
                 )
             }
             composable(
@@ -186,7 +188,9 @@ fun AppNavHost() {
             }
             composable(
                 route = Routes.TICKETS,
-                arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+                arguments = listOf(
+                    navArgument("pathName") { type = NavType.StringType; nullable = true; defaultValue = null },
+                ),
             ) {
                 TicketListScreen(
                     onBack = { navController.popBackStack() },

@@ -330,9 +330,9 @@ test('cl totp remove: entfernt einen aktiven Authenticator; Server-Endpunkte sin
 
 function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}): string {
   return JSON.stringify({
-    title: 'CLI-Ticket-Titel',
-    description: 'CLI-Ticket-Beschreibung',
-    task: 'CLI-Ticket-Aufgabe',
+    summary: 'CLI-Ticket-Zusammenfassung',
+    claudeInstruction: 'CLI-Ticket-Claude-Anweisung',
+    category: 'Backend',
     ...overrides,
   });
 }
@@ -340,9 +340,10 @@ function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}
 interface CliTicket {
   id: number;
   pathName: string;
-  title: string;
-  description: string;
-  task: string;
+  originalRequest: string;
+  summary: string;
+  claudeInstruction: string;
+  category: string;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -358,9 +359,10 @@ test('cl ticket from: legt per Ticket-Agent ein Ticket an und gibt es als JSON a
     assert.equal(result.exitCode, 0);
     const ticket = JSON.parse(result.stdout) as CliTicket;
     assert.equal(ticket.pathName, 'default');
-    assert.equal(ticket.title, 'CLI-Ticket-Titel');
-    assert.equal(ticket.description, 'CLI-Ticket-Beschreibung');
-    assert.equal(ticket.task, 'CLI-Ticket-Aufgabe');
+    assert.equal(ticket.originalRequest, 'ein neues Feature');
+    assert.equal(ticket.summary, 'CLI-Ticket-Zusammenfassung');
+    assert.equal(ticket.claudeInstruction, 'CLI-Ticket-Claude-Anweisung');
+    assert.equal(ticket.category, 'Backend');
     assert.equal(ticket.status, 'open');
   } finally {
     ticketMock.cleanup();
@@ -404,9 +406,9 @@ test('cl ticket get (ohne ID): listet nur offene Tickets, cl ticket get <id>: li
     const created = await runCli(['ticket', 'from', 'default', 'text'], { env });
     const ticket = JSON.parse(created.stdout) as CliTicket;
 
-    const closedResult = await runCli(['ticket', 'from', 'default', 'text'], { env });
-    const closedTicket = JSON.parse(closedResult.stdout) as CliTicket;
-    await runCli(['ticket', 'update', 'default', String(closedTicket.id), '--status', 'closed'], {
+    const doneResult = await runCli(['ticket', 'from', 'default', 'text'], { env });
+    const doneTicket = JSON.parse(doneResult.stdout) as CliTicket;
+    await runCli(['ticket', 'update', 'default', String(doneTicket.id), '--status', 'done'], {
       env,
     });
 
@@ -415,7 +417,7 @@ test('cl ticket get (ohne ID): listet nur offene Tickets, cl ticket get <id>: li
     const openTickets = JSON.parse(listResult.stdout) as CliTicket[];
     const ids = openTickets.map((t) => t.id);
     assert.ok(ids.includes(ticket.id));
-    assert.ok(!ids.includes(closedTicket.id));
+    assert.ok(!ids.includes(doneTicket.id));
 
     const getResult = await runCli(['ticket', 'get', 'default', String(ticket.id)], { env });
     assert.equal(getResult.exitCode, 0);
@@ -486,7 +488,47 @@ test('cl ticket list --status invalid: bricht mit Fehler und Exit != 0 ab', asyn
   }
 });
 
-test('cl ticket update: aendert Titel/Beschreibung/Aufgabe/Status ausser der ID', async () => {
+test('cl ticket list-all: listet Tickets ueber alle Pfade hinweg, optional gefiltert nach Status', async () => {
+  const ticketFixture = createFixtureRoot({
+    paths: [
+      { name: 'default', path: process.cwd() },
+      { name: 'other', path: process.cwd() },
+    ],
+  });
+  const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
+  const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
+  try {
+    const first = JSON.parse(
+      (await runCli(['ticket', 'from', 'default', 'text'], { env })).stdout,
+    ) as CliTicket;
+    const second = JSON.parse(
+      (await runCli(['ticket', 'from', 'other', 'text'], { env })).stdout,
+    ) as CliTicket;
+    await runCli(['ticket', 'update', 'other', String(second.id), '--status', 'rejected'], {
+      env,
+    });
+
+    const all = JSON.parse(
+      (await runCli(['ticket', 'list-all'], { env })).stdout,
+    ) as CliTicket[];
+    const allIds = all.map((t) => t.id);
+    assert.ok(allIds.includes(first.id));
+    assert.ok(allIds.includes(second.id));
+
+    const rejected = JSON.parse(
+      (await runCli(['ticket', 'list-all', '--status', 'rejected'], { env })).stdout,
+    ) as CliTicket[];
+    assert.deepEqual(
+      rejected.map((t) => t.id),
+      [second.id],
+    );
+  } finally {
+    ticketMock.cleanup();
+    ticketFixture.cleanup();
+  }
+});
+
+test('cl ticket update: aendert originalRequest/summary/claudeInstruction/category/Status ausser der ID', async () => {
   const ticketFixture = createFixtureRoot();
   const ticketMock = createMockClaude({ outputChunks: [validTicketAgentOutput()], exitCode: 0 });
   const env = { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(ticketMock.binDir) };
@@ -501,19 +543,19 @@ test('cl ticket update: aendert Titel/Beschreibung/Aufgabe/Status ausser der ID'
         'update',
         'default',
         String(ticket.id),
-        '--title',
-        'Neuer Titel',
+        '--summary',
+        'Neue Zusammenfassung',
         '--status',
-        'closed',
+        'done',
       ],
       { env },
     );
     assert.equal(updateResult.exitCode, 0);
     const updated = JSON.parse(updateResult.stdout) as CliTicket;
     assert.equal(updated.id, ticket.id);
-    assert.equal(updated.title, 'Neuer Titel');
-    assert.equal(updated.status, 'closed');
-    assert.equal(updated.description, ticket.description);
+    assert.equal(updated.summary, 'Neue Zusammenfassung');
+    assert.equal(updated.status, 'done');
+    assert.equal(updated.claudeInstruction, ticket.claudeInstruction);
   } finally {
     ticketMock.cleanup();
     ticketFixture.cleanup();
@@ -539,7 +581,7 @@ test('cl ticket update: ohne jegliche Option bricht mit Fehler und Exit != 0 ab'
 test('cl ticket update: unbekannte ID bricht mit Fehler und Exit != 0 ab', async () => {
   const ticketFixture = createFixtureRoot();
   try {
-    const result = await runCli(['ticket', 'update', 'default', '999999', '--title', 'x'], {
+    const result = await runCli(['ticket', 'update', 'default', '999999', '--summary', 'x'], {
       env: { CL_ROOT_DIR: ticketFixture.rootDir, PATH: pathWithMock(mock.binDir) },
     });
     assert.notEqual(result.exitCode, 0);

@@ -35,6 +35,9 @@
     <string name="home_history_title">History</string>
     <string name="home_error_title">Connection failed</string>
     <string name="home_retry">Retry</string>
+    <string name="home_tickets_title">Tickets</string>
+    <string name="home_tickets_subtitle">Manage all tickets</string>
+    <string name="home_tickets_open_count">%1$d open</string>
 
     <string name="run_agent_title">Start agent</string>
     <string name="run_agent_agent_label">Agent</string>
@@ -61,18 +64,21 @@
     <string name="tickets_empty">No tickets yet.</string>
     <string name="tickets_create_text_label">What needs to happen?</string>
     <string name="tickets_create_submit">Create ticket</string>
+    <string name="tickets_create_path_label">Project</string>
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">All</string>
     <string name="ticket_detail_title">Ticket</string>
-    <string name="ticket_detail_title_label">Title</string>
-    <string name="ticket_detail_description_label">Description</string>
-    <string name="ticket_detail_task_label">Task</string>
+    <string name="ticket_detail_original_request_label">Original request</string>
+    <string name="ticket_detail_summary_label">Summary</string>
+    <string name="ticket_detail_claude_instruction_label">Claude instruction</string>
+    <string name="ticket_detail_category_label">Category</string>
     <string name="ticket_detail_status_label">Status</string>
     <string name="ticket_detail_save">Save</string>
     <string name="ticket_detail_delete">Delete ticket</string>
     <string name="ticket_status_open">Open</string>
     <string name="ticket_status_in_progress">In progress</string>
-    <string name="ticket_status_closed">Closed</string>
+    <string name="ticket_status_done">Done</string>
+    <string name="ticket_status_rejected">Rejected</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_display_title">Display</string>

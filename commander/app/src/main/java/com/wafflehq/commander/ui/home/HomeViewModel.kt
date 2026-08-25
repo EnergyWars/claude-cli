@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.Manifest
+import com.wafflehq.commander.data.api.TICKET_STATUS_OPEN
 import com.wafflehq.commander.data.db.CommandHistoryEntity
 import com.wafflehq.commander.data.history.CommandHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,9 @@ class HomeViewModel @Inject constructor(
     private val _manifestState = MutableStateFlow<ManifestState>(ManifestState.Loading)
     val manifestState: StateFlow<ManifestState> = _manifestState.asStateFlow()
 
+    private val _openTicketCount = MutableStateFlow<Int?>(null)
+    val openTicketCount: StateFlow<Int?> = _openTicketCount.asStateFlow()
+
     val history: StateFlow<List<CommandHistoryEntity>> = historyRepository.history
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -45,6 +49,13 @@ class HomeViewModel @Inject constructor(
                 ManifestState.Loaded(api.getManifest())
             } catch (error: ApiException) {
                 ManifestState.Error(error.message ?: "Unbekannter Fehler.")
+            }
+        }
+        viewModelScope.launch {
+            try {
+                _openTicketCount.value = api.listAllTickets(TICKET_STATUS_OPEN).tickets.size
+            } catch (_: ApiException) {
+                _openTicketCount.value = null
             }
         }
     }

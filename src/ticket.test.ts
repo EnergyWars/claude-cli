@@ -13,7 +13,7 @@ import { createEmptyBinDir, createMockClaude, pathWithMock } from './test-suppor
 test('buildTicketAgentSystemPrompt: haengt die Output-Format-Anweisung an die konfigurierte Aufgabe an', () => {
   const prompt = buildTicketAgentSystemPrompt('Erstelle ein Ticket aus dem Text.');
   assert.match(prompt, /^Erstelle ein Ticket aus dem Text\./);
-  assert.match(prompt, /"title": "\.\.\.", "description": "\.\.\.", "task": "\.\.\."/);
+  assert.match(prompt, /"summary": "\.\.\.", "claudeInstruction": "\.\.\.", "category": "\.\.\."/);
 });
 
 test('extractJsonObjects: findet ein einzelnes Top-Level-Objekt', () => {
@@ -32,12 +32,12 @@ test('extractJsonObjects: findet mehrere Top-Level-Objekte in Reihenfolge', () =
 });
 
 test('extractJsonObjects: ignoriert Braces innerhalb von Strings', () => {
-  const text = '{"title": "Fix {bug} in parser", "n": 1}';
+  const text = '{"summary": "Fix {bug} in parser", "n": 1}';
   assert.deepEqual(extractJsonObjects(text), [text]);
 });
 
 test('extractJsonObjects: behandelt escapte Anfuehrungszeichen in Strings korrekt', () => {
-  const text = String.raw`{"title": "Er sagte \"Hallo {Welt}\""}`;
+  const text = String.raw`{"summary": "Er sagte \"Hallo {Welt}\""}`;
   assert.deepEqual(extractJsonObjects(text), [text]);
 });
 
@@ -55,9 +55,9 @@ test('extractJsonObjects: unausgeglichene Braces liefern keinen Treffer', () => 
 
 function validTicketJson(overrides: Partial<Record<string, unknown>> = {}): string {
   return JSON.stringify({
-    title: 'Kurzer Titel',
-    description: 'Kurze Beschreibung.',
-    task: 'Konkrete Aufgabe.',
+    summary: 'Kurze Zusammenfassung.',
+    claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+    category: 'Backend',
     ...overrides,
   });
 }
@@ -65,47 +65,47 @@ function validTicketJson(overrides: Partial<Record<string, unknown>> = {}): stri
 test('parseTicketAgentOutput: parsed ein sauberes JSON-Objekt', () => {
   const result = parseTicketAgentOutput(validTicketJson());
   assert.deepEqual(result, {
-    title: 'Kurzer Titel',
-    description: 'Kurze Beschreibung.',
-    task: 'Konkrete Aufgabe.',
+    summary: 'Kurze Zusammenfassung.',
+    claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+    category: 'Backend',
   });
 });
 
 test('parseTicketAgentOutput: ignoriert Markdown-Codeblock-Zaeune', () => {
   const output = `\`\`\`json\n${validTicketJson()}\n\`\`\``;
   assert.deepEqual(parseTicketAgentOutput(output), {
-    title: 'Kurzer Titel',
-    description: 'Kurze Beschreibung.',
-    task: 'Konkrete Aufgabe.',
+    summary: 'Kurze Zusammenfassung.',
+    claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+    category: 'Backend',
   });
 });
 
 test('parseTicketAgentOutput: ignoriert Prosa vor und nach dem JSON', () => {
   const output = `Hier ist das Ticket:\n${validTicketJson()}\nHoffe das hilft!`;
   assert.deepEqual(parseTicketAgentOutput(output), {
-    title: 'Kurzer Titel',
-    description: 'Kurze Beschreibung.',
-    task: 'Konkrete Aufgabe.',
+    summary: 'Kurze Zusammenfassung.',
+    claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+    category: 'Backend',
   });
 });
 
 test('parseTicketAgentOutput: trimmt Whitespace in den Feldern', () => {
-  const output = validTicketJson({ title: '  Titel mit Leerzeichen  ' });
-  assert.equal(parseTicketAgentOutput(output).title, 'Titel mit Leerzeichen');
+  const output = validTicketJson({ summary: '  Zusammenfassung mit Leerzeichen  ' });
+  assert.equal(parseTicketAgentOutput(output).summary, 'Zusammenfassung mit Leerzeichen');
 });
 
 test('parseTicketAgentOutput: waehlt das letzte gueltige Objekt, wenn mehrere vorkommen', () => {
-  const first = JSON.stringify({ title: 'Erstes', description: 'x', task: 'y' });
-  const second = JSON.stringify({ title: 'Zweites', description: 'x', task: 'y' });
+  const first = JSON.stringify({ summary: 'Erstes', claudeInstruction: 'x', category: 'y' });
+  const second = JSON.stringify({ summary: 'Zweites', claudeInstruction: 'x', category: 'y' });
   const result = parseTicketAgentOutput(`${first}\n${second}`);
-  assert.equal(result.title, 'Zweites');
+  assert.equal(result.summary, 'Zweites');
 });
 
 test('parseTicketAgentOutput: ueberspringt ein fruehes Objekt ohne Ticket-Form und nimmt ein spaeteres gueltiges', () => {
   const irrelevant = JSON.stringify({ foo: 'bar' });
   const valid = validTicketJson();
   const result = parseTicketAgentOutput(`${irrelevant}\n${valid}`);
-  assert.equal(result.title, 'Kurzer Titel');
+  assert.equal(result.summary, 'Kurze Zusammenfassung.');
 });
 
 test('parseTicketAgentOutput: wirft bei leerem Output', () => {
@@ -116,29 +116,29 @@ test('parseTicketAgentOutput: wirft, wenn kein JSON-Objekt enthalten ist', () =>
   assert.throws(() => parseTicketAgentOutput('nur Text, kein JSON'), /kein gueltiges Ticket-JSON/);
 });
 
-test('parseTicketAgentOutput: wirft bei fehlendem Feld "task"', () => {
-  const output = JSON.stringify({ title: 'x', description: 'y' });
+test('parseTicketAgentOutput: wirft bei fehlendem Feld "category"', () => {
+  const output = JSON.stringify({ summary: 'x', claudeInstruction: 'y' });
   assert.throws(() => parseTicketAgentOutput(output), /kein gueltiges Ticket-JSON/);
 });
 
-test('parseTicketAgentOutput: wirft bei fehlendem Feld "title"', () => {
-  const output = JSON.stringify({ description: 'y', task: 'z' });
+test('parseTicketAgentOutput: wirft bei fehlendem Feld "summary"', () => {
+  const output = JSON.stringify({ claudeInstruction: 'y', category: 'z' });
   assert.throws(() => parseTicketAgentOutput(output), /kein gueltiges Ticket-JSON/);
 });
 
 test('parseTicketAgentOutput: wirft bei falschem Typ eines Feldes', () => {
-  const output = JSON.stringify({ title: 42, description: 'y', task: 'z' });
+  const output = JSON.stringify({ summary: 42, claudeInstruction: 'y', category: 'z' });
   assert.throws(() => parseTicketAgentOutput(output), /kein gueltiges Ticket-JSON/);
 });
 
 test('parseTicketAgentOutput: wirft bei nur Whitespace in einem Feld', () => {
-  const output = validTicketJson({ description: '   ' });
+  const output = validTicketJson({ claudeInstruction: '   ' });
   assert.throws(() => parseTicketAgentOutput(output), /kein gueltiges Ticket-JSON/);
 });
 
 test('parseTicketAgentOutput: wirft bei kaputtem JSON', () => {
   assert.throws(
-    () => parseTicketAgentOutput('{"title": "x", "description": }'),
+    () => parseTicketAgentOutput('{"summary": "x", "claudeInstruction": }'),
     /kein gueltiges Ticket-JSON/,
   );
 });
@@ -146,9 +146,9 @@ test('parseTicketAgentOutput: wirft bei kaputtem JSON', () => {
 test('parseTicketAgentOutput: ignoriert Extra-Felder, akzeptiert das Objekt trotzdem', () => {
   const output = validTicketJson({ extra: 'wird ignoriert' });
   assert.deepEqual(parseTicketAgentOutput(output), {
-    title: 'Kurzer Titel',
-    description: 'Kurze Beschreibung.',
-    task: 'Konkrete Aufgabe.',
+    summary: 'Kurze Zusammenfassung.',
+    claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+    category: 'Backend',
   });
 });
 
@@ -161,9 +161,9 @@ test('runTicketAgent: baut Args aus model/task und parsed die Agent-Antwort', as
   try {
     const result = await runTicketAgent(process.cwd(), testTicketAgent, 'ein Text');
     assert.deepEqual(result, {
-      title: 'Kurzer Titel',
-      description: 'Kurze Beschreibung.',
-      task: 'Konkrete Aufgabe.',
+      summary: 'Kurze Zusammenfassung.',
+      claudeInstruction: 'Konkrete Anweisung fuer Claude.',
+      category: 'Backend',
     });
   } finally {
     process.env.PATH = previousPath;

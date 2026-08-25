@@ -133,6 +133,18 @@ class ClServerApi @Inject constructor(
         return execute(request)
     }
 
+    suspend fun listAllTickets(status: String? = null): TicketList {
+        val session = requireSession()
+        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
+            .addPathSegment("tickets")
+        if (status != null) urlBuilder.addQueryParameter("status", status)
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
+            .get()
+        return execute(request)
+    }
+
     suspend fun createTicket(pathName: String, text: String): Ticket {
         val session = requireSession()
         val request = Request.Builder()

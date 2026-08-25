@@ -5,10 +5,10 @@ import { buildClaudeArgs } from './launch.js';
 
 const TICKET_AGENT_OUTPUT_INSTRUCTIONS = [
   'Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt in genau dieser Form, ohne Markdown-Codeblock und ohne zusaetzlichen Text davor oder danach:',
-  '{"title": "...", "description": "...", "task": "..."}',
-  '"title": kurzer, praegnanter Titel (max. ca. 8 Woerter).',
-  '"description": kurze Beschreibung, was das Ticket umfasst und warum (2-4 Saetze).',
-  '"task": konkrete, umsetzbare Aufgabenstellung fuer einen Entwickler-Agenten.',
+  '{"summary": "...", "claudeInstruction": "...", "category": "..."}',
+  '"summary": kurze Beschreibung des Ziels und des aktuellen Ist-Zustands (2-4 Saetze).',
+  '"claudeInstruction": eine konkrete Anweisung, wie man sie Claude spaeter geben wuerde, um das Feature/den Fix umzusetzen.',
+  '"category": kurzes Schlagwort zur Gruppierung zusammenhaengender Tickets (z. B. "UI", "Backend", "Bugfix").',
 ].join('\n');
 
 export function buildTicketAgentSystemPrompt(task: string): string {
@@ -16,9 +16,9 @@ export function buildTicketAgentSystemPrompt(task: string): string {
 }
 
 export interface TicketAgentOutput {
-  title: string;
-  description: string;
-  task: string;
+  summary: string;
+  claudeInstruction: string;
+  category: string;
 }
 
 export function extractJsonObjects(text: string): string[] {
@@ -65,12 +65,12 @@ function isTicketAgentOutput(value: unknown): value is TicketAgentOutput {
   }
   const record = value as Record<string, unknown>;
   return (
-    typeof record.title === 'string' &&
-    record.title.trim() !== '' &&
-    typeof record.description === 'string' &&
-    record.description.trim() !== '' &&
-    typeof record.task === 'string' &&
-    record.task.trim() !== ''
+    typeof record.summary === 'string' &&
+    record.summary.trim() !== '' &&
+    typeof record.claudeInstruction === 'string' &&
+    record.claudeInstruction.trim() !== '' &&
+    typeof record.category === 'string' &&
+    record.category.trim() !== ''
   );
 }
 
@@ -89,14 +89,14 @@ export function parseTicketAgentOutput(output: string): TicketAgentOutput {
     }
     if (isTicketAgentOutput(parsed)) {
       return {
-        title: parsed.title.trim(),
-        description: parsed.description.trim(),
-        task: parsed.task.trim(),
+        summary: parsed.summary.trim(),
+        claudeInstruction: parsed.claudeInstruction.trim(),
+        category: parsed.category.trim(),
       };
     }
   }
   throw new Error(
-    'Die Antwort des Ticket-Agenten enthaelt kein gueltiges Ticket-JSON ({"title", "description", "task"}).',
+    'Die Antwort des Ticket-Agenten enthaelt kein gueltiges Ticket-JSON ({"summary", "claudeInstruction", "category"}).',
   );
 }
 

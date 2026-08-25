@@ -24,7 +24,10 @@ data class TicketListUiState(
     val error: String? = null,
     val createText: String = "",
     val creating: Boolean = false,
+    val createdTicketPathName: String? = null,
     val createdTicketId: Int? = null,
+    val availablePaths: List<String> = emptyList(),
+    val selectedPathIndex: Int = 0,
 )
 
 @HiltViewModel
@@ -33,13 +36,16 @@ class TicketListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    val pathName: String = checkNotNull(savedStateHandle["pathName"])
+    val pathName: String? = savedStateHandle["pathName"]
 
     private val _uiState = MutableStateFlow(TicketListUiState())
     val uiState: StateFlow<TicketListUiState> = _uiState.asStateFlow()
 
     init {
         refresh()
+        if (pathName == null) {
+            loadAvailablePaths()
+        }
     }
 
     fun refresh() {
@@ -47,10 +53,25 @@ class TicketListViewModel @Inject constructor(
             _uiState.update { it.copy(loading = true, error = null) }
             try {
                 val status = TICKET_STATUS_FILTERS.getOrNull(_uiState.value.statusFilterIndex)?.ifEmpty { null }
-                val tickets = api.listTickets(pathName, status).tickets
+                val tickets = if (pathName != null) {
+                    api.listTickets(pathName, status).tickets
+                } else {
+                    api.listAllTickets(status).tickets
+                }
                 _uiState.update { it.copy(tickets = tickets, loading = false) }
             } catch (error: ApiException) {
                 _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
+            }
+        }
+    }
+
+    private fun loadAvailablePaths() {
+        viewModelScope.launch {
+            try {
+                val paths = api.getManifest().paths.map { it.name }
+                _uiState.update { it.copy(availablePaths = paths) }
+            } catch (_: ApiException) {
+                // Pfad-Auswahl bleibt leer, Erstellung ist dann nicht moeglich.
             }
         }
     }
@@ -60,18 +81,31 @@ class TicketListViewModel @Inject constructor(
         refresh()
     }
 
+    fun onPathSelected(index: Int) {
+        _uiState.update { it.copy(selectedPathIndex = index) }
+    }
+
     fun onCreateTextChange(value: String) {
         _uiState.update { it.copy(createText = value) }
     }
 
     fun createTicket() {
-        val text = _uiState.value.createText
-        if (text.isBlank()) return
+        val state = _uiState.value
+        val text = state.createText
+        val targetPath = pathName ?: state.availablePaths.getOrNull(state.selectedPathIndex)
+        if (text.isBlank() || targetPath == null) return
         _uiState.update { it.copy(creating = true, error = null) }
         viewModelScope.launch {
             try {
-                val ticket = api.createTicket(pathName, text)
-                _uiState.update { it.copy(creating = false, createText = "", createdTicketId = ticket.id) }
+                val ticket = api.createTicket(targetPath, text)
+                _uiState.update {
+                    it.copy(
+                        creating = false,
+                        createText = "",
+                        createdTicketPathName = ticket.pathName,
+                        createdTicketId = ticket.id,
+                    )
+                }
                 refresh()
             } catch (error: ApiException) {
                 _uiState.update { it.copy(creating = false, error = error.message ?: "Unbekannter Fehler.") }
@@ -80,6 +114,6 @@ class TicketListViewModel @Inject constructor(
     }
 
     fun consumeCreatedTicket() {
-        _uiState.update { it.copy(createdTicketId = null) }
+        _uiState.update { it.copy(createdTicketPathName = null, createdTicketId = null) }
     }
 }

@@ -47,10 +47,12 @@ fun HomeScreen(
     onOpenAgent: (agentCommand: String) -> Unit,
     onOpenPath: (pathName: String) -> Unit,
     onOpenCommand: (commandId: String, pathName: String) -> Unit,
+    onOpenTickets: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val manifestState by viewModel.manifestState.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
+    val openTicketCount by viewModel.openTicketCount.collectAsStateWithLifecycle()
 
     AppScaffold(
         activeItem = HeaderItem.Home,
@@ -65,10 +67,12 @@ fun HomeScreen(
                 padding = padding,
                 manifest = state.manifest,
                 history = history,
+                openTicketCount = openTicketCount,
                 onRefresh = viewModel::refresh,
                 onOpenAgent = onOpenAgent,
                 onOpenPath = onOpenPath,
                 onOpenCommand = onOpenCommand,
+                onOpenTickets = onOpenTickets,
             )
         }
     }
@@ -101,10 +105,12 @@ private fun HomeContent(
     padding: PaddingValues,
     manifest: Manifest,
     history: List<CommandHistoryEntity>,
+    openTicketCount: Int?,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
     onOpenPath: (String) -> Unit,
     onOpenCommand: (String, String) -> Unit,
+    onOpenTickets: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -128,6 +134,17 @@ private fun HomeContent(
                     onClick = onRefresh,
                 )
             }
+        }
+        item {
+            SimpleRow(
+                title = stringResource(R.string.home_tickets_title),
+                subtitle = if (openTicketCount != null) {
+                    stringResource(R.string.home_tickets_open_count, openTicketCount)
+                } else {
+                    stringResource(R.string.home_tickets_subtitle)
+                },
+                onClick = onOpenTickets,
+            )
         }
         items(manifest.agents, key = { "agent:${it.command}" }) { agent ->
             SimpleRow(title = agent.command, subtitle = agent.description, onClick = { onOpenAgent(agent.command) })

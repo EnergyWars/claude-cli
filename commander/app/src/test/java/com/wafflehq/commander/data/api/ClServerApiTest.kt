@@ -244,7 +244,7 @@ class ClServerApiTest {
     fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"tickets":[{"id":1,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}]}""",
+                body = """{"tickets":[{"id":1,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}]}""",
             ),
         )
 
@@ -267,11 +267,36 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `listAllTickets requests the global tickets path`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"tickets":[{"id":1,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().listAllTickets()
+
+        assertEquals(1, result.tickets.size)
+        val recorded = server.takeRequest()
+        assertEquals("/tickets", recorded.target)
+    }
+
+    @Test
+    fun `listAllTickets with status appends the status query parameter`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"tickets":[]}"""))
+
+        apiWithConnection().listAllTickets(status = "rejected")
+
+        val recorded = server.takeRequest()
+        assertEquals("/tickets?status=rejected", recorded.target)
+    }
+
+    @Test
     fun `createTicket posts the text and parses the created ticket`() = runBlocking {
         server.enqueue(
             MockResponse(
                 code = 201,
-                body = """{"id":1,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}""",
+                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}""",
             ),
         )
 
@@ -288,7 +313,7 @@ class ClServerApiTest {
     fun `getTicket requests the ticket by id`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"id":42,"pathName":"myapp","title":"t","description":"d","task":"x","status":"open","createdAt":"c","updatedAt":"u"}""",
+                body = """{"id":42,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}""",
             ),
         )
 
@@ -303,25 +328,25 @@ class ClServerApiTest {
     fun `updateTicket sends a PATCH request with only the provided fields`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"id":1,"pathName":"myapp","title":"Neu","description":"d","task":"x","status":"closed","createdAt":"c","updatedAt":"u"}""",
+                body = """{"id":1,"pathName":"myapp","originalRequest":"r","summary":"Neu","claudeInstruction":"i","category":"c","status":"done","createdAt":"c","updatedAt":"u"}""",
             ),
         )
 
         val result = apiWithConnection().updateTicket(
             "myapp",
             1,
-            TicketPatchRequest(title = "Neu", status = TICKET_STATUS_CLOSED),
+            TicketPatchRequest(summary = "Neu", status = TICKET_STATUS_DONE),
         )
 
-        assertEquals("Neu", result.title)
-        assertEquals(TICKET_STATUS_CLOSED, result.status)
+        assertEquals("Neu", result.summary)
+        assertEquals(TICKET_STATUS_DONE, result.status)
         val recorded = server.takeRequest()
         assertEquals("PATCH", recorded.method)
         assertEquals("/tickets/myapp/1", recorded.target)
         val body = recorded.body?.utf8().orEmpty()
-        assertTrue(body.contains("\"title\":\"Neu\""))
-        assertTrue(body.contains("\"status\":\"closed\""))
-        assertFalse(body.contains("description"))
+        assertTrue(body.contains("\"summary\":\"Neu\""))
+        assertTrue(body.contains("\"status\":\"done\""))
+        assertFalse(body.contains("claudeInstruction"))
     }
 
     @Test

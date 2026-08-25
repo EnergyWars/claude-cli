@@ -25,6 +25,7 @@ import {
   getTicket,
   insertTicket,
   isTicketStatus,
+  listAllTickets,
   listTickets,
   openDatabase,
   TICKET_STATUSES,
@@ -310,7 +311,7 @@ const ticketCommand = program
 ticketCommand
   .command('from')
   .description(
-    'Erstellt ein Ticket: ein Agent (Model + Aufgabe aus config.json ticketAgent) interpretiert den Text im Projektkontext des Pfads und legt Titel/Beschreibung/Aufgabe fest.',
+    'Erstellt ein Ticket: der eingegebene Text wird unveraendert als "originalRequest" gespeichert, ein Agent (Model + Aufgabe aus config.json ticketAgent) interpretiert ihn im Projektkontext des Pfads und legt Zusammenfassung/Claude-Anweisung/Kategorie fest.',
   )
   .argument('<path>', TICKET_PATH_ARGUMENT_DESCRIPTION)
   .argument('<text>', 'Kurzer Text, der vom Ticket-Agenten zu einem Ticket verarbeitet wird.')
@@ -323,7 +324,7 @@ ticketCommand
     const db = openDatabase(config.databaseDirectory);
     try {
       const output = await runTicketAgent(pathEntry.path, config.ticketAgent, text);
-      const ticket = insertTicket(db, { pathName, ...output });
+      const ticket = insertTicket(db, { pathName, originalRequest: text, ...output });
       console.log(JSON.stringify(ticket, null, 2));
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
@@ -393,21 +394,51 @@ ticketCommand
   });
 
 ticketCommand
+  .command('list-all')
+  .description(
+    'Listet Tickets ueber alle Pfade hinweg, optional gefiltert nach Status. Ohne --status werden alle Tickets aufgelistet.',
+  )
+  .option('-s, --status <status>', TICKET_STATUS_OPTION_DESCRIPTION)
+  .action((options: { status?: string }) => {
+    const config = loadConfig();
+    if (options.status !== undefined && !isTicketStatus(options.status)) {
+      console.error(
+        `Ungueltiger Status: "${options.status}". Erlaubt: ${TICKET_STATUSES.join(', ')}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const db = openDatabase(config.databaseDirectory);
+    try {
+      console.log(JSON.stringify(listAllTickets(db, options.status), null, 2));
+    } finally {
+      db.close();
+    }
+  });
+
+ticketCommand
   .command('update')
   .description(
-    'Bearbeitet ein Ticket (Titel, Beschreibung, Aufgabe, Status) - alles ausser der ID.',
+    'Bearbeitet ein Ticket (originalRequest, summary, claudeInstruction, category, status) - alles ausser der ID.',
   )
   .argument('<path>', TICKET_PATH_ARGUMENT_DESCRIPTION)
   .argument('<id>', 'Ticket-ID.')
-  .option('--title <title>', 'Neuer Titel.')
-  .option('--description <description>', 'Neue Beschreibung.')
-  .option('--task <task>', 'Neue Aufgabenstellung.')
+  .option('--original-request <text>', 'Neue urspruengliche Anweisung des Users.')
+  .option('--summary <summary>', 'Neue Zusammenfassung von Ziel und Ist-Zustand.')
+  .option('--instruction <instruction>', 'Neue Anweisung fuer Claude, um das Feature umzusetzen.')
+  .option('--category <category>', 'Neue Kategorie zur Gruppierung.')
   .option('--status <status>', TICKET_STATUS_OPTION_DESCRIPTION)
   .action(
     (
       pathName: string,
       idArg: string,
-      options: { title?: string; description?: string; task?: string; status?: string },
+      options: {
+        originalRequest?: string;
+        summary?: string;
+        instruction?: string;
+        category?: string;
+        status?: string;
+      },
     ) => {
       const config = loadConfig();
       if (!resolveTicketPathOrExit(config, pathName)) {
@@ -425,13 +456,14 @@ ticketCommand
         return;
       }
       if (
-        options.title === undefined &&
-        options.description === undefined &&
-        options.task === undefined &&
+        options.originalRequest === undefined &&
+        options.summary === undefined &&
+        options.instruction === undefined &&
+        options.category === undefined &&
         options.status === undefined
       ) {
         console.error(
-          'Mindestens eine der Optionen --title, --description, --task, --status muss angegeben werden.',
+          'Mindestens eine der Optionen --original-request, --summary, --instruction, --category, --status muss angegeben werden.',
         );
         process.exitCode = 1;
         return;
@@ -443,19 +475,23 @@ ticketCommand
           return;
         }
         const update: {
-          title?: string;
-          description?: string;
-          task?: string;
+          originalRequest?: string;
+          summary?: string;
+          claudeInstruction?: string;
+          category?: string;
           status?: TicketStatus;
         } = {};
-        if (options.title !== undefined) {
-          update.title = options.title;
+        if (options.originalRequest !== undefined) {
+          update.originalRequest = options.originalRequest;
         }
-        if (options.description !== undefined) {
-          update.description = options.description;
+        if (options.summary !== undefined) {
+          update.summary = options.summary;
         }
-        if (options.task !== undefined) {
-          update.task = options.task;
+        if (options.instruction !== undefined) {
+          update.claudeInstruction = options.instruction;
+        }
+        if (options.category !== undefined) {
+          update.category = options.category;
         }
         if (options.status !== undefined) {
           update.status = options.status;

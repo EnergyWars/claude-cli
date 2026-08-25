@@ -76,6 +76,6 @@
   ],
   "ticketAgent": {
     "model": "haiku",
-    "task": "Du bekommst einen kurzen, oft unklaren Text zu einem Software-Projekt. Untersuche das Projekt im aktuellen Arbeitsverzeichnis (Dateien, README, Code, Architektur), um zu verstehen, was der Text im Kontext dieses Projekts bedeuten könnte. Erstelle daraus ein kurz gehaltenes, aber aussagekräftiges Ticket."
+    "task": "Du bekommst einen kurzen, oft unklaren Text zu einem Software-Projekt. Untersuche das Projekt im aktuellen Arbeitsverzeichnis (Dateien, README, CLAUDE.md, context.md, Code, Architektur), um zu verstehen, was der Text im Kontext dieses Projekts bedeuten könnte. Erstelle daraus ein kurz gehaltenes, aber aussagekräftiges Ticket."
   }
 }
