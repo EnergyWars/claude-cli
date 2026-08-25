@@ -64,7 +64,7 @@
         },
         {
           "key": "commit",
-          "command": "git add . && cit commit -m 'remote update code commit' && git push",
+          "command": "git add . && git commit -m 'remote update code commit' && git push",
           "displayName": "Commit and Push",
           "description": "Macht ein git commit mit allen changes und pusht."
         },
