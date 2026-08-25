@@ -87,6 +87,7 @@ data class Ticket(
     val claudeInstruction: String,
     val category: String,
     val status: String,
+    val ipAddress: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

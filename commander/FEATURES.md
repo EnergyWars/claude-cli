@@ -2,80 +2,72 @@
 
 ## Verbindungsaufbau (Setup)
 
-Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für Host/IP und Port (Default `8787`), Button „Automatisch suchen“, Button „Verbinden“. Ablauf beim Tippen auf „Verbinden“:
-
-1. `GET /health` – prüft Erreichbarkeit, unabhängig vom Pairing-Status.
-2. `GET /auth/status` – liefert `{ active, pending }`.
-   - `active == true` (ein Authenticator ist auf dem Server bereits eingerichtet, z. B. von einem anderen Client): Screen wechselt in den Modus „Bestehendes Secret eingeben“ – ein Textfeld nimmt das damals bei der Ersteinrichtung angezeigte Base32-Secret entgegen, „Verbinden“ verifiziert es gegen einen geschützten Endpunkt (`GET /paths`), ohne es serverseitig zu verändern.
-   - sonst (nichts eingerichtet oder ein unbestätigtes Setup steht aus): App richtet den Authenticator **selbst** ein – `POST /auth/setup` liefert ein neues Secret, die App berechnet daraus sofort selbst den aktuellen TOTP-Code (kein externer Authenticator nötig) und bestätigt ihn per `POST /auth/setup/confirm`.
-3. Bei Erfolg wird die Verbindung (Host, Port, TOTP-Secret) gespeichert (siehe „Verbindungsspeicher“) und die App wechselt zum Dashboard.
-
-Fehlerfälle (Server nicht erreichbar, außerhalb des lokalen Netzes für Setup/Status, falscher manueller Code) werden als Fehlermeldung angezeigt.
+Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für Host/IP und Port (Default `8787`), Button „Automatisch suchen", Button „Verbinden". Prüft Erreichbarkeit (`GET /health`) und Pairing-Status; richtet bei Bedarf einen Authenticator ein oder verifiziert ein bestehendes Secret. Nach Erfolg wird die Verbindung gespeichert und zum Login gewechselt.
 
 ### Automatische Server-Suche (Auto-Discovery)
 
-Button „Automatisch suchen“ neben den Host/Port-Feldern: ermittelt die eigene lokale IPv4-Adresse des Geräts (`java.net.NetworkInterface`, erste nicht-Loopback-IPv4-Adresse), nimmt deren `/24`-Subnetz an (die ersten drei Oktette) und fragt parallel (max. 32 gleichzeitig) `GET http://<ip>:<port>/status` für jede Adresse `.1` bis `.254` ab – der Port kommt aus dem Port-Feld (Default `8787`, nicht separat abfragbar). Die erste Adresse, die mit `204` antwortet, wird sofort ins Host-Feld übernommen (Scan der übrigen Adressen wird abgebrochen); antwortet keine, erscheint eine Fehlermeldung „Kein Server im lokalen Netz gefunden.“. Der Nutzer muss danach weiterhin selbst „Verbinden“ tippen (Discovery befüllt nur das Feld, pairing/verbindet nicht automatisch). Kurze Timeouts (400 ms) pro Adresse, damit der Scan bei 254 Adressen nicht spürbar lange dauert.
+Button „Automatisch suchen": ermittelt die eigene lokale IPv4-Adresse, scannt parallel das `/24`-Subnetz nach `GET /status` und übernimmt die erste antwortende Adresse ins Host-Feld. Der Nutzer muss danach weiterhin selbst „Verbinden" tippen.
 
-## Verbindungsspeicher
+## Login
 
-`data/connection/ConnectionRepository.kt` hält Host, Port und TOTP-Secret in DataStore Preferences; das Secret liegt darin **nicht im Klartext**, sondern AES-256-GCM-verschlüsselt mit einem Schlüssel aus dem Android-Keystore (`data/crypto/KeystoreCipher.kt`, nie exportierbar aus der sicheren Hardware/OS-Storage). „Verbindung trennen“ (Settings) löscht den gesamten Eintrag; die App fällt dann auf den Setup-Screen zurück.
+Nach dem Verbinden fragt der Login-Screen den aktuellen 6-stelligen TOTP-Code ab und tauscht ihn gegen ein JWT (`POST /auth/login`). Läuft das Token ab, führt die App automatisch zurück zum Login. „Verbindung wechseln" führt zurück zum Setup.
 
-## Google-Authenticator-Client (TOTP)
+## Projektauswahl
 
-`data/totp/TotpGenerator.kt` implementiert RFC 6238/4226 clean-room in Kotlin (Base32-Decoding, `HmacSHA1`, 30-Sekunden-Schritt, 6-stellig, Standard-Truncation) – exakt kompatibel zu `cl server`s `src/totp.ts`. Für jeden authentifizierten API-Aufruf wird der aktuelle Code frisch aus dem gespeicherten Secret berechnet und als `X-TOTP-Code`-Header gesendet; die App braucht dafür keine externe Authenticator-App.
+Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App direkt nach dem Login eine reine Liste aller Projekte (`GET /manifest`.`paths`) – nichts weiter. Tippen auf einen Eintrag merkt sich das Projekt dauerhaft (DataStore) und öffnet den Projekt-Hub. Diese Auswahl bleibt bestehen, bis sie explizit geändert wird (Projekt-Dropdown im Hub) oder die Verbindung getrennt wird.
 
-## Dashboard (Home)
+## Projekt-Hub
 
-Lädt nach dem Verbinden `GET /manifest` und zeigt dynamisch mehrere Abschnitte (kein Hardcoding von Agents/Pfaden):
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter genau vier Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen:
 
-- **Tickets** – ein Einstieg oben auf der Seite, öffnet die globale Ticket-Liste über alle Pfade hinweg (siehe „Tickets“). Untertitel zeigt die Anzahl offener Tickets (`GET /tickets?status=open`), fällt bei Fehler auf einen generischen Text zurück statt die restliche Seite zu blockieren.
-- **Agents** – jeder Eintrag aus `manifest.agents` (`{command, description}`), Tap öffnet „Agent starten“ mit vorausgewähltem Agent.
-- **Pfade** – jeder Eintrag aus `manifest.paths` mit Anzahl Commands/Dateien, Tap öffnet die Pfad-Detailseite.
-- **Verlauf** – lokal gespeicherte, zuletzt ausgelöste Commands (siehe „Lokaler Verlauf“), Tap öffnet die Status-Detailseite auch nach App-Neustart.
+- **Befehle** – alle Commands des aktuellen Projekts.
+- **Downloads** – alle downloadbaren Dateien des aktuellen Projekts.
+- **Dev-Agent** – alle konfigurierten Agenten des aktuellen Projekts.
+- **Tickets** – die Ticket-Liste dieses Projekts.
 
-Ein Aktualisieren-Button lädt das Manifest neu; Verbindungsfehler (z. B. abgelaufenes/entferntes TOTP) erscheinen als Banner mit „Erneut versuchen“.
+Es gibt keine weiteren Einträge oder Querverweise zwischen diesen vier Bereichen.
 
-## Agent starten
+## Befehle
 
-Dropdown-Auswahl für Agent (aus dem Manifest), Pfad (aus dem Manifest) und optional Model (Standard/`haiku`/`sonnet`/`opus`/`fable`), Mehrzeilen-Textfeld für den Prompt. „Starten“ ruft `POST /` (main-Agent) bzw. `POST /<agent>` auf, merkt sich die zurückgegebene Command-ID lokal (Verlauf) und öffnet die Status-Detailseite. Von der Pfad-Detailseite aus vorbelegt mit dem gewählten Pfad („Agent hier starten“) – das ist der Weg, um in einem konfigurierten Pfad (z. B. `periodical`) Claude zum Weiterentwickeln der App zu starten.
+Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen Projekts. Tippen führt den Befehl aus (`POST /paths/<path>/commands/<key>`) und öffnet die Status-Detailseite. Sonst nichts auf diesem Screen.
 
-## Pfad-Details
+## Downloads
 
-Pro Pfad (`GET /manifest`-Eintrag) zwei Bereiche:
+Liste der `path.hosted`-Einträge des aktuellen Projekts. `type: "file"`-Einträge haben einen Direkt-Download-Button; `type: "path"`-Einträge lassen sich aufklappen und einzelne enthaltene Dateien herunterladen. Endet der heruntergeladene Dateiname auf `.apk`, installiert die App das Paket direkt (System-Install-Dialog inkl. einmaligem „Unbekannte Quellen erlauben", falls noch nicht freigegeben); alle anderen Dateien werden wie bisher zum Öffnen/Teilen angeboten. Downloads landen unter `getExternalFilesDir(DIRECTORY_DOWNLOADS)` (kein Speicher-Runtime-Permission nötig).
 
-- **Commands** (`paths[].commands`) – Anzeigename/Beschreibung je Eintrag, Tap führt ihn aus (`POST /paths/<pathName>/commands/<key>`) und öffnet die Status-Detailseite.
-- **Dateien** (`paths[].hosted`) – `type: "file"`-Einträge haben einen Direkt-Download-Button; `type: "path"`-Einträge lassen sich aufklappen (`GET /files/<pathName>/<hostedName>`, listet die enthaltenen Dateien) und jede einzelne Datei darin einzeln herunterladen (`GET /files/<pathName>/<hostedName>/<fileName>`).
+## Dev-Agent
 
-Downloads landen unter `getExternalFilesDir(DIRECTORY_DOWNLOADS)` (kein Storage-Permission nötig) und werden danach automatisch zum Öffnen/Teilen angeboten (`FileProvider`, siehe „Datei-Downloads“). Das ist der Weg, um die von einem Agent gebaute APK direkt herunterzuladen (z. B. `periodical`s `debug-apk`/`release-apk`-Hosted-Einträge).
+Liste aller im aktuellen Projekt konfigurierten Agenten (`manifest.agents`: Command + Beschreibung). Tippen auf einen Agenten öffnet den Ausführungs-Screen:
+
+- **Agent** und **Projekt** sind fix (aus der Auswahl übernommen), nur zur Anzeige – keine weitere Auswahl nötig.
+- **Kontext** (optional): Dropdown aus den unter Einstellungen → Kontexte gepflegten Presets, Default „Kein Kontext". Ist ein Kontext gewählt, wird sein Wert vor den eingegebenen Prompt gehängt (`<Kontext-Wert>\n\n<Prompt>`), bevor der Befehl an den Server geht.
+- **Model** (optional): Dropdown Standard/`haiku`/`sonnet`/`opus`/`fable`, Default vorausgewählt.
+- **Prompt**: Mehrzeiliges Textfeld.
+
+„Starten" ruft `POST /<agent>` auf und öffnet die Status-Detailseite.
+
+## Dev-Kontexte (Einstellungen)
+
+Unter Einstellungen → Kontexte lassen sich beliebig viele Name+Wert-Presets anlegen, bearbeiten und löschen (lokal in Room gespeichert). Sie dienen ausschließlich dazu, beim Dev-Agent-Start vor den Prompt gehängt zu werden (siehe oben) – kein Server-seitiges Konzept.
 
 ## Command-Status (live)
 
-Pollt `GET /state/<id>` alle 2 Sekunden, solange `status == "running"`. Zeigt Status-Pill (`running`/`completed`/`failed`), Agent/Command-Text, den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Falls die Command-Detailseite mit einem Pfadnamen geöffnet wurde und dieser Pfad `hosted`-Datei-Einträge hat, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons dafür.
-
-## Lokaler Verlauf
-
-Da `cl server` selbst keine Liste aller Commands anbietet, merkt sich die App lokal (Room, `data/db/AppDatabase.kt`, Tabelle `command_history`) jede über die App selbst ausgelöste Command-ID (Agent-Start oder Pfad-Command) mit Label und Pfadname. So bleiben laufende/vergangene Commands im Dashboard auffindbar, auch nachdem die App neu gestartet wurde.
-
-## Datei-Downloads
-
-`data/download/HostedFileDownloader.kt` kapselt Download (`ClServerApi.downloadHostedEntry`/`downloadHostedFile`, Zieldateiname aus dem `Content-Disposition`-Header) und das anschließende Öffnen/Teilen über einen `FileProvider` (`res/xml/file_paths.xml`, Autorität `<applicationId>.fileprovider`) – kein Speicher-Runtime-Permission nötig, funktioniert auf allen unterstützten API-Leveln (26–35) identisch.
+Pollt `GET /state/<id>` alle 2 Sekunden, solange `status == "running"`. Zeigt Status-Pill, Agent/Command-Text, den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. automatischem APK-Install, siehe „Downloads").
 
 ## Tickets
 
-Erreichbar sowohl global über den „Tickets“-Einstieg auf der Startseite (alle Pfade) als auch über den Button „Tickets“ auf der Pfad-Detailseite (auf diesen Pfad gefiltert) – derselbe Screen gegen `cl server`s `/tickets/...`-Endpunkte, mit `pathName` als optionalem Navigations-Argument.
+Erreichbar über den „Tickets"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET/POST /tickets/<pathName>`).
 
-Ein Ticket besteht aus: der **Original-Anweisung** (der Text, den man beim Anlegen eingegeben hat, unverändert), einer **Zusammenfassung** (Ziel + aktueller Ist-Zustand), einer **Claude-Anweisung** (wie man das Feature später Claude geben würde, um es umzusetzen), einer **Kategorie** (freies Schlagwort zur Gruppierung zusammenhängender Tickets) und einem **Status** (Offen/In Bearbeitung/Fertig/Abgelehnt).
+Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, einer **Claude-Anweisung**, einer **Kategorie**, einem **Status** (Offen/In Bearbeitung/Fertig/Abgelehnt) und der **IP-Adresse** des anlegenden Clients. ID, Pfadname und IP-Adresse sind nach dem Anlegen nicht mehr änderbar.
 
-**Liste:** Global (`GET /tickets`) zeigt Tickets aller Pfade, gefiltert (`GET /tickets/<pathName>`) nur die eines Pfads. Jede Zeile zeigt die Zusammenfassung, im globalen Modus zusätzlich Pfadname und Kategorie, sonst nur die Kategorie, sowie eine Status-Pille. Ein Status-Dropdown filtert die Liste (Query-Parameter `status`, „Alle“ = ohne Filter). Zum Anlegen: im globalen Modus zusätzlich ein Projekt-Dropdown (Pfade aus `GET /manifest`), dann ein Textfeld + „Ticket erstellen“, das den eingegebenen Text an `POST /tickets/<pathName>` schickt – der Text wird unverändert als Original-Anweisung gespeichert, ein Agent auf dem Server interpretiert ihn zusätzlich im Projektkontext und liefert Zusammenfassung/Claude-Anweisung/Kategorie; nach Erfolg öffnet die App automatisch die Detailseite des neuen Tickets.
+**Liste:** Textfeld + „Ticket erstellen" legt sofort einen lokalen Platzhalter „Lädt Ticket …" an und feuert die Erstellung im Hintergrund (kann mehrere Minuten dauern) – die Liste bleibt bedienbar und aktualisiert sich einmal pro Sekunde, solange ein Platzhalter existiert. Status-Dropdown filtert die Liste. Lädt bei jedem (Wieder-)Betreten automatisch neu.
 
-**Detail:** Textfelder für Original-Anweisung, Zusammenfassung, Claude-Anweisung und Kategorie sowie ein Status-Dropdown, alle vorausgefüllt mit dem aktuellen Stand (`GET /tickets/<pathName>/<id>`) und komplett editierbar. „Speichern“ schickt alle fünf Werte per `PATCH /tickets/<pathName>/<id>`. „Ticket löschen“ ruft `DELETE /tickets/<pathName>/<id>` auf und kehrt danach zur Liste zurück.
-
-Implementiert in `ui/tickets/` (`TicketListScreen`/`TicketListViewModel`, `TicketDetailScreen`/`TicketDetailViewModel`, `TicketStatusUi.kt` für die Status→Farbe/Label-Zuordnung), `data/api/ClServerApi.kt` (`listTickets`/`listAllTickets`/`createTicket`/`getTicket`/`updateTicket`/`deleteTicket`), `data/api/ApiModels.kt` (`Ticket`/`TicketList`/`TicketCreateRequest`/`TicketPatchRequest`). Getestet in `data/api/ClServerApiTest.kt` (alle Aufrufe inkl. `listAllTickets` gegen MockWebServer, inkl. Query-Parameter und PATCH/DELETE-Methode).
+**Detail:** Alle Felder außer Pfadname/IP-Adresse editierbar, „Speichern" (`PATCH`), „Ticket löschen" (`DELETE`, kehrt danach zur Liste zurück).
 
 ## Einstellungen
 
-Wiederverwendet die Basisvorlage: Theme-Umschalter (System/Hell/Dunkel, DataStore-persistiert). Zusätzlich ein „Verbindung“-Abschnitt: zeigt Host:Port der aktiven Verbindung, „Verbindung trennen“ löscht sie und führt zurück zum Setup-Screen.
+Theme-Umschalter (System/Hell/Dunkel), Kontexte-Verwaltung (siehe oben), Verbindungsanzeige mit „Verbindung trennen" (löscht Verbindung **und** das gemerkte Projekt, führt zurück zum Setup-Screen).
 
 ## Netzwerk
 
-`cl server` spricht ausschließlich Klartext-HTTP (keine TLS-Option) – die App erlaubt daher `usesCleartextTraffic` global (Host/Port sind nutzerdefiniert, i. d. R. lokales Netz/VPN). Alle authentifizierten Aufrufe laufen über `data/api/ClServerApi.kt` (OkHttp + kotlinx.serialization), das pro Request frisch den TOTP-Header berechnet und Server-Fehlerantworten (`{error}`-JSON) in eine lesbare `ApiException` übersetzt.
+`cl server` spricht ausschließlich Klartext-HTTP – `usesCleartextTraffic` ist global erlaubt. Alle authentifizierten Aufrufe laufen über `data/api/ClServerApi.kt` (OkHttp + kotlinx.serialization) mit `Authorization: Bearer <JWT>`-Header.

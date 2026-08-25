@@ -11,6 +11,7 @@ export function buildClaudeArgs(
   systemPrompt: string,
   headlessPrompt?: string,
   interactivePrompt?: string,
+  permissions?: string[],
 ): string[] {
   const args = [
     '--model',
@@ -27,6 +28,10 @@ export function buildClaudeArgs(
     args.push(interactivePrompt);
   }
 
+  if (permissions !== undefined && permissions.length > 0) {
+    args.push('--allowedTools', ...permissions);
+  }
+
   return args;
 }
 
@@ -37,7 +42,13 @@ export async function launchAgent(
 ): Promise<void> {
   const agent = resolveAgent(name);
   const model = modelOverride ?? agent.model;
-  const args = buildClaudeArgs(model, buildSystemPrompt(agent), headlessPrompt);
+  const args = buildClaudeArgs(
+    model,
+    buildSystemPrompt(agent),
+    headlessPrompt,
+    undefined,
+    agent.permissions,
+  );
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     const child = spawn('claude', args, { stdio: 'inherit' });
@@ -61,8 +72,9 @@ export async function runHeadlessCommand(
   command: string,
   cwd: string,
   onChunk: (output: string) => void,
+  permissions?: string[],
 ): Promise<HeadlessCommandResult> {
-  const args = buildClaudeArgs(model, buildSystemPrompt(entity), command);
+  const args = buildClaudeArgs(model, buildSystemPrompt(entity), command, undefined, permissions);
 
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
@@ -106,7 +118,13 @@ export async function runShellCommand(
 }
 
 export async function runTask(task: TaskConfig): Promise<void> {
-  const args = buildClaudeArgs(task.model, buildSystemPrompt(task), undefined, task.startCommand);
+  const args = buildClaudeArgs(
+    task.model,
+    buildSystemPrompt(task),
+    undefined,
+    task.startCommand,
+    task.permissions,
+  );
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     const child = spawn('claude', args, { stdio: 'inherit' });

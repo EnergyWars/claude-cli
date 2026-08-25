@@ -296,13 +296,14 @@ class ClServerApiTest {
         server.enqueue(
             MockResponse(
                 code = 201,
-                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}""",
+                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"s","claudeInstruction":"i","category":"c","status":"open","ipAddress":"192.168.1.5","createdAt":"c","updatedAt":"u"}""",
             ),
         )
 
         val result = apiWithConnection().createTicket("myapp", "ein neues Feature")
 
         assertEquals(1, result.id)
+        assertEquals("192.168.1.5", result.ipAddress)
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         assertEquals("/tickets/myapp", recorded.target)
@@ -320,6 +321,7 @@ class ClServerApiTest {
         val result = apiWithConnection().getTicket("myapp", 42)
 
         assertEquals(42, result.id)
+        assertEquals(null, result.ipAddress)
         val recorded = server.takeRequest()
         assertEquals("/tickets/myapp/42", recorded.target)
     }

@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
@@ -39,6 +40,11 @@ fun TicketDetailScreen(
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
+    }
+
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
     }
 
     val statusLabels = TICKET_STATUS_ORDER.map { ticketStatusLabel(it) }
@@ -66,10 +72,16 @@ fun TicketDetailScreen(
                 return@Column
             }
 
-            val pathName = state.ticket?.pathName
-            if (pathName != null) {
+            val ticket = state.ticket
+            if (ticket != null) {
                 Text(
-                    text = pathName,
+                    text = ticket.pathName,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTheme.colors.onSurfaceVariant,
+                )
+                val ipLabel = ticket.ipAddress ?: stringResource(R.string.ticket_detail_ip_unknown)
+                Text(
+                    text = stringResource(R.string.ticket_detail_ip_label, ipLabel),
                     style = MaterialTheme.typography.labelLarge,
                     color = AppTheme.colors.onSurfaceVariant,
                 )

@@ -832,6 +832,11 @@
           "model": {
             "type": "string",
             "description": "Optional. Ueberschreibt das in config.json konfigurierte Model des Agents (z. B. \"haiku\", \"sonnet\", \"opus\", \"fable\")."
+          },
+          "permissions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional. Ueberschreibt vollstaendig (kein Merge) die in config.json fuer diesen Agent konfigurierten Default-Permissions. Gleiche Regel-Syntax wie settings.json permissions.allow (z. B. \"Bash(gradle *)\"), wird als --allowedTools an claude uebergeben. Immer additiv zu den permissions.allow/ask/deny-Regeln, die im Zielprojekt selbst (settings.json) gelten - ersetzt oder umgeht diese nie."
           }
         },
         "additionalProperties": false
@@ -1100,6 +1105,10 @@
             "description": "Schlagwort zur Gruppierung zusammenhaengender Tickets."
           },
           "status": { "$ref": "#/components/schemas/TicketStatus" },
+          "ipAddress": {
+            "type": ["string", "null"],
+            "description": "IP-Adresse des Clients, der das Ticket per POST /tickets/:pathName angelegt hat. Wird beim Anlegen gesetzt, nicht editierbar (wie id/pathName). Null bei Tickets aus der Zeit vor diesem Feld."
+          },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }

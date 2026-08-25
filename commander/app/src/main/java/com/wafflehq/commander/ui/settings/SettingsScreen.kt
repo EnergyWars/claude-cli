@@ -28,6 +28,7 @@ import com.wafflehq.commander.ui.theme.AppTheme
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDisplay: () -> Unit,
+    onOpenContexts: () -> Unit,
     onDisconnected: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -48,6 +49,9 @@ fun SettingsScreen(
                 displayLabel = stringResource(R.string.settings_display_title),
                 displaySubtitle = stringResource(R.string.settings_display_sub),
                 onOpenDisplay = onOpenDisplay,
+                contextsLabel = stringResource(R.string.settings_contexts_title),
+                contextsSubtitle = stringResource(R.string.settings_contexts_sub),
+                onOpenContexts = onOpenContexts,
             )
             SettingsGroupDivider()
             SettingsGroup(

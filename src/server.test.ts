@@ -8,7 +8,12 @@ import { loadConfig } from './config.js';
 import { startServer, type RunningServer } from './server.js';
 import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
-import { createMockClaude, pathWithMock, type MockClaude } from './test-support/mock-claude.js';
+import {
+  createMockClaude,
+  extractMockArgs,
+  pathWithMock,
+  type MockClaude,
+} from './test-support/mock-claude.js';
 
 let fixture: Fixture;
 let mock: MockClaude;
@@ -28,7 +33,10 @@ before(async () => {
 
   fixture = createFixtureRoot({
     main: { description: 'Main' },
-    agents: [{ name: 'dev', description: 'Dev-Agent' }],
+    agents: [
+      { name: 'dev', description: 'Dev-Agent' },
+      { name: 'permagent', description: 'Permission-Agent', permissions: ['Bash(gradle *)'] },
+    ],
     contexts: { main: '# Main-Context\n' },
     paths: [
       {
@@ -228,6 +236,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
   assert.deepEqual(body.agents, [
     { command: 'cl', description: 'Main' },
     { command: 'cl dev', description: 'Dev-Agent' },
+    { command: 'cl permagent', description: 'Permission-Agent' },
   ]);
   assert.ok(!('tasks' in body));
   assert.equal(body.paths.length, 2);
@@ -343,6 +352,53 @@ test('POST /: model im Body ueberschreibt config.json-Default', async () => {
   assert.equal(state.model, 'opus');
 });
 
+test('POST /permagent: ohne "permissions" im Body werden die Default-Permissions aus config.json verwendet', async () => {
+  const res = await fetch(`${baseUrl()}/permagent`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'x', path: 'default' }),
+  });
+  const { id } = (await res.json()) as { id: string };
+  await sleep(300);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { output: string };
+  const invokedArgs = extractMockArgs(state.output);
+  assert.deepEqual(invokedArgs.slice(-2), ['--allowedTools', 'Bash(gradle *)']);
+});
+
+test('POST /permagent: "permissions" im Body ueberschreibt vollstaendig die Default-Permissions aus config.json', async () => {
+  const res = await fetch(`${baseUrl()}/permagent`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      command: 'x',
+      path: 'default',
+      permissions: ['Bash(./gradlew *)', 'Bash(gradlew *)'],
+    }),
+  });
+  const { id } = (await res.json()) as { id: string };
+  await sleep(300);
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { output: string };
+  const invokedArgs = extractMockArgs(state.output);
+  assert.deepEqual(invokedArgs.slice(-3), [
+    '--allowedTools',
+    'Bash(./gradlew *)',
+    'Bash(gradlew *)',
+  ]);
+});
+
+test('POST /: 400 wenn "permissions" kein Array von Strings ist', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'x', path: 'default', permissions: 'Bash(gradle *)' }),
+  });
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /permissions/);
+});
+
 test('POST /task/mytask: 404 - Tasks sind nie ueber die API aufrufbar', async () => {
   const res = await fetch(`${baseUrl()}/task/mytask`, {
     method: 'POST',
@@ -417,6 +473,7 @@ interface TicketBody {
   claudeInstruction: string;
   category: string;
   status: string;
+  ipAddress: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -463,6 +520,8 @@ test('POST /tickets/default: erstellt ein Ticket via Ticket-Agent, antwortet mit
   assert.equal(ticket.claudeInstruction, 'Ticket-Claude-Anweisung');
   assert.equal(ticket.category, 'Backend');
   assert.equal(ticket.status, 'open');
+  assert.equal(typeof ticket.ipAddress, 'string');
+  assert.ok(ticket.ipAddress && ticket.ipAddress.length > 0);
 });
 
 test('POST /tickets/default: 400 bei fehlendem "text"', async () => {

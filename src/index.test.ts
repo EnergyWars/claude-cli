@@ -36,7 +36,15 @@ let mock: MockClaude;
 before(() => {
   fixture = createFixtureRoot({
     main: { description: 'Main-Agent-Desc', model: 'sonnet' },
-    agents: [{ name: 'dev', description: 'Dev-Agent-Desc', model: 'sonnet' }],
+    agents: [
+      { name: 'dev', description: 'Dev-Agent-Desc', model: 'sonnet' },
+      {
+        name: 'permdev',
+        description: 'Permission-Dev-Agent-Desc',
+        model: 'sonnet',
+        permissions: ['Bash(gradle *)', 'Bash(./gradlew *)'],
+      },
+    ],
     contexts: { main: '# Main-Context\n' },
     tasks: [
       {
@@ -45,6 +53,14 @@ before(() => {
         contexts: ['main'],
         model: 'sonnet',
         startCommand: 'mach den mytask-kram',
+      },
+      {
+        name: 'permtask',
+        description: 'Permtask-Desc',
+        contexts: ['main'],
+        model: 'sonnet',
+        startCommand: 'mach den permtask-kram',
+        permissions: ['Bash(gradle *)', 'Bash(./gradlew *)', 'Bash(gradlew *)'],
       },
     ],
   });
@@ -107,6 +123,27 @@ test('cl <model> <agent> -h "<prompt>": headless mit Model-Override und Agent', 
     'auto',
     '--print',
     'mache irgendwas cooles',
+  ]);
+});
+
+test('cl permdev -h "<prompt>": Agent-permissions haengen --allowedTools an', async () => {
+  const result = await runCli(['permdev', '-h', 'mache irgendwas cooles'], {
+    env: baseEnv(),
+  });
+  assert.equal(result.exitCode, 0);
+  const invokedArgs = extractMockArgs(result.stdout);
+  assert.deepEqual(invokedArgs, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    '# Main-Context\n',
+    '--permission-mode',
+    'auto',
+    '--print',
+    'mache irgendwas cooles',
+    '--allowedTools',
+    'Bash(gradle *)',
+    'Bash(./gradlew *)',
   ]);
 });
 
@@ -508,9 +545,7 @@ test('cl ticket list-all: listet Tickets ueber alle Pfade hinweg, optional gefil
       env,
     });
 
-    const all = JSON.parse(
-      (await runCli(['ticket', 'list-all'], { env })).stdout,
-    ) as CliTicket[];
+    const all = JSON.parse((await runCli(['ticket', 'list-all'], { env })).stdout) as CliTicket[];
     const allIds = all.map((t) => t.id);
     assert.ok(allIds.includes(first.id));
     assert.ok(allIds.includes(second.id));
@@ -641,6 +676,25 @@ test('cl task mytask: startet immer interaktiv, startCommand wird als Prompt ohn
     '--permission-mode',
     'auto',
     'mach den mytask-kram',
+  ]);
+});
+
+test('cl task permtask: Task-permissions haengen --allowedTools an', async () => {
+  const result = await runCli(['task', 'permtask'], { env: baseEnv() });
+  assert.equal(result.exitCode, 0);
+  const invokedArgs = extractMockArgs(result.stdout);
+  assert.deepEqual(invokedArgs, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    '# Main-Context\n',
+    '--permission-mode',
+    'auto',
+    'mach den permtask-kram',
+    '--allowedTools',
+    'Bash(gradle *)',
+    'Bash(./gradlew *)',
+    'Bash(gradlew *)',
   ]);
 });
 

@@ -86,6 +86,7 @@ export function openDatabase(directory: string): DatabaseSync {
       claude_instruction TEXT NOT NULL,
       category TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
+      ip_address TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
@@ -95,6 +96,7 @@ export function openDatabase(directory: string): DatabaseSync {
     { name: 'summary', definition: "summary TEXT NOT NULL DEFAULT ''" },
     { name: 'claude_instruction', definition: "claude_instruction TEXT NOT NULL DEFAULT ''" },
     { name: 'category', definition: "category TEXT NOT NULL DEFAULT ''" },
+    { name: 'ip_address', definition: 'ip_address TEXT' },
   ]);
   migrateLegacyTicketColumns(db);
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_path_name ON t_tickets (path_name)');
@@ -103,8 +105,9 @@ export function openDatabase(directory: string): DatabaseSync {
 
 /**
  * Fruehere Ticket-Spalten (title/description/task, Status "closed") auf das aktuelle Schema
- * (original_request/summary/claude_instruction/category, Status "done") heben. Rein additiv:
- * die alten Spalten bleiben (ungenutzt) bestehen, es wird nichts geloescht.
+ * (original_request/summary/claude_instruction/category, Status "done") heben. Die alten Spalten
+ * werden danach gedroppt: sie waren NOT NULL ohne DEFAULT, ein INSERT ueber das aktuelle Schema
+ * (das diese Spalten nicht mehr setzt) wuerde sonst mit "NOT NULL constraint failed" scheitern.
  */
 function migrateLegacyTicketColumns(db: DatabaseSync): void {
   const columns = new Set(
@@ -120,6 +123,9 @@ function migrateLegacyTicketColumns(db: DatabaseSync): void {
         claude_instruction = CASE WHEN claude_instruction = '' THEN task ELSE claude_instruction END,
         category = CASE WHEN category = '' THEN 'Allgemein' ELSE category END
     `);
+    db.exec('ALTER TABLE t_tickets DROP COLUMN title');
+    db.exec('ALTER TABLE t_tickets DROP COLUMN description');
+    db.exec('ALTER TABLE t_tickets DROP COLUMN task');
   }
   db.exec("UPDATE t_tickets SET status = 'done' WHERE status = 'closed'");
 }
@@ -247,6 +253,7 @@ export interface TicketRow {
   claudeInstruction: string;
   category: string;
   status: TicketStatus;
+  ipAddress: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -268,6 +275,7 @@ function toTicketRow(row: Record<string, SQLOutputValue>): TicketRow {
     claudeInstruction: String(row.claude_instruction),
     category: String(row.category),
     status: String(row.status) as TicketStatus,
+    ipAddress: row.ip_address === null ? null : String(row.ip_address),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -281,12 +289,13 @@ export function insertTicket(
     summary: string;
     claudeInstruction: string;
     category: string;
+    ipAddress?: string | null;
   },
 ): TicketRow {
   const now = new Date().toISOString();
   const result = db
     .prepare(
-      'INSERT INTO t_tickets (path_name, original_request, summary, claude_instruction, category, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO t_tickets (path_name, original_request, summary, claude_instruction, category, status, ip_address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .run(
       row.pathName,
@@ -295,6 +304,7 @@ export function insertTicket(
       row.claudeInstruction,
       row.category,
       'open',
+      row.ipAddress ?? null,
       now,
       now,
     );

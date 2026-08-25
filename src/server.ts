@@ -79,6 +79,8 @@ interface CommandRequestBody {
   command: string;
   model?: string;
   path: string;
+  /** Ueberschreibt vollstaendig (kein Merge) die permissions aus config.json fuer diesen einen Agent-Lauf. Immer additiv zu den Permissions des Zielprojekts. */
+  permissions?: string[];
 }
 
 interface AuthCodeBody {
@@ -124,9 +126,22 @@ function parseCommandRequestBody(raw: unknown): CommandRequestBody {
   if (record.model !== undefined && typeof record.model !== 'string') {
     throw new Error('Feld "model" muss ein String sein, falls angegeben.');
   }
-  return typeof record.model === 'string'
-    ? { command: record.command, model: record.model, path: record.path }
-    : { command: record.command, path: record.path };
+  if (
+    record.permissions !== undefined &&
+    (!Array.isArray(record.permissions) ||
+      !record.permissions.every((entry) => typeof entry === 'string'))
+  ) {
+    throw new Error('Feld "permissions" muss ein Array von Strings sein, falls angegeben.');
+  }
+
+  const body: CommandRequestBody = { command: record.command, path: record.path };
+  if (typeof record.model === 'string') {
+    body.model = record.model;
+  }
+  if (Array.isArray(record.permissions)) {
+    body.permissions = record.permissions;
+  }
+  return body;
 }
 
 interface TicketCreateBody {
@@ -179,7 +194,9 @@ function parseTicketUpdateBody(raw: unknown): TicketUpdate {
   }
   if (record.claudeInstruction !== undefined) {
     if (typeof record.claudeInstruction !== 'string' || record.claudeInstruction.trim() === '') {
-      throw new Error('Feld "claudeInstruction" muss ein nicht-leerer String sein, falls angegeben.');
+      throw new Error(
+        'Feld "claudeInstruction" muss ein nicht-leerer String sein, falls angegeben.',
+      );
     }
     update.claudeInstruction = record.claudeInstruction;
   }
@@ -617,6 +634,7 @@ async function handlePostTicket(
   res: ServerResponse,
   pathName: string,
   bodyText: string,
+  ipAddress: string | null,
 ): Promise<void> {
   let pathEntry: PathEntry;
   try {
@@ -651,7 +669,7 @@ async function handlePostTicket(
     });
     return;
   }
-  const ticket = insertTicket(db, { pathName, originalRequest: body.text, ...output });
+  const ticket = insertTicket(db, { pathName, originalRequest: body.text, ipAddress, ...output });
   sendJson(res, 201, ticket);
 }
 
@@ -783,15 +801,23 @@ function handlePostCommand(
   }
 
   const model = body.model ?? agent.model;
+  const permissions = body.permissions ?? agent.permissions;
   const id = randomUUID();
   const resolvedAgentName = agentName ?? 'main';
 
   insertCommand(db, { id, agent: resolvedAgentName, model, command: body.command, path: cwd });
   sendJson(res, 202, { id });
 
-  runHeadlessCommand(agent, model, body.command, cwd, (output) => {
-    updateCommandOutput(db, id, output);
-  })
+  runHeadlessCommand(
+    agent,
+    model,
+    body.command,
+    cwd,
+    (output) => {
+      updateCommandOutput(db, id, output);
+    },
+    permissions,
+  )
     .then((result) => {
       completeCommand(
         db,
@@ -882,7 +908,14 @@ async function handleRequest(
       handleGetTickets(db, config, res, segments[1] ?? '', url.searchParams.get('status'));
     } else if (method === 'POST' && segments.length === 2 && segments[0] === 'tickets') {
       bodyText = await readRequestBody(req);
-      await handlePostTicket(db, config, res, segments[1] ?? '', bodyText);
+      await handlePostTicket(
+        db,
+        config,
+        res,
+        segments[1] ?? '',
+        bodyText,
+        req.socket.remoteAddress ?? null,
+      );
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'tickets') {
       handleGetTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'PATCH' && segments.length === 3 && segments[0] === 'tickets') {
@@ -914,11 +947,19 @@ function printEndpoints(config: Config, port: number): void {
     '(ausser /health, /status und /auth/* verlangen alle den Header "Authorization: Bearer <jwt>")',
   );
   console.log(`  GET  ${base}/health                (kein Auth noetig)`);
-  console.log(`  GET  ${base}/status                (kein Auth noetig, 204 leer, fuer Auto-Discovery)`);
-  console.log(`  GET  ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404 - zeigt QR-Code)`);
+  console.log(
+    `  GET  ${base}/status                (kein Auth noetig, 204 leer, fuer Auto-Discovery)`,
+  );
+  console.log(
+    `  GET  ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404 - zeigt QR-Code)`,
+  );
   console.log(`  POST ${base}/auth/setup           (nur aus dem lokalen Netz, sonst 404)`);
-  console.log(`  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`);
-  console.log(`  POST ${base}/auth/login           (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`);
+  console.log(
+    `  POST ${base}/auth/setup/confirm   (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`,
+  );
+  console.log(
+    `  POST ${base}/auth/login           (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`,
+  );
   console.log(`  GET  ${base}/auth/status          (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {

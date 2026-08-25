@@ -186,6 +186,19 @@ test('parseConfig: wirft wenn ein Task-Eintrag "model" fehlt', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
+test('parseConfig: akzeptiert einen Task-Eintrag mit "permissions"', () => {
+  const raw = validRawConfig() as { tasks: Record<string, unknown>[] };
+  raw.tasks[0] = { ...raw.tasks[0], permissions: ['Bash(gradle *)', 'Bash(./gradlew *)'] };
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.tasks[0]?.permissions, ['Bash(gradle *)', 'Bash(./gradlew *)']);
+});
+
+test('parseConfig: wirft wenn ein Task-Eintrag "permissions" kein String-Array ist', () => {
+  const raw = validRawConfig() as { tasks: Record<string, unknown>[] };
+  raw.tasks[0] = { ...raw.tasks[0], permissions: ['Bash(gradle *)', 42] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
 test('parseConfig: wirft ohne Feld "ticketAgent"', () => {
   const raw = validRawConfig() as Record<string, unknown>;
   delete raw.ticketAgent;
@@ -232,6 +245,19 @@ test('parseConfig: wirft wenn ein Agent "model" fehlt', () => {
 test('parseConfig: wirft wenn ein Agent "contexts" kein String-Array ist', () => {
   const raw = validRawConfig();
   firstAgentOf(raw).contexts = ['main', 42];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Agent mit "permissions"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).permissions = ['Bash(gradle *)'];
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.agents[0]?.permissions, ['Bash(gradle *)']);
+});
+
+test('parseConfig: wirft wenn ein Agent "permissions" kein String-Array ist', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).permissions = 'Bash(gradle *)';
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 

@@ -7,18 +7,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.Ticket
@@ -41,22 +43,17 @@ fun TicketListScreen(
     viewModel: TicketListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val isGlobal = viewModel.pathName == null
 
-    LaunchedEffect(state.createdTicketId, state.createdTicketPathName) {
-        val id = state.createdTicketId
-        val pathName = state.createdTicketPathName
-        if (id != null && pathName != null) {
-            onOpenTicket(pathName, id)
-            viewModel.consumeCreatedTicket()
-        }
+    LifecycleResumeEffect(Unit) {
+        viewModel.refresh()
+        onPauseOrDispose { }
     }
 
     val filterLabels = listOf(stringResource(R.string.tickets_filter_all)) +
         TICKET_STATUS_ORDER.map { ticketStatusLabel(it) }
 
     SettingsScaffold(
-        title = stringResource(if (isGlobal) R.string.home_tickets_title else R.string.tickets_title),
+        title = stringResource(R.string.tickets_title),
         onBack = onBack,
         backDescription = stringResource(R.string.label_back),
     ) { padding ->
@@ -67,18 +64,6 @@ fun TicketListScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
-            if (isGlobal) {
-                val pathLabels = state.availablePaths
-                if (pathLabels.isNotEmpty()) {
-                    SettingsDropdownField(
-                        label = stringResource(R.string.tickets_create_path_label),
-                        value = pathLabels.getOrElse(state.selectedPathIndex) { pathLabels[0] },
-                        options = pathLabels,
-                        selectedIndex = state.selectedPathIndex,
-                        onSelect = viewModel::onPathSelected,
-                    )
-                }
-            }
             AppTextField(
                 value = state.createText,
                 onValueChange = viewModel::onCreateTextChange,
@@ -90,9 +75,7 @@ fun TicketListScreen(
                 text = stringResource(R.string.tickets_create_submit),
                 role = AppRole.Primary,
                 onClick = viewModel::createTicket,
-                enabled = !state.creating &&
-                    state.createText.isNotBlank() &&
-                    (!isGlobal || state.availablePaths.isNotEmpty()),
+                enabled = state.createText.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -111,7 +94,7 @@ fun TicketListScreen(
 
             if (state.loading) {
                 CircularProgressIndicator()
-            } else if (state.tickets.isEmpty()) {
+            } else if (state.tickets.isEmpty() && state.pendingCreations.isEmpty()) {
                 Text(
                     text = stringResource(R.string.tickets_empty),
                     style = MaterialTheme.typography.bodyMedium,
@@ -120,10 +103,12 @@ fun TicketListScreen(
             }
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+                items(state.pendingCreations, key = { "pending-${it.tempId}" }) { pending ->
+                    TicketPendingRow(pending = pending)
+                }
                 items(state.tickets, key = { it.id }) { ticket ->
                     TicketRow(
                         ticket = ticket,
-                        showPathName = isGlobal,
                         onClick = { onOpenTicket(ticket.pathName, ticket.id) },
                     )
                 }
@@ -133,7 +118,27 @@ fun TicketListScreen(
 }
 
 @Composable
-private fun TicketRow(ticket: Ticket, showPathName: Boolean, onClick: () -> Unit) {
+private fun TicketPendingRow(pending: PendingTicketCreation) {
+    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            Text(
+                text = stringResource(R.string.tickets_pending_label, pending.tempId),
+                style = MaterialTheme.typography.titleSmall,
+                color = AppTheme.colors.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TicketRow(ticket: Ticket, onClick: () -> Unit) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -145,9 +150,8 @@ private fun TicketRow(ticket: Ticket, showPathName: Boolean, onClick: () -> Unit
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
                 Text(ticket.summary, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val meta = if (showPathName) "${ticket.pathName} · ${ticket.category}" else ticket.category
                 Text(
-                    text = meta,
+                    text = ticket.category,
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTheme.colors.onSurfaceVariant,
                     maxLines = 1,

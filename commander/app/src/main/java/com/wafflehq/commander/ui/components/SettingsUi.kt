@@ -112,10 +112,15 @@ fun SettingsListContent(
     displayLabel: String,
     displaySubtitle: String,
     onOpenDisplay: () -> Unit,
+    contextsLabel: String,
+    contextsSubtitle: String,
+    onOpenContexts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth().background(AppTheme.colors.surface)) {
         SettingsListRow(title = displayLabel, subtitle = displaySubtitle, onClick = onOpenDisplay)
+        SettingsRowDivider()
+        SettingsListRow(title = contextsLabel, subtitle = contextsSubtitle, onClick = onOpenContexts)
         SettingsRowDivider()
     }
 }

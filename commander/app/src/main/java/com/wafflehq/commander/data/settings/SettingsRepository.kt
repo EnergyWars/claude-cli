@@ -17,14 +17,25 @@ class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val selectedProjectKey = stringPreferencesKey("selected_project")
 
     val themeMode: Flow<ThemeMode> = context.settingsDataStore.data.map { prefs ->
         ThemeMode.fromName(prefs[themeModeKey])
     }
 
+    val selectedProjectName: Flow<String?> = context.settingsDataStore.data.map { prefs ->
+        prefs[selectedProjectKey]
+    }
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { prefs ->
             prefs[themeModeKey] = mode.name
+        }
+    }
+
+    suspend fun setSelectedProject(name: String?) {
+        context.settingsDataStore.edit { prefs ->
+            if (name != null) prefs[selectedProjectKey] = name else prefs.remove(selectedProjectKey)
         }
     }
 }

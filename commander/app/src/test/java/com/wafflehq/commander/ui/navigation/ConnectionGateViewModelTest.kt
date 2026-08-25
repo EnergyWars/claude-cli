@@ -4,10 +4,14 @@ import com.wafflehq.commander.data.connection.AuthSession
 import com.wafflehq.commander.data.connection.Connection
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
+import com.wafflehq.commander.data.settings.SettingsRepository
+import io.mockk.every
+import io.mockk.mockk
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -20,6 +24,11 @@ import org.junit.Test
 private class FakeConnectionSource(initial: Session?) : ConnectionSource {
     override val session = MutableStateFlow(initial)
 }
+
+private fun fakeSettingsRepository(selectedProjectName: String? = null): SettingsRepository =
+    mockk<SettingsRepository> {
+        every { this@mockk.selectedProjectName } returns flowOf(selectedProjectName)
+    }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectionGateViewModelTest {
@@ -38,7 +47,7 @@ class ConnectionGateViewModelTest {
 
     @Test
     fun `no stored connection maps to NoConnection`() = runTest(dispatcher) {
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(null))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(null), fakeSettingsRepository())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NoConnection, viewModel.gateState.value)
@@ -47,25 +56,34 @@ class ConnectionGateViewModelTest {
     @Test
     fun `connection without an auth session maps to NeedsLogin`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), auth = null)
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NeedsLogin, viewModel.gateState.value)
     }
 
     @Test
-    fun `connection with a valid token maps to Ready`() = runTest(dispatcher) {
+    fun `connection with a valid token but no selected project maps to Ready without a project`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(3600)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = null))
         dispatcher.scheduler.runCurrent()
 
-        assertEquals(GateState.Ready, viewModel.gateState.value)
+        assertEquals(GateState.Ready(hasSelectedProject = false), viewModel.gateState.value)
+    }
+
+    @Test
+    fun `connection with a valid token and a remembered project maps to Ready with a project`() = runTest(dispatcher) {
+        val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(3600)))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = "periodical"))
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(GateState.Ready(hasSelectedProject = true), viewModel.gateState.value)
     }
 
     @Test
     fun `connection with an already-expired token maps to NeedsLogin`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().minusSeconds(1)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NeedsLogin, viewModel.gateState.value)
@@ -74,9 +92,9 @@ class ConnectionGateViewModelTest {
     @Test
     fun `state flips to NeedsLogin on its own once the token expires, without a new emission`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(5)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
         dispatcher.scheduler.runCurrent()
-        assertEquals(GateState.Ready, viewModel.gateState.value)
+        assertEquals(GateState.Ready(hasSelectedProject = false), viewModel.gateState.value)
 
         dispatcher.scheduler.advanceTimeBy(6_000)
         dispatcher.scheduler.runCurrent()

@@ -7,8 +7,8 @@ import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.ManifestAgent
 import com.wafflehq.commander.data.api.agentNameOrNull
-import com.wafflehq.commander.data.history.CommandHistoryRepository
-import com.wafflehq.commander.data.history.CommandKind
+import com.wafflehq.commander.data.context.DevContextRepository
+import com.wafflehq.commander.data.db.DevContextEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,11 +19,16 @@ import javax.inject.Inject
 
 val RUN_AGENT_MODELS = listOf("", "haiku", "sonnet", "opus", "fable")
 
+/** Kein Kontext gewaehlt -&gt; nur der Prompt; sonst der Kontext-Wert vor den Prompt gehaengt. */
+fun buildAgentCommand(contextValue: String?, prompt: String): String =
+    if (contextValue != null) "$contextValue\n\n$prompt" else prompt
+
 data class RunAgentUiState(
-    val agents: List<ManifestAgent> = emptyList(),
-    val paths: List<String> = emptyList(),
-    val selectedAgentIndex: Int = 0,
-    val selectedPathIndex: Int = -1,
+    val agentCommand: String = "",
+    val agentDescription: String = "",
+    val pathName: String = "",
+    val contexts: List<DevContextEntity> = emptyList(),
+    val selectedContextIndex: Int = 0,
     val selectedModelIndex: Int = 0,
     val prompt: String = "",
     val loading: Boolean = true,
@@ -35,43 +40,38 @@ data class RunAgentUiState(
 @HiltViewModel
 class RunAgentViewModel @Inject constructor(
     private val api: ClServerApi,
-    private val historyRepository: CommandHistoryRepository,
+    devContextRepository: DevContextRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val initialAgentCommand: String? = savedStateHandle["agent"]
-    private val initialPath: String? = savedStateHandle["path"]
+    private val agentCommand: String = checkNotNull(savedStateHandle["agentCommand"])
+    private val pathName: String = checkNotNull(savedStateHandle["pathName"])
 
-    private val _uiState = MutableStateFlow(RunAgentUiState())
+    private val _uiState = MutableStateFlow(
+        RunAgentUiState(agentCommand = agentCommand, pathName = pathName),
+    )
     val uiState: StateFlow<RunAgentUiState> = _uiState.asStateFlow()
+
+    private var resolvedAgent: ManifestAgent? = null
 
     init {
         viewModelScope.launch {
             try {
                 val manifest = api.getManifest()
-                val pathNames = manifest.paths.map { it.name }
-                _uiState.update {
-                    it.copy(
-                        agents = manifest.agents,
-                        paths = pathNames,
-                        selectedAgentIndex = manifest.agents.indexOfFirst { agent -> agent.command == initialAgentCommand }
-                            .let { index -> if (index < 0) 0 else index },
-                        selectedPathIndex = initialPath?.let(pathNames::indexOf) ?: -1,
-                        loading = false,
-                    )
-                }
+                val agent = manifest.agents.firstOrNull { it.command == agentCommand }
+                resolvedAgent = agent
+                _uiState.update { it.copy(agentDescription = agent?.description.orEmpty(), loading = false) }
             } catch (error: ApiException) {
                 _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
             }
         }
+        viewModelScope.launch {
+            devContextRepository.contexts.collect { list -> _uiState.update { it.copy(contexts = list) } }
+        }
     }
 
-    fun onAgentSelected(index: Int) {
-        _uiState.update { it.copy(selectedAgentIndex = index) }
-    }
-
-    fun onPathSelected(index: Int) {
-        _uiState.update { it.copy(selectedPathIndex = index) }
+    fun onContextSelected(index: Int) {
+        _uiState.update { it.copy(selectedContextIndex = index) }
     }
 
     fun onModelSelected(index: Int) {
@@ -84,18 +84,18 @@ class RunAgentViewModel @Inject constructor(
 
     fun start() {
         val state = _uiState.value
-        val path = state.paths.getOrNull(state.selectedPathIndex)
-        val agent = state.agents.getOrNull(state.selectedAgentIndex)
-        if (path == null || agent == null || state.prompt.isBlank()) {
-            _uiState.update { it.copy(error = "Pfad und Prompt angeben.") }
+        if (state.prompt.isBlank()) {
+            _uiState.update { it.copy(error = "Prompt angeben.") }
             return
         }
         val model = RUN_AGENT_MODELS.getOrNull(state.selectedModelIndex)?.ifEmpty { null }
+        val contextValue = state.contexts.getOrNull(state.selectedContextIndex - 1)?.value
+        val command = buildAgentCommand(contextValue, state.prompt)
         _uiState.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch {
             try {
-                val accepted = api.runAgent(agent.agentNameOrNull(), path, state.prompt, model)
-                historyRepository.record(accepted.id, CommandKind.AGENT, agent.command, path)
+                val agentName = resolvedAgent?.agentNameOrNull()
+                val accepted = api.runAgent(agentName, state.pathName, command, model)
                 _uiState.update { it.copy(submitting = false, createdCommandId = accepted.id) }
             } catch (error: ApiException) {
                 _uiState.update { it.copy(submitting = false, error = error.message ?: "Unbekannter Fehler.") }

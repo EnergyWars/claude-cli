@@ -8,6 +8,8 @@ export interface AgentDefinition {
   description: string;
   contexts: string[];
   model: string;
+  /** Default-Permissions (gleiche Syntax wie settings.json permissions.allow), als --allowedTools an claude uebergeben. Optional, additiv zu den Projekt-Permissions. */
+  permissions?: string[];
 }
 
 export interface AgentConfig extends AgentDefinition {
@@ -39,6 +41,8 @@ export interface TaskDefinition {
   contexts: string[];
   model: string;
   startCommand: string;
+  /** Default-Permissions (gleiche Syntax wie settings.json permissions.allow), als --allowedTools an claude uebergeben. Optional, additiv zu den Projekt-Permissions. */
+  permissions?: string[];
 }
 
 export interface TaskConfig extends TaskDefinition {
@@ -91,6 +95,13 @@ function readLocalFile(relativePath: string): string | undefined {
   }
 }
 
+function isOptionalPermissions(value: unknown): value is string[] | undefined {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every((entry) => typeof entry === 'string'))
+  );
+}
+
 function isAgentDefinition(value: unknown): value is AgentDefinition {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -100,7 +111,8 @@ function isAgentDefinition(value: unknown): value is AgentDefinition {
     typeof record.description === 'string' &&
     typeof record.model === 'string' &&
     Array.isArray(record.contexts) &&
-    record.contexts.every((entry) => typeof entry === 'string')
+    record.contexts.every((entry) => typeof entry === 'string') &&
+    isOptionalPermissions(record.permissions)
   );
 }
 
@@ -165,7 +177,8 @@ function isTaskDefinition(value: unknown): value is TaskDefinition {
     Array.isArray(record.contexts) &&
     record.contexts.every((entry) => typeof entry === 'string') &&
     typeof record.startCommand === 'string' &&
-    record.startCommand.trim() !== ''
+    record.startCommand.trim() !== '' &&
+    isOptionalPermissions(record.permissions)
   );
 }
 
@@ -222,7 +235,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand }) oder "ticketAgent" (Objekt { model, task }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }) oder "ticketAgent" (Objekt { model, task }) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);

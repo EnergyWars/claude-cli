@@ -257,6 +257,7 @@ test('insertTicket: legt ein Ticket mit Status "open" an und liefert es inkl. ID
     summary: 'Zusammenfassung',
     claudeInstruction: 'Claude-Anweisung',
     category: 'Backend',
+    ipAddress: '203.0.113.5',
   });
   assert.equal(typeof ticket.id, 'number');
   assert.equal(ticket.pathName, 'myapp');
@@ -265,8 +266,20 @@ test('insertTicket: legt ein Ticket mit Status "open" an und liefert es inkl. ID
   assert.equal(ticket.claudeInstruction, 'Claude-Anweisung');
   assert.equal(ticket.category, 'Backend');
   assert.equal(ticket.status, 'open');
+  assert.equal(ticket.ipAddress, '203.0.113.5');
   assert.equal(typeof ticket.createdAt, 'string');
   assert.equal(ticket.createdAt, ticket.updatedAt);
+});
+
+test('insertTicket: ipAddress ist optional und wird als null gespeichert, wenn nicht angegeben', () => {
+  const ticket = insertTicket(db, {
+    pathName: 'myapp',
+    originalRequest: 'Original-Anweisung',
+    summary: 'Zusammenfassung',
+    claudeInstruction: 'Claude-Anweisung',
+    category: 'Backend',
+  });
+  assert.equal(ticket.ipAddress, null);
 });
 
 test('insertTicket: IDs sind fortlaufend und eindeutig ueber alle Pfade hinweg', () => {
@@ -523,6 +536,24 @@ test('openDatabase: migriert alte title/description/task-Spalten und Status "clo
       assert.equal(ticket.claudeInstruction, 'Alte Aufgabe');
       assert.equal(ticket.category, 'Allgemein');
       assert.equal(ticket.status, 'done');
+
+      const columns = new Set(
+        (migratedDb.prepare('PRAGMA table_info(t_tickets)').all() as { name: string }[]).map(
+          (row) => row.name,
+        ),
+      );
+      assert.equal(columns.has('title'), false);
+      assert.equal(columns.has('description'), false);
+      assert.equal(columns.has('task'), false);
+
+      const inserted = insertTicket(migratedDb, {
+        pathName: 'legacy-proj',
+        originalRequest: 'Neue Anweisung',
+        summary: 'Neue Zusammenfassung',
+        claudeInstruction: 'Neue Claude-Anweisung',
+        category: 'Backend',
+      });
+      assert.equal(inserted.originalRequest, 'Neue Anweisung');
     } finally {
       migratedDb.close();
     }

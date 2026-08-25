@@ -7,6 +7,7 @@ export interface FixtureAgent {
   description?: string;
   contexts?: string[];
   model?: string;
+  permissions?: string[];
 }
 
 export interface FixtureHostedEntry {
@@ -35,6 +36,7 @@ export interface FixtureTask {
   contexts?: string[];
   model?: string;
   startCommand?: string;
+  permissions?: string[];
 }
 
 export interface FixtureTicketAgent {
@@ -43,7 +45,7 @@ export interface FixtureTicketAgent {
 }
 
 export interface FixtureConfigOptions {
-  main?: { description?: string; contexts?: string[]; model?: string };
+  main?: { description?: string; contexts?: string[]; model?: string; permissions?: string[] };
   agents?: FixtureAgent[];
   databaseDirectory?: string;
   contexts?: Record<string, string>;

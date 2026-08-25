@@ -5,14 +5,6 @@
     <string name="label_back">Back</string>
     <string name="label_settings">Settings</string>
 
-    <string name="cd_open_settings">Open settings</string>
-    <string name="cd_menu">Open menu</string>
-    <string name="cd_home">Home</string>
-
-    <string name="header_menu">Menu</string>
-    <string name="header_home">Home</string>
-    <string name="nav_section_pages">Pages</string>
-
     <string name="setup_lede">Enter your cl server address.</string>
     <string name="setup_host_label">Host / IP</string>
     <string name="setup_port_label">Port</string>
@@ -29,30 +21,30 @@
     <string name="login_submit">Continue</string>
     <string name="login_change_connection">Change connection</string>
 
-    <string name="home_agents_title">Agents</string>
-    <string name="home_paths_title">Paths</string>
-    <string name="home_paths_empty">No paths configured.</string>
-    <string name="home_history_title">History</string>
-    <string name="home_error_title">Connection failed</string>
-    <string name="home_retry">Retry</string>
-    <string name="home_tickets_title">Tickets</string>
-    <string name="home_tickets_subtitle">Manage all tickets</string>
-    <string name="home_tickets_open_count">%1$d open</string>
+    <string name="project_select_title">Choose a project</string>
+    <string name="project_select_empty">No projects configured.</string>
 
-    <string name="run_agent_title">Start agent</string>
-    <string name="run_agent_agent_label">Agent</string>
-    <string name="run_agent_path_label">Path</string>
+    <string name="project_home_commands">Commands</string>
+    <string name="project_home_downloads">Downloads</string>
+    <string name="project_home_agents">Dev agent</string>
+    <string name="project_home_tickets">Tickets</string>
+
+    <string name="commands_title">Commands</string>
+    <string name="commands_empty">No commands.</string>
+
+    <string name="downloads_title">Downloads</string>
+    <string name="downloads_files_empty">No files.</string>
+
+    <string name="agents_title">Dev agent</string>
+    <string name="agents_empty">No agents configured.</string>
+
+    <string name="agent_run_path_label">Project: %1$s</string>
+    <string name="agent_run_context_label">Context</string>
+    <string name="agent_run_context_none">No context</string>
     <string name="run_agent_model_label">Model</string>
     <string name="run_agent_model_default">Default</string>
-    <string name="run_agent_select_path">Select one</string>
     <string name="run_agent_prompt_label">Prompt</string>
     <string name="run_agent_start">Start</string>
-
-    <string name="path_detail_start_agent">Start agent here</string>
-    <string name="path_detail_open_tickets">Tickets</string>
-    <string name="path_detail_commands_title">Commands</string>
-    <string name="path_detail_files_title">Files</string>
-    <string name="path_detail_files_empty">No files.</string>
 
     <string name="command_detail_title">Command</string>
     <string name="command_detail_output_title">Output</string>
@@ -64,15 +56,17 @@
     <string name="tickets_empty">No tickets yet.</string>
     <string name="tickets_create_text_label">What needs to happen?</string>
     <string name="tickets_create_submit">Create ticket</string>
-    <string name="tickets_create_path_label">Project</string>
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">All</string>
+    <string name="tickets_pending_label">Loading ticket %1$d…</string>
     <string name="ticket_detail_title">Ticket</string>
     <string name="ticket_detail_original_request_label">Original request</string>
     <string name="ticket_detail_summary_label">Summary</string>
     <string name="ticket_detail_claude_instruction_label">Claude instruction</string>
     <string name="ticket_detail_category_label">Category</string>
     <string name="ticket_detail_status_label">Status</string>
+    <string name="ticket_detail_ip_label">IP address: %1$s</string>
+    <string name="ticket_detail_ip_unknown">unknown</string>
     <string name="ticket_detail_save">Save</string>
     <string name="ticket_detail_delete">Delete ticket</string>
     <string name="ticket_status_open">Open</string>
@@ -91,4 +85,15 @@
     <string name="settings_group_connection">Connection</string>
     <string name="settings_connection_none">No connection</string>
     <string name="settings_disconnect">Disconnect</string>
+    <string name="settings_contexts_title">Contexts</string>
+    <string name="settings_contexts_sub">Prompt presets for the dev agent</string>
+    <string name="settings_contexts_new">New context</string>
+    <string name="settings_contexts_empty">No contexts yet.</string>
+
+    <string name="context_edit_new_title">New context</string>
+    <string name="context_edit_edit_title">Edit context</string>
+    <string name="context_edit_name_label">Name</string>
+    <string name="context_edit_value_label">Value</string>
+    <string name="context_edit_save">Save</string>
+    <string name="context_edit_delete">Delete context</string>
 </resources>

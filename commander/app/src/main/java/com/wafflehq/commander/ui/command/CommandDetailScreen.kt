@@ -55,7 +55,7 @@ fun CommandDetailScreen(
 
     LaunchedEffect(uiState.downloadedFile) {
         uiState.downloadedFile?.let { file ->
-            context.startActivity(viewModel.shareIntent(file))
+            context.startActivity(viewModel.openOrInstallIntent(file))
             viewModel.consumeDownloadedFile()
         }
     }

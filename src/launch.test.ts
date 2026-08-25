@@ -72,6 +72,40 @@ test('buildClaudeArgs: headlessPrompt hat Vorrang vor interactivePrompt', () => 
   ]);
 });
 
+test('buildClaudeArgs: mit permissions haengt --allowedTools + Regeln ans Ende an', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', 'headless', undefined, [
+    'Bash(gradle *)',
+    'Bash(./gradlew *)',
+  ]);
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'auto',
+    '--print',
+    'headless',
+    '--allowedTools',
+    'Bash(gradle *)',
+    'Bash(./gradlew *)',
+  ]);
+});
+
+test('buildClaudeArgs: leeres permissions-Array haengt kein --allowedTools an', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', 'headless', undefined, []);
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'auto',
+    '--print',
+    'headless',
+  ]);
+});
+
 test('buildSystemPrompt: verkettet alle Contexts eines Agents mit doppeltem Newline', () => {
   const fixture = createFixtureRoot({
     contexts: { a: 'Content A', b: 'Content B' },
@@ -127,6 +161,41 @@ test('runHeadlessCommand: sammelt Output und liefert Exit-Code 0', async () => {
       'auto',
       '--print',
       'irgendein prompt',
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
+});
+
+test('runHeadlessCommand: gibt permissions als --allowedTools an claude weiter', async () => {
+  const mock = createMockClaude({ outputChunks: ['hello '], exitCode: 0 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    const result = await runHeadlessCommand(
+      testAgent,
+      'sonnet',
+      'irgendein prompt',
+      process.cwd(),
+      () => undefined,
+      ['Bash(gradle *)', 'Bash(./gradlew *)', 'Bash(gradlew *)'],
+    );
+
+    const invokedArgs = extractMockArgs(result.output);
+    assert.deepEqual(invokedArgs, [
+      '--model',
+      'sonnet',
+      '--append-system-prompt',
+      '',
+      '--permission-mode',
+      'auto',
+      '--print',
+      'irgendein prompt',
+      '--allowedTools',
+      'Bash(gradle *)',
+      'Bash(./gradlew *)',
+      'Bash(gradlew *)',
     ]);
   } finally {
     process.env.PATH = previousPath;

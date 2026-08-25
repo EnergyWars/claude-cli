@@ -1,4 +1,4 @@
-package com.wafflehq.commander.ui.run
+package com.wafflehq.commander.ui.settings.contexts
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,27 +20,25 @@ import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppTextField
-import com.wafflehq.commander.ui.components.SettingsDropdownField
+import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
-import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
-fun RunAgentScreen(
+fun ContextEditScreen(
     onBack: () -> Unit,
-    onStarted: (commandId: String) -> Unit,
-    viewModel: RunAgentViewModel = hiltViewModel(),
+    viewModel: ContextEditViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(state.createdCommandId) {
-        state.createdCommandId?.let(onStarted)
+    LaunchedEffect(state.saved, state.deleted) {
+        if (state.saved || state.deleted) onBack()
     }
 
     SettingsScaffold(
-        title = state.agentCommand,
+        title = stringResource(if (viewModel.isNew) R.string.context_edit_new_title else R.string.context_edit_edit_title),
         onBack = onBack,
         backDescription = stringResource(R.string.label_back),
     ) { padding ->
@@ -59,37 +55,17 @@ fun RunAgentScreen(
                 return@Column
             }
 
-            val modelStandardLabel = stringResource(R.string.run_agent_model_default)
-            val noContextLabel = stringResource(R.string.agent_run_context_none)
-
-            if (state.agentDescription.isNotEmpty()) {
-                Text(state.agentDescription, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurfaceVariant)
-            }
-            Text(
-                text = stringResource(R.string.agent_run_path_label, state.pathName),
-                style = MaterialTheme.typography.bodySmall,
-                color = AppTheme.colors.onSurfaceVariant,
-            )
-
-            val contextLabels = listOf(noContextLabel) + state.contexts.map { it.name }
-            SettingsDropdownField(
-                label = stringResource(R.string.agent_run_context_label),
-                value = contextLabels.getOrElse(state.selectedContextIndex) { noContextLabel },
-                options = contextLabels,
-                selectedIndex = state.selectedContextIndex,
-                onSelect = viewModel::onContextSelected,
-            )
-            SettingsDropdownField(
-                label = stringResource(R.string.run_agent_model_label),
-                value = RUN_AGENT_MODELS.getOrNull(state.selectedModelIndex)?.ifEmpty { modelStandardLabel } ?: modelStandardLabel,
-                options = RUN_AGENT_MODELS.map { it.ifEmpty { modelStandardLabel } },
-                selectedIndex = state.selectedModelIndex,
-                onSelect = viewModel::onModelSelected,
+            AppTextField(
+                value = state.nameInput,
+                onValueChange = viewModel::onNameChange,
+                label = stringResource(R.string.context_edit_name_label),
+                role = AppRole.Primary,
+                modifier = Modifier.fillMaxWidth(),
             )
             AppTextField(
-                value = state.prompt,
-                onValueChange = viewModel::onPromptChange,
-                label = stringResource(R.string.run_agent_prompt_label),
+                value = state.valueInput,
+                onValueChange = viewModel::onValueChange,
+                label = stringResource(R.string.context_edit_value_label),
                 role = AppRole.Primary,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp),
             )
@@ -100,12 +76,22 @@ fun RunAgentScreen(
             }
 
             AppButton(
-                text = stringResource(R.string.run_agent_start),
+                text = stringResource(R.string.context_edit_save),
                 role = AppRole.Primary,
-                onClick = viewModel::start,
-                enabled = !state.submitting,
+                onClick = viewModel::save,
+                enabled = !state.saving,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (!viewModel.isNew) {
+                AppButton(
+                    text = stringResource(R.string.context_edit_delete),
+                    role = AppRole.Error,
+                    variant = ButtonVariant.Outlined,
+                    onClick = viewModel::delete,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

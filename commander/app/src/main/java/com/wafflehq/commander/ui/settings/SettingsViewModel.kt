@@ -43,6 +43,7 @@ class SettingsViewModel @Inject constructor(
     fun disconnect(onDisconnected: () -> Unit) {
         viewModelScope.launch {
             connectionRepository.clear()
+            repository.setSelectedProject(null)
             onDisconnected()
         }
     }

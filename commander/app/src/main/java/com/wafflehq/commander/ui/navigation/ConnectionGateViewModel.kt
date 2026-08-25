@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
+import com.wafflehq.commander.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
 import java.time.Instant
@@ -13,18 +14,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 sealed interface GateState {
     data object Loading : GateState
     data object NoConnection : GateState
     data object NeedsLogin : GateState
-    data object Ready : GateState
+    data class Ready(val hasSelectedProject: Boolean) : GateState
 }
 
 @HiltViewModel
 class ConnectionGateViewModel @Inject constructor(
     connectionSource: ConnectionSource,
+    settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val _gateState = MutableStateFlow<GateState>(GateState.Loading)
@@ -34,11 +37,13 @@ class ConnectionGateViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            connectionSource.session.collect { session -> applyState(session) }
+            connectionSource.session.combine(settingsRepository.selectedProjectName) { session, projectName ->
+                session to projectName
+            }.collect { (session, projectName) -> applyState(session, projectName) }
         }
     }
 
-    private fun applyState(session: Session?) {
+    private fun applyState(session: Session?, projectName: String?) {
         expiryWatcher?.cancel()
         val auth = session?.auth
         val isLoggedIn = auth != null && auth.expiresAt.isAfter(Instant.now())
@@ -46,7 +51,7 @@ class ConnectionGateViewModel @Inject constructor(
         _gateState.value = when {
             session == null -> GateState.NoConnection
             !isLoggedIn -> GateState.NeedsLogin
-            else -> GateState.Ready
+            else -> GateState.Ready(hasSelectedProject = projectName != null)
         }
 
         if (isLoggedIn) {

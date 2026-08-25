@@ -93,5 +93,5 @@ class CommandDetailViewModel @Inject constructor(
         _uiState.update { it.copy(downloadedFile = null) }
     }
 
-    fun shareIntent(file: File) = downloader.shareIntent(file)
+    fun openOrInstallIntent(file: File) = downloader.openOrInstallIntent(file)
 }

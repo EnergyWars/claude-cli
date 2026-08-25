@@ -3,7 +3,7 @@ package com.wafflehq.commander.di
 import android.content.Context
 import androidx.room.Room
 import com.wafflehq.commander.data.db.AppDatabase
-import com.wafflehq.commander.data.db.CommandHistoryDao
+import com.wafflehq.commander.data.db.DevContextDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,6 +23,6 @@ object AppModule {
             .build()
 
     @Provides
-    fun provideCommandHistoryDao(database: AppDatabase): CommandHistoryDao =
-        database.commandHistoryDao()
+    fun provideDevContextDao(database: AppDatabase): DevContextDao =
+        database.devContextDao()
 }

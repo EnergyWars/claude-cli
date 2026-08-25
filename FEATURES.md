@@ -22,13 +22,27 @@ Für den aufgelösten Agent gilt:
 
 - **Model:** dessen `model` (aktuell z. B. `"sonnet"`) → `--model`.
 - **System-Prompt:** Inhalt aller Dateien, die in dessen `contexts`-Array referenziert sind, verkettet → `--append-system-prompt`.
-- **Permissions:** `--permission-mode auto` – jede von `cl` gestartete `claude`-Session (Agent, Model-Override, Headless über `cl server`, Task, Fix-Agent) läuft ausnahmslos im Auto-Mode, ohne Rückfragen.
+- **Permissions:** `--permission-mode auto` – jede von `cl` gestartete `claude`-Session (Agent, Model-Override, Headless über `cl server`, Task, Fix-Agent) läuft ausnahmslos im Auto-Mode, ohne Rückfragen. Zusätzlich: dessen optionales `permissions`-Array aus `config.json` (siehe "Default-Permissions (`permissions`-Feld)").
 
 Implementiert in `src/launch.ts` (`launchAgent(name)`), aufgerufen aus dem `commander`-Action-Handler in `src/index.ts` mit dem optionalen `[agent]`-Argument.
 
+## Default-Permissions (`permissions`-Feld)
+
+Sowohl Agents (`main`, `agents[]`) als auch Tasks (`tasks[]`) können in `config.json` optional ein `permissions`-Feld tragen – ein Array von Permission-Regeln in der gleichen Syntax wie Claude Codes `settings.json` (`permissions.allow`), z. B.:
+
+```json
+{ "name": "review-local", "permissions": ["Bash(gradle *)", "Bash(./gradlew *)", "Bash(gradlew *)"] }
+```
+
+Ist `permissions` gesetzt, wird es beim Start der `claude`-Session als `--allowedTools <regel1> <regel2> ...` an `claude` angehängt (ganz am Ende der Argument-Liste, nach `--print <prompt>` bzw. dem positionalen `interactivePrompt`). `--allowedTools` ist additiv zu den `permissions.allow`/`ask`/`deny`-Regeln, die im Zielprojekt selbst (dessen `.claude/settings.json`) gelten – es ersetzt oder umgeht diese nie, sondern erlaubt zusätzlich genau die angegebenen Muster für diesen einen `claude`-Lauf. Fehlt `permissions` oder ist es ein leeres Array, wird kein `--allowedTools` angehängt (Verhalten unverändert wie zuvor).
+
+**Nur für Agents (nicht für Tasks) kann `POST /` bzw. `POST /<agent>` das konfigurierte `permissions` pro Aufruf per Request-Body-Feld `permissions` vollständig überschreiben** (kein Merge mit den config.json-Default-Permissions des Agents) – siehe "HTTP-Server (cl server)" → Request-Body. Tasks laufen ausschließlich CLI-interaktiv und verwenden immer nur ihr eigenes `permissions` aus `config.json`, ohne Override-Möglichkeit.
+
+Implementiert über den fünften, optionalen Parameter `permissions?: string[]` von `buildClaudeArgs()` in `src/launch.ts`, durchgereicht von `launchAgent()`, `runHeadlessCommand()` und `runTask()`. Typen/Validierung (`permissions?: string[]`, jeder Eintrag ein String) in `AgentDefinition`/`TaskDefinition` in `src/config.ts`.
+
 ## Model-Override (`cl <model>` / `cl <model> <agent>`)
 
-Vier feste Subcommands überschreiben gezielt nur das `model` des sonst wie gewohnt aufgelösten Agents (Contexts, Auto-Mode-Permissions bleiben gleich):
+Vier feste Subcommands überschreiben gezielt nur das `model` des sonst wie gewohnt aufgelösten Agents (Contexts, Auto-Mode-Permissions, `permissions`-Default bleiben gleich):
 
 | Command     | Kurzform | Model    |
 | ----------- | -------- | -------- |
@@ -61,7 +75,7 @@ Implementiert über `resolveHeadlessPrompt()` in `src/index.ts` (nutzt `node:rea
 
 ## Task-Ausführung (`cl task <name>`)
 
-Tasks sind wie Agents konfiguriert (`config.json`s `tasks[]`: `{ name, description, contexts, model }`), zusätzlich mit einem verpflichtenden `startCommand` (String). `cl task <name>` startet damit eine ganz normale interaktive `claude`-Session – Model und System-Prompt (aus `contexts`) wie bei Agents – und übergibt `startCommand` als positionales Argument **ohne** `--print`: `claude` startet dadurch interaktiv und schickt `startCommand` automatisch als erste Nachricht ab, so als hätte man ihn selbst eingetippt und abgeschickt. Danach läuft die Session normal weiter (`stdio: 'inherit'`, Terminal-Eingabe geht direkt an `claude`).
+Tasks sind wie Agents konfiguriert (`config.json`s `tasks[]`: `{ name, description, contexts, model }`), zusätzlich mit einem verpflichtenden `startCommand` (String) und optional `permissions` (siehe "Default-Permissions (`permissions`-Feld)"). `cl task <name>` startet damit eine ganz normale interaktive `claude`-Session – Model und System-Prompt (aus `contexts`) wie bei Agents – und übergibt `startCommand` als positionales Argument **ohne** `--print`: `claude` startet dadurch interaktiv und schickt `startCommand` automatisch als erste Nachricht ab, so als hätte man ihn selbst eingetippt und abgeschickt. Danach läuft die Session normal weiter (`stdio: 'inherit'`, Terminal-Eingabe geht direkt an `claude`).
 
 Der Command kennt **keine Optionen** – nur `cl task <name>`, kein `-d`/`--detached`, kein `-h`/`--headless`, kein sonstiger Modus. Tasks sind ausnahmslos interaktiv.
 
@@ -69,7 +83,7 @@ Der Command kennt **keine Optionen** – nur `cl task <name>`, kein `-d`/`--deta
 
 **Tasks sind nie über die API erreichbar** – kein `POST /task/:name`-Endpunkt, keine Erwähnung in `GET /manifest` (siehe "HTTP-Server (cl server)" und "Manifest (GET /manifest)"). Grund: HTTP-Requests haben kein TTY, eine interaktive Session ist darüber nicht sinnvoll nutzbar; Tasks sind bewusst CLI-only.
 
-Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, interactivePrompt?)` in `src/launch.ts` – der Auto-Mode ist fest in `buildClaudeArgs()` verdrahtet (`--permission-mode auto`, kein Parameter, keine Überschreibungsmöglichkeit), gilt also für alle Aufrufer gleichermaßen. `interactivePrompt` (hier immer `startCommand`) wird als reines positionales Argument angehängt, sofern kein `headlessPrompt` gesetzt ist (der bleibt reserviert für den bestehenden `-h, --headless`-Mechanismus von Agents). `runTask(task)` spawnt `claude` mit `stdio: 'inherit'` im Vordergrund. Die CLI-Registrierung (`program.command('task')`, ein `<name>`-Argument, keine Optionen) liegt in `src/index.ts`.
+Implementiert über `buildClaudeArgs(model, systemPrompt, headlessPrompt?, interactivePrompt?, permissions?)` in `src/launch.ts` – der Auto-Mode ist fest in `buildClaudeArgs()` verdrahtet (`--permission-mode auto`, kein Parameter, keine Überschreibungsmöglichkeit), gilt also für alle Aufrufer gleichermaßen; `permissions` (aus `task.permissions`) ist dagegen optional und pro Task konfigurierbar (siehe "Default-Permissions (`permissions`-Feld)"). `interactivePrompt` (hier immer `startCommand`) wird als reines positionales Argument angehängt, sofern kein `headlessPrompt` gesetzt ist (der bleibt reserviert für den bestehenden `-h, --headless`-Mechanismus von Agents). `runTask(task)` spawnt `claude` mit `stdio: 'inherit'` im Vordergrund. Die CLI-Registrierung (`program.command('task')`, ein `<name>`-Argument, keine Optionen) liegt in `src/index.ts`.
 
 ## HTTP-Server (`cl server`)
 
@@ -117,19 +131,25 @@ Danach wird **jeder eingehende Request** live mitgeloggt (zusätzlich zum SQLite
 **Request-Body (beide POST-Routen):**
 
 ```json
-{ "command": "mache irgendwas cooles", "path": "myapp", "model": "opus" }
+{
+  "command": "mache irgendwas cooles",
+  "path": "myapp",
+  "model": "opus",
+  "permissions": ["Bash(gradle *)", "Bash(./gradlew *)"]
+}
 ```
 
 - `command` (String, Pflicht) – der Prompt.
 - `path` (String, Pflicht) – Name eines Eintrags aus `config.json`s `paths`-Array (`paths[].name`, z. B. `{ "name": "myapp", "path": "/my/path" }`). Der zugehörige Dateisystem-Pfad wird serverseitig aufgelöst und als Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess verwendet – der tatsächliche Pfad wird nie direkt im Request angegeben, nur der Name. 404, falls kein Eintrag mit diesem Namen existiert.
 - `model` (String, optional) – überschreibt das `model` aus `config.json` für diesen einen Aufruf, sonst wird `agent.model` verwendet.
+- `permissions` (Array von Strings, optional) – überschreibt **vollständig** (kein Merge) das `permissions`-Array aus `config.json` für diesen einen Aufruf (400, falls kein Array von Strings), sonst wird `agent.permissions` verwendet. Siehe "Default-Permissions (`permissions`-Feld)" für Syntax und additive Semantik gegenüber den Projekt-Permissions.
 
 **Ablauf eines POST-Requests:**
 
 1. Body wird validiert (400 bei fehlendem/leerem `command`/`path` oder ungültigem JSON), Agent wird aufgelöst (404, falls unbekannt), `path`-Name wird gegen `config.json`s `paths[]` aufgelöst (404, falls unbekannt).
 2. Eine `id` (`crypto.randomUUID()`) wird generiert, sofort eine Zeile in `t_commands` mit `status: "running"` angelegt (inkl. des aufgelösten Dateisystem-Pfads).
 3. Response **sofort**: `202 { "id": "<uuid>" }` – der Request wartet nicht auf das Ergebnis.
-4. `claude --model <model> --append-system-prompt <contexts> --permission-mode auto --print "<command>"` läuft im Hintergrund mit dem aufgelösten Pfad als Arbeitsverzeichnis (`cwd`); jeder Output-Chunk (stdout **und** stderr) wird sofort in `t_commands.output` geschrieben (live, nicht erst am Ende).
+4. `claude --model <model> --append-system-prompt <contexts> --permission-mode auto --print "<command>" [--allowedTools <permissions...>]` läuft im Hintergrund mit dem aufgelösten Pfad als Arbeitsverzeichnis (`cwd`); `--allowedTools` wird nur angehängt, falls effektive Permissions (Body-`permissions` oder sonst `agent.permissions`) vorhanden sind. Jeder Output-Chunk (stdout **und** stderr) wird sofort in `t_commands.output` geschrieben (live, nicht erst am Ende).
 5. Nach Prozessende: `status` wird `"completed"` (Exit-Code 0) oder `"failed"`, `exit_code` wird gespeichert. Bei Spawn-Fehler (`claude` nicht gefunden): `status: "failed"` mit Fehlermeldung als `output`.
 
 **`GET /state/<id>`** liefert dann:
@@ -353,7 +373,7 @@ Implementiert in `src/gradle-install.ts` (`buildAndInstall`, `findApk`, `parseAd
 
 ## Ticket-System (`cl ticket`, `/tickets/...`)
 
-Ein leichtgewichtiger, pro Pfad-Eintrag (`config.json`s `paths[].name`) gefuehrter Ticket-Tracker, zusaetzlich global (ueber alle Pfade hinweg) abrufbar. Ein Ticket hat `id` (fortlaufend, automatisch vergeben, **global eindeutig ueber alle Pfade hinweg** – keine separate Zaehlung pro Pfad), `pathName` (der Pfad, zu dem das Ticket gehoert – nicht editierbar), `originalRequest` (die urspruengliche, unveraenderte Anweisung des Users), `summary` (kurze Beschreibung von Ziel und aktuellem Ist-Zustand), `claudeInstruction` (konkrete Anweisung, wie man sie Claude spaeter geben wuerde, um das Feature/den Fix umzusetzen), `category` (freies Schlagwort zur Gruppierung zusammenhaengender Tickets), `status` (`"open"` | `"in progress"` | `"done"` | `"rejected"`, initial immer `"open"`), `createdAt`, `updatedAt`.
+Ein leichtgewichtiger, pro Pfad-Eintrag (`config.json`s `paths[].name`) gefuehrter Ticket-Tracker, zusaetzlich global (ueber alle Pfade hinweg) abrufbar. Ein Ticket hat `id` (fortlaufend, automatisch vergeben, **global eindeutig ueber alle Pfade hinweg** – keine separate Zaehlung pro Pfad), `pathName` (der Pfad, zu dem das Ticket gehoert – nicht editierbar), `originalRequest` (die urspruengliche, unveraenderte Anweisung des Users), `summary` (kurze Beschreibung von Ziel und aktuellem Ist-Zustand), `claudeInstruction` (konkrete Anweisung, wie man sie Claude spaeter geben wuerde, um das Feature/den Fix umzusetzen), `category` (freies Schlagwort zur Gruppierung zusammenhaengender Tickets), `status` (`"open"` | `"in progress"` | `"done"` | `"rejected"`, initial immer `"open"`), `ipAddress` (IP-Adresse des Clients, der `POST /tickets/<pathName>` aufgerufen hat, aus `req.socket.remoteAddress` – wie `id`/`pathName` nicht editierbar, `null` bei Tickets aus der Zeit vor diesem Feld), `createdAt`, `updatedAt`.
 
 **Anlegen per Agent (`cl ticket from <path> <text>` / `POST /tickets/<pathName>`):** `text` wird **unveraendert** als `originalRequest` gespeichert. Zusaetzlich laeuft ein Agent (Model + Aufgabenbeschreibung aus `config.json`s `ticketAgent: { model, task }`, Default-Model `"haiku"`) im Dateisystem-Verzeichnis des Pfad-Eintrags (`cwd`) und bekommt `text` als Prompt. Er kann das Projekt dort explorieren (Dateien lesen, README, Code), um zu verstehen, was `text` im Projektkontext bedeuten koennte, und liefert daraus `summary`/`claudeInstruction`/`category` fuer das neue Ticket. **`ticketAgent.task` ist frei ueber `config.json` editierbar** (z. B. um die Aufgabenbeschreibung spaeter anzupassen, ohne Code zu aendern) – der Teil, der das Agent-Ergebnis in ein striktes JSON-Format zwingt (`{"summary","claudeInstruction","category"}`, keine Prosa/Markdown drumherum), ist dagegen fest im Code verdrahtet (`buildTicketAgentSystemPrompt()` in `src/ticket.ts`) und nicht ueber `config.json` aenderbar, damit ein editierter `task`-Text das Parsen der Antwort nicht versehentlich brechen kann.
 
@@ -365,7 +385,7 @@ Der Agent laeuft **synchron** (anders als `POST /`/`POST /paths/.../commands/...
 - **`GET /tickets/<pathName>`** – listet Tickets dieses Pfads, optionaler Query-Parameter `?status=`. 404 bei unbekanntem `pathName`, 400 bei ungueltigem `status`-Wert.
 - **`POST /tickets/<pathName>`** – Body `{ "text": "..." }`, siehe oben. 400 bei fehlendem/leerem `text`, 404 bei unbekanntem `pathName`, 502 bei Agent-Fehlschlag/unparsebarer Antwort.
 - **`GET /tickets/<pathName>/<id>`** – ein einzelnes Ticket. 404, falls `id` unbekannt **oder** zu einem anderen `pathName` gehoert (IDs sind global eindeutig, aber nur innerhalb ihres eigenen Pfads abrufbar – kein Erraten/Leaken von Tickets anderer Projekte ueber die ID).
-- **`PATCH /tickets/<pathName>/<id>`** – Body mit einem oder mehreren der Felder `originalRequest`/`summary`/`claudeInstruction`/`category`/`status` (mindestens eines erforderlich, sonst `400`; `pathName`/`id` sind **nicht** editierbar). Liefert das aktualisierte Ticket.
+- **`PATCH /tickets/<pathName>/<id>`** – Body mit einem oder mehreren der Felder `originalRequest`/`summary`/`claudeInstruction`/`category`/`status` (mindestens eines erforderlich, sonst `400`; `pathName`/`id`/`ipAddress` sind **nicht** editierbar). Liefert das aktualisierte Ticket.
 - **`DELETE /tickets/<pathName>/<id>`** – loescht das Ticket unwiderruflich, liefert `{ "message": "..." }`.
 
 **CLI (`cl ticket ...`, `"ticket"` ist reservierter Command-Name):**
@@ -377,23 +397,23 @@ Der Agent laeuft **synchron** (anders als `POST /`/`POST /paths/.../commands/...
 - **`cl ticket update <path> <id> [--original-request] [--summary] [--instruction] [--category] [--status]`** – bearbeitet ein Ticket (mindestens eine Option erforderlich).
 - **`cl ticket delete <path> <id>`** – loescht ein Ticket.
 
-Persistenz: `t_tickets`-Tabelle in derselben SQLite-Datenbank wie `t_commands`/`t_totp` (`config.json`s `databaseDirectory`) – `insertTicket`/`getTicket`/`listTickets`/`listAllTickets`/`updateTicket`/`deleteTicket` in `src/db.ts`, `TICKET_STATUSES` als Single-Source-of-Truth fuer gueltige Status-Werte (von CLI und Server importiert). `migrateLegacyTicketColumns()` hebt beim Start (`openDatabase()`) eine DB im fruehen Schema (Spalten `title`/`description`/`task`, Status `"closed"`) rein additiv (keine Spalte wird geloescht) auf das aktuelle Schema.
+Persistenz: `t_tickets`-Tabelle in derselben SQLite-Datenbank wie `t_commands`/`t_totp` (`config.json`s `databaseDirectory`) – `insertTicket`/`getTicket`/`listTickets`/`listAllTickets`/`updateTicket`/`deleteTicket` in `src/db.ts`, `TICKET_STATUSES` als Single-Source-of-Truth fuer gueltige Status-Werte (von CLI und Server importiert). `migrateLegacyTicketColumns()` hebt beim Start (`openDatabase()`) eine DB im fruehen Schema (Spalten `title`/`description`/`task`, Status `"closed"`) auf das aktuelle Schema und droppt danach die alten Spalten (sie waren `NOT NULL` ohne `DEFAULT` und liessen sonst jedes neue `INSERT` mit "NOT NULL constraint failed" scheitern).
 
 Implementiert in `src/ticket.ts` (Agent-Ausfuehrung + Antwort-Parsing), `src/db.ts` (`t_tickets`), `src/server.ts` (Routing/Validierung), `src/index.ts` (`ticket`-Subcommand-Gruppe), `openapi.json`. Getestet in `src/ticket.test.ts` (reine Funktionen `extractJsonObjects`/`parseTicketAgentOutput` inkl. vieler Edge-Cases, `runTicketAgent` gegen das Fake-`claude`-Binary), `src/db.test.ts` (CRUD, `listAllTickets`, Legacy-Migration), `src/server.test.ts` (alle Endpunkte inkl. Fehlerfaelle) und `src/index.test.ts` (alle Subcommands als CLI-Subprozess).
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 267 Tests über 11 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 280 Tests über 11 Dateien, ein File pro Feature-Bereich:
 
-- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
-- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt).
+- **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge, optionales `permissions`-Feld bei Agents/Tasks: akzeptiert/verwirft), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
+- **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen, inkl. `--allowedTools` bei gesetzten/leeren `permissions`) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt, Weitergabe von `permissions` als `--allowedTools`).
 - **`src/db.test.ts`** – SQLite-Operationen (`openDatabase`, `insertCommand`/`getCommand`, `updateCommandOutput`, `completeCommand`, `logAccess`, `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`, `insertTicket`/`getTicket`/`listTickets`/`listAllTickets`/`updateTicket`/`deleteTicket` inkl. Status-Filter und pfaduebergreifender ID-Eindeutigkeit, sowie `migrateLegacyTicketColumns` gegen eine handgebaute Alt-Schema-DB) gegen echte temporäre `.db`-Dateien.
 - **`src/ticket.test.ts`** – `extractJsonObjects`/`parseTicketAgentOutput` (reine Funktionen: sauberes JSON, Markdown-Codebloecke, Prosa davor/danach, verschachtelte/String-interne Braces, escapte Anfuehrungszeichen, mehrere Objekte, fehlende/leere/falsch typisierte Felder, kaputtes JSON) sowie `runTicketAgent` gegen ein Fake-`claude`-Binary (Erfolg, nicht-null Exit-Code, unparsebare Antwort trotz Exit-Code 0, `claude` fehlt im `PATH`).
 - **`src/totp.test.ts`** – Base32-En-/Decoding-Rundreise, `generateTotp`/`verifyTotp` (gültiger Code, Zeitfenster-Toleranz, falsches Secret/Format), `buildOtpAuthUrl`.
 - **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.
-- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands, `GET /health` ohne Auth, `GET /tickets` (global) sowie alle `/tickets/<pathName>/...`-Endpunkte inkl. Status-Filter, 502 bei Agent-Fehlschlag und 404 bei pfadfremder Ticket-ID).
+- **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit falschem `X-TOTP-Code`, Live-Status `running` → `completed`, Model-Override, `permissions`-Default aus `config.json` sowie Override + Validierung (400 bei falschem Typ) per Request-Body, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands, `GET /health` ohne Auth, `GET /tickets` (global) sowie alle `/tickets/<pathName>/...`-Endpunkte inkl. Status-Filter, 502 bei Agent-Fehlschlag und 404 bei pfadfremder Ticket-ID).
 - **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster) inkl. `GET /auth/status` bei jedem Zwischenschritt (`{active:false,pending:false}` → `{active:false,pending:true}` → `{active:true,pending:false}`).
-- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task`/`cl totp remove`/`cl inst`/`cl instr`/`cl ticket from|get|list|list-all|update|delete` End-to-End inkl. `SIGTERM`-Shutdown).
+- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, Agent-`permissions` haengen `--allowedTools` an, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task` (inkl. Task-`permissions` haengen `--allowedTools` an)/`cl totp remove`/`cl inst`/`cl instr`/`cl ticket from|get|list|list-all|update|delete` End-to-End inkl. `SIGTERM`-Shutdown).
 - **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `formatInstallSummary` (Singular/Plural/leer), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden, Gerätenamen + Abschluss-Zusammenfassung) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.

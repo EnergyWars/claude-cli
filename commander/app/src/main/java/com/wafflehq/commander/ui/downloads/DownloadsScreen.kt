@@ -1,4 +1,4 @@
-package com.wafflehq.commander.ui.pathdetail
+package com.wafflehq.commander.ui.downloads
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,11 +9,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
-import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
 import com.wafflehq.commander.data.api.ManifestHostedEntry
-import com.wafflehq.commander.data.api.PathCommandEntry
 import com.wafflehq.commander.ui.components.AppBanner
-import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.SettingsScaffold
@@ -41,31 +38,22 @@ import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
-fun PathDetailScreen(
+fun DownloadsScreen(
     onBack: () -> Unit,
-    onStartAgent: (pathName: String) -> Unit,
-    onCommandStarted: (commandId: String, pathName: String) -> Unit,
-    onOpenTickets: (pathName: String) -> Unit,
-    viewModel: PathDetailViewModel = hiltViewModel(),
+    viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    LaunchedEffect(state.startedCommandId) {
-        state.startedCommandId?.let { id ->
-            onCommandStarted(id, viewModel.pathName)
-            viewModel.consumeStartedCommand()
-        }
-    }
     LaunchedEffect(state.downloadedFile) {
         state.downloadedFile?.let { file ->
-            context.startActivity(viewModel.shareIntent(file))
+            context.startActivity(viewModel.openOrInstallIntent(file))
             viewModel.consumeDownloadedFile()
         }
     }
 
     SettingsScaffold(
-        title = viewModel.pathName,
+        title = stringResource(R.string.downloads_title),
         onBack = onBack,
         backDescription = stringResource(R.string.label_back),
     ) { padding ->
@@ -75,21 +63,8 @@ fun PathDetailScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(AppSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
-            AppButton(
-                text = stringResource(R.string.path_detail_start_agent),
-                role = AppRole.Primary,
-                onClick = { onStartAgent(viewModel.pathName) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppButton(
-                text = stringResource(R.string.path_detail_open_tickets),
-                role = AppRole.Secondary,
-                onClick = { onOpenTickets(viewModel.pathName) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             val error = state.error
             if (error != null) {
                 AppBanner(title = stringResource(R.string.setup_error_title), body = error, role = AppRole.Error)
@@ -97,59 +72,23 @@ fun PathDetailScreen(
 
             if (state.loading) {
                 CircularProgressIndicator()
-            }
-
-            if (state.commands.isNotEmpty()) {
+            } else if (state.hosted.isEmpty()) {
                 Text(
-                    text = stringResource(R.string.path_detail_commands_title),
-                    style = MaterialTheme.typography.titleSmall,
+                    text = stringResource(R.string.downloads_files_empty),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = AppTheme.colors.onSurfaceVariant,
                 )
-                state.commands.forEach { command ->
-                    PathCommandRow(command = command, onClick = { viewModel.runCommand(command.key) })
-                }
             }
 
-            if (state.hosted.isNotEmpty()) {
-                Text(
-                    text = stringResource(R.string.path_detail_files_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = AppTheme.colors.onSurfaceVariant,
+            state.hosted.forEach { entry ->
+                HostedEntryRow(
+                    entry = entry,
+                    expandedFiles = state.expandedHostedFiles[entry.name],
+                    onToggleExpand = { viewModel.toggleExpandHosted(entry.name) },
+                    onDownload = { viewModel.downloadEntry(entry.name) },
+                    onDownloadNested = { fileName -> viewModel.downloadNestedFile(entry.name, fileName) },
                 )
-                state.hosted.forEach { entry ->
-                    HostedEntryRow(
-                        entry = entry,
-                        expandedFiles = state.expandedHostedFiles[entry.name],
-                        onToggleExpand = { viewModel.toggleExpandHosted(entry.name) },
-                        onDownload = { viewModel.downloadEntry(entry.name) },
-                        onDownloadNested = { fileName -> viewModel.downloadNestedFile(entry.name, fileName) },
-                    )
-                }
             }
-        }
-    }
-}
-
-@Composable
-private fun PathCommandRow(command: PathCommandEntry, onClick: () -> Unit) {
-    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(AppSpacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(command.displayName, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
-                Text(command.description, style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.onSurfaceVariant)
-            }
-            AppIconButton(
-                icon = Icons.Outlined.PlayArrow,
-                contentDescription = command.displayName,
-                role = AppRole.Primary,
-                onClick = onClick,
-            )
         }
     }
 }
@@ -188,7 +127,7 @@ private fun HostedEntryRow(
                     verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
                 ) {
                     if (expandedFiles.isEmpty()) {
-                        Text(stringResource(R.string.path_detail_files_empty), color = AppTheme.colors.onSurfaceVariant)
+                        Text(stringResource(R.string.downloads_files_empty), color = AppTheme.colors.onSurfaceVariant)
                     }
                     expandedFiles.forEach { fileName ->
                         Row(
