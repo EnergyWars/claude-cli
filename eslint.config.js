@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   {
-    ignores: ['dist/**', 'node_modules/**', 'commander/**'],
+    ignores: ['dist/**', 'node_modules/**', 'commander/**', 'app-getter/**'],
   },
   js.configs.recommended,
   {

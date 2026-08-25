@@ -795,6 +795,213 @@
           }
         }
       }
+    },
+    "/collect": {
+      "post": {
+        "summary": "Sammelt konfigurierte Dateien nach contentPath",
+        "description": "Ohne Body bzw. ohne \"targetName\" werden alle config.json collection-Eintraege kopiert (Fehler pro Eintrag werden gesammelt statt abzubrechen). Mit \"targetName\" wird nur der passende Eintrag kopiert (404 falls unbekannt). Jede kopierte Datei landet unter contentPath, benannt nach targetName plus der Original-Dateiendung der sourcePath.",
+        "operationId": "collect",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CollectRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ergebnis des Sammelvorgangs.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CollectSummary" } }
+            }
+          },
+          "400": {
+            "description": "Body ist kein gueltiges JSON, oder \"targetName\" ist kein String.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "targetName ist in config.json collection nicht vorhanden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/collections": {
+      "get": {
+        "summary": "Listet alle gesammelten Dateien",
+        "description": "Kein Auth noetig. Listet alle Dateien direkt unter contentPath (nicht rekursiv), inkl. Zeitpunkt der letzten Aenderung, neueste zuerst.",
+        "operationId": "listCollections",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Gesammelte Dateien.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CollectionList" } }
+            }
+          }
+        }
+      }
+    },
+    "/collections/get/{name}": {
+      "get": {
+        "summary": "Laedt eine gesammelte Datei herunter",
+        "description": "Kein Auth noetig. \"name\" ist der volle Dateiname (inkl. Endung) wie von GET /collections geliefert.",
+        "operationId": "getCollectionFile",
+        "security": [],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Voller Dateiname unter contentPath (wie von GET /collections geliefert).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Datei-Download (Content-Type nach Dateiendung, Content-Disposition: attachment).",
+            "content": {
+              "application/octet-stream": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "Ungueltiger Dateiname (Pfad-Traversal-Versuch).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Datei mit diesem Namen unter contentPath.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/feedback": {
+      "get": {
+        "summary": "Listet alle Feedback-Eintraege",
+        "description": "Neueste zuerst.",
+        "operationId": "listFeedback",
+        "responses": {
+          "200": {
+            "description": "Alle Feedback-Eintraege.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FeedbackList" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Legt einen Feedback-Eintrag an",
+        "description": "Kein Auth noetig - jeder im Netz kann Feedback senden.",
+        "operationId": "createFeedback",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FeedbackCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Feedback wurde angelegt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Feedback" } }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"text\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/feedback/{id}": {
+      "patch": {
+        "summary": "Bearbeitet einen Feedback-Eintrag",
+        "operationId": "updateFeedback",
+        "parameters": [{ "$ref": "#/components/parameters/FeedbackId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FeedbackUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Der aktualisierte Feedback-Eintrag.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Feedback" } }
+            }
+          },
+          "400": {
+            "description": "Body ungueltig (kein JSON, oder Feld \"text\" fehlt/leer).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Feedback-Eintrag mit dieser ID.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Loescht einen Feedback-Eintrag",
+        "operationId": "deleteFeedback",
+        "parameters": [{ "$ref": "#/components/parameters/FeedbackId" }],
+        "responses": {
+          "200": {
+            "description": "Feedback wurde geloescht.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Feedback-Eintrag mit dieser ID.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -811,6 +1018,13 @@
         "in": "path",
         "required": true,
         "description": "Fortlaufende, eindeutige Ticket-ID.",
+        "schema": { "type": "integer" }
+      },
+      "FeedbackId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Fortlaufende, eindeutige Feedback-ID.",
         "schema": { "type": "integer" }
       }
     },
@@ -1144,6 +1358,98 @@
           "claudeInstruction": { "type": "string", "minLength": 1 },
           "category": { "type": "string", "minLength": 1 },
           "status": { "$ref": "#/components/schemas/TicketStatus" }
+        },
+        "additionalProperties": false
+      },
+      "CollectRequest": {
+        "type": "object",
+        "description": "Ohne targetName werden alle config.json collection-Eintraege gesammelt, mit targetName nur der passende.",
+        "properties": {
+          "targetName": { "type": "string" }
+        }
+      },
+      "CollectResultEntry": {
+        "type": "object",
+        "required": ["targetName", "fileName", "status"],
+        "properties": {
+          "targetName": { "type": "string" },
+          "fileName": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok"] }
+        }
+      },
+      "CollectErrorEntry": {
+        "type": "object",
+        "required": ["targetName", "error"],
+        "properties": {
+          "targetName": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      },
+      "CollectSummary": {
+        "type": "object",
+        "required": ["results", "errors"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CollectResultEntry" }
+          },
+          "errors": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CollectErrorEntry" }
+          }
+        }
+      },
+      "CollectedFile": {
+        "type": "object",
+        "required": ["name", "timestamp"],
+        "properties": {
+          "name": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CollectionList": {
+        "type": "object",
+        "required": ["files"],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CollectedFile" }
+          }
+        }
+      },
+      "Feedback": {
+        "type": "object",
+        "required": ["id", "text", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "integer" },
+          "text": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FeedbackList": {
+        "type": "object",
+        "required": ["feedback"],
+        "properties": {
+          "feedback": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Feedback" }
+          }
+        }
+      },
+      "FeedbackCreateRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "FeedbackUpdateRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 }
         },
         "additionalProperties": false
       }

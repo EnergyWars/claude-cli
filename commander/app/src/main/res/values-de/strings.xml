@@ -29,9 +29,15 @@
     <string name="project_home_downloads">Downloads</string>
     <string name="project_home_agents">Dev-Agent</string>
     <string name="project_home_tickets">Tickets</string>
+    <string name="project_home_history">Verlauf</string>
+    <string name="project_home_feedback">Feedback</string>
+    <string name="project_home_collect">Sammlung</string>
 
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
+
+    <string name="history_title">Verlauf</string>
+    <string name="history_empty">Noch keine Befehle gesendet.</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>
@@ -70,6 +76,11 @@
     <string name="ticket_detail_ip_label">IP-Adresse: %1$s</string>
     <string name="ticket_detail_ip_unknown">unbekannt</string>
     <string name="ticket_detail_save">Speichern</string>
+    <string name="ticket_detail_play">Ausführen und schließen</string>
+    <string name="ticket_detail_play_title">Ticket ausführen?</string>
+    <string name="ticket_detail_play_body">Das Ticket wird geschlossen und die Claude-Anweisung an den gewählten Agenten gesendet.</string>
+    <string name="ticket_detail_play_agent_label">Agent</string>
+    <string name="ticket_detail_play_confirm">Ausführen</string>
     <string name="ticket_detail_delete">Ticket löschen</string>
     <string name="ticket_detail_delete_confirm_title">Ticket löschen?</string>
     <string name="ticket_detail_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
@@ -100,4 +111,23 @@
     <string name="context_edit_value_label">Wert</string>
     <string name="context_edit_save">Speichern</string>
     <string name="context_edit_delete">Kontext löschen</string>
+
+    <string name="collect_title">Sammlung</string>
+    <string name="collect_all_button">Alles sammeln</string>
+    <string name="collect_target_label">Zielname</string>
+    <string name="collect_target_button">Nur diesen sammeln</string>
+    <string name="collect_result_ok">Gespeichert als %1$s</string>
+
+    <string name="feedback_title">Feedback</string>
+    <string name="feedback_empty">Noch kein Feedback.</string>
+    <string name="feedback_edit">Bearbeiten</string>
+    <string name="feedback_save">Speichern</string>
+    <string name="feedback_cancel">Abbrechen</string>
+    <string name="feedback_delete">Löschen</string>
+    <string name="feedback_delete_confirm_title">Feedback löschen?</string>
+    <string name="feedback_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
+    <string name="feedback_convert_to_ticket">In Ticket umwandeln</string>
+    <string name="feedback_convert_title">In Ticket umwandeln</string>
+    <string name="feedback_convert_project_label">Projekt</string>
+    <string name="feedback_convert_confirm">Ticket erstellen</string>
 </resources>

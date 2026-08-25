@@ -29,9 +29,15 @@
     <string name="project_home_downloads">Downloads</string>
     <string name="project_home_agents">Dev agent</string>
     <string name="project_home_tickets">Tickets</string>
+    <string name="project_home_history">History</string>
+    <string name="project_home_feedback">Feedback</string>
+    <string name="project_home_collect">Collect</string>
 
     <string name="commands_title">Commands</string>
     <string name="commands_empty">No commands.</string>
+
+    <string name="history_title">History</string>
+    <string name="history_empty">No commands sent yet.</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">No files.</string>
@@ -70,6 +76,11 @@
     <string name="ticket_detail_ip_label">IP address: %1$s</string>
     <string name="ticket_detail_ip_unknown">unknown</string>
     <string name="ticket_detail_save">Save</string>
+    <string name="ticket_detail_play">Run and close</string>
+    <string name="ticket_detail_play_title">Run ticket?</string>
+    <string name="ticket_detail_play_body">The ticket is closed and the Claude instruction is sent to the chosen agent.</string>
+    <string name="ticket_detail_play_agent_label">Agent</string>
+    <string name="ticket_detail_play_confirm">Run</string>
     <string name="ticket_detail_delete">Delete ticket</string>
     <string name="ticket_detail_delete_confirm_title">Delete ticket?</string>
     <string name="ticket_detail_delete_confirm_body">This can\'t be undone.</string>
@@ -100,4 +111,23 @@
     <string name="context_edit_value_label">Value</string>
     <string name="context_edit_save">Save</string>
     <string name="context_edit_delete">Delete context</string>
+
+    <string name="collect_title">Collect</string>
+    <string name="collect_all_button">Collect all</string>
+    <string name="collect_target_label">Target name</string>
+    <string name="collect_target_button">Collect this one</string>
+    <string name="collect_result_ok">Saved as %1$s</string>
+
+    <string name="feedback_title">Feedback</string>
+    <string name="feedback_empty">No feedback yet.</string>
+    <string name="feedback_edit">Edit</string>
+    <string name="feedback_save">Save</string>
+    <string name="feedback_cancel">Cancel</string>
+    <string name="feedback_delete">Delete</string>
+    <string name="feedback_delete_confirm_title">Delete feedback?</string>
+    <string name="feedback_delete_confirm_body">This can\'t be undone.</string>
+    <string name="feedback_convert_to_ticket">Turn into ticket</string>
+    <string name="feedback_convert_title">Turn into ticket</string>
+    <string name="feedback_convert_project_label">Project</string>
+    <string name="feedback_convert_confirm">Create ticket</string>
 </resources>

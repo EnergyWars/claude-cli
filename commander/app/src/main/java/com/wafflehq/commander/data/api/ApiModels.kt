@@ -41,6 +41,9 @@ data class CommandState(
 )
 
 @Serializable
+data class CommandList(val commands: List<CommandState>)
+
+@Serializable
 data class PathList(val paths: List<String>)
 
 @Serializable
@@ -106,6 +109,33 @@ data class TicketPatchRequest(
     val category: String? = null,
     val status: String? = null,
 )
+
+@Serializable
+data class CollectedFile(val name: String, val timestamp: String)
+
+@Serializable
+data class CollectionList(val files: List<CollectedFile>)
+
+@Serializable
+data class CollectRequest(val targetName: String? = null)
+
+@Serializable
+data class CollectResultEntry(val targetName: String, val fileName: String, val status: String)
+
+@Serializable
+data class CollectErrorEntry(val targetName: String, val error: String)
+
+@Serializable
+data class CollectSummary(val results: List<CollectResultEntry>, val errors: List<CollectErrorEntry>)
+
+@Serializable
+data class FeedbackEntry(val id: Int, val text: String, val createdAt: String, val updatedAt: String)
+
+@Serializable
+data class FeedbackList(val feedback: List<FeedbackEntry>)
+
+@Serializable
+data class FeedbackPatchRequest(val text: String)
 
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }

@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
+import com.wafflehq.commander.data.api.ManifestAgent
+import com.wafflehq.commander.data.api.TICKET_STATUS_DONE
 import com.wafflehq.commander.data.api.Ticket
 import com.wafflehq.commander.data.api.TicketPatchRequest
+import com.wafflehq.commander.data.api.agentNameOrNull
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +29,10 @@ data class TicketDetailUiState(
     val saving: Boolean = false,
     val error: String? = null,
     val deleted: Boolean = false,
+    val agents: List<ManifestAgent> = emptyList(),
+    val selectedAgentIndex: Int = 0,
+    val playing: Boolean = false,
+    val startedCommandId: String? = null,
 )
 
 @HiltViewModel
@@ -42,6 +49,19 @@ class TicketDetailViewModel @Inject constructor(
 
     init {
         refresh()
+        loadAgents()
+    }
+
+    private fun loadAgents() {
+        viewModelScope.launch {
+            try {
+                val agents = api.getManifest().agents
+                val defaultIndex = agents.indexOfFirst { it.command == "cl dev" }.let { if (it >= 0) it else 0 }
+                _uiState.update { it.copy(agents = agents, selectedAgentIndex = defaultIndex) }
+            } catch (_: ApiException) {
+                // Agentenliste ist nur fuer den Play-Button noetig - kein Fehler in der Haupt-Statusanzeige.
+            }
+        }
     }
 
     fun refresh() {
@@ -108,6 +128,35 @@ class TicketDetailViewModel @Inject constructor(
                 _uiState.update { it.copy(error = error.message ?: "Unbekannter Fehler.") }
             }
         }
+    }
+
+    fun onAgentSelected(index: Int) {
+        _uiState.update { it.copy(selectedAgentIndex = index) }
+    }
+
+    fun play() {
+        val state = _uiState.value
+        val ticket = state.ticket ?: return
+        val agent = state.agents.getOrNull(state.selectedAgentIndex)
+        _uiState.update { it.copy(playing = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val accepted = api.runAgent(agent?.agentNameOrNull(), ticket.pathName, ticket.claudeInstruction, null)
+                _uiState.update { it.copy(playing = false, startedCommandId = accepted.id) }
+                try {
+                    val updated = api.updateTicket(pathName, id, TicketPatchRequest(status = TICKET_STATUS_DONE))
+                    _uiState.update { it.copy().applying(updated) }
+                } catch (_: ApiException) {
+                    // Befehl laeuft bereits - das Schliessen des Tickets kann manuell nachgeholt werden.
+                }
+            } catch (error: ApiException) {
+                _uiState.update { it.copy(playing = false, error = error.message ?: "Unbekannter Fehler.") }
+            }
+        }
+    }
+
+    fun consumeStartedCommand() {
+        _uiState.update { it.copy(startedCommandId = null) }
     }
 
     private fun TicketDetailUiState.applying(ticket: Ticket): TicketDetailUiState = copy(

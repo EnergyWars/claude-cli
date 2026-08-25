@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
+import com.wafflehq.commander.data.api.ManifestAgent
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppConfirmDialog
@@ -31,6 +34,7 @@ import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsDropdownField
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
+import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
@@ -38,13 +42,22 @@ import com.wafflehq.commander.ui.theme.AppTheme
 @Composable
 fun TicketDetailScreen(
     onBack: () -> Unit,
+    onCommandStarted: (commandId: String) -> Unit,
     viewModel: TicketDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showPlayConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.deleted) {
         if (state.deleted) onBack()
+    }
+
+    LaunchedEffect(state.startedCommandId) {
+        state.startedCommandId?.let { id ->
+            onCommandStarted(id)
+            viewModel.consumeStartedCommand()
+        }
     }
 
     LifecycleResumeEffect(Unit) {
@@ -140,6 +153,14 @@ fun TicketDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             AppButton(
+                text = stringResource(R.string.ticket_detail_play),
+                role = AppRole.Primary,
+                variant = ButtonVariant.Outlined,
+                onClick = { showPlayConfirm = true },
+                enabled = !state.playing && state.agents.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            AppButton(
                 text = stringResource(R.string.ticket_detail_delete),
                 role = AppRole.Error,
                 variant = ButtonVariant.Outlined,
@@ -147,6 +168,19 @@ fun TicketDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+
+    if (showPlayConfirm) {
+        TicketPlayDialog(
+            agents = state.agents,
+            selectedAgentIndex = state.selectedAgentIndex,
+            onAgentSelected = viewModel::onAgentSelected,
+            onConfirm = {
+                showPlayConfirm = false
+                viewModel.play()
+            },
+            onDismiss = { showPlayConfirm = false },
+        )
     }
 
     if (showDeleteConfirm) {
@@ -162,4 +196,50 @@ fun TicketDetailScreen(
             onDismiss = { showDeleteConfirm = false },
         )
     }
+}
+
+@Composable
+private fun TicketPlayDialog(
+    agents: List<ManifestAgent>,
+    selectedAgentIndex: Int,
+    onAgentSelected: (Int) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(AppRadius.dialog),
+        containerColor = AppTheme.tokens.surface.surface,
+        titleContentColor = AppTheme.tokens.surface.onSurface,
+        textContentColor = AppTheme.tokens.surface.onSurface,
+        title = { Text(stringResource(R.string.ticket_detail_play_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+                Text(stringResource(R.string.ticket_detail_play_body))
+                SettingsDropdownField(
+                    label = stringResource(R.string.ticket_detail_play_agent_label),
+                    value = agents.getOrNull(selectedAgentIndex)?.command.orEmpty(),
+                    options = agents.map { it.command },
+                    selectedIndex = selectedAgentIndex,
+                    onSelect = onAgentSelected,
+                )
+            }
+        },
+        confirmButton = {
+            AppButton(
+                text = stringResource(R.string.ticket_detail_play_confirm),
+                role = AppRole.Primary,
+                variant = ButtonVariant.Text,
+                onClick = onConfirm,
+            )
+        },
+        dismissButton = {
+            AppButton(
+                text = stringResource(R.string.label_cancel),
+                role = AppRole.Neutral,
+                variant = ButtonVariant.Text,
+                onClick = onDismiss,
+            )
+        },
+    )
 }

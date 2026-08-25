@@ -7,22 +7,34 @@ import type { DatabaseSync } from 'node:sqlite';
 import QRCode from 'qrcode';
 
 import {
+  collectAll,
+  collectOne,
+  listCollectedFiles,
+  resolveCollectedFilePath,
+} from './collect.js';
+import {
   completeCommand,
   confirmTotpSecret,
+  deleteFeedback,
   deleteTicket,
   getCommand,
+  getFeedback,
   getTicket,
   getTotpSecret,
   insertCommand,
+  insertFeedback,
   insertTicket,
   isTicketStatus,
   listAllTickets,
+  listCommands,
+  listFeedback,
   listTickets,
   logAccess,
   openDatabase,
   setPendingTotpSecret,
   TICKET_STATUSES,
   updateCommandOutput,
+  updateFeedback,
   updateTicket,
   type TicketRow,
   type TicketStatus,
@@ -67,6 +79,7 @@ const MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
   '.zip': 'application/zip',
+  '.apk': 'application/vnd.android.package-archive',
 };
 
 function mimeTypeFor(filePath: string): string {
@@ -219,6 +232,36 @@ function parseTicketUpdateBody(raw: unknown): TicketUpdate {
     );
   }
   return update;
+}
+
+interface CollectRequestBody {
+  targetName?: string;
+}
+
+function parseCollectRequestBody(raw: unknown): CollectRequestBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.targetName !== undefined && typeof record.targetName !== 'string') {
+    throw new Error('Feld "targetName" muss ein String sein, falls angegeben.');
+  }
+  return typeof record.targetName === 'string' ? { targetName: record.targetName } : {};
+}
+
+interface FeedbackTextBody {
+  text: string;
+}
+
+function parseFeedbackTextBody(raw: unknown): FeedbackTextBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.text !== 'string' || record.text.trim() === '') {
+    throw new Error('Feld "text" (nicht-leerer String) ist erforderlich.');
+  }
+  return { text: record.text };
 }
 
 function parseAuthCodeBody(raw: unknown): AuthCodeBody {
@@ -430,6 +473,22 @@ function handleGetPaths(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { paths: listPathNames(config) });
 }
 
+function handleGetCommands(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+): void {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  sendJson(res, 200, { commands: listCommands(db, pathEntry.path) });
+}
+
 function handleGetManifest(config: Config, res: ServerResponse): void {
   sendJson(res, 200, {
     agents: listAgents(config),
@@ -576,6 +635,115 @@ function handleGetHostedFile(
     return;
   }
   sendFileDownload(res, filePath);
+}
+
+function handleGetCollections(config: Config, res: ServerResponse): void {
+  sendJson(res, 200, { files: listCollectedFiles(config.contentPath) });
+}
+
+function handleGetCollectionFile(config: Config, res: ServerResponse, name: string): void {
+  let filePath: string;
+  try {
+    filePath = resolveCollectedFilePath(config.contentPath, name);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    sendJson(res, 404, { error: `Datei "${name}" wurde nicht gefunden.` });
+    return;
+  }
+  sendFileDownload(res, filePath);
+}
+
+function handlePostCollect(config: Config, res: ServerResponse, bodyText: string): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: CollectRequestBody;
+  try {
+    body = parseCollectRequestBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  if (body.targetName === undefined) {
+    sendJson(res, 200, collectAll(config));
+    return;
+  }
+  try {
+    sendJson(res, 200, collectOne(config, body.targetName));
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function handleGetFeedback(db: DatabaseSync, res: ServerResponse): void {
+  sendJson(res, 200, { feedback: listFeedback(db) });
+}
+
+function handlePostFeedback(db: DatabaseSync, res: ServerResponse, bodyText: string): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: FeedbackTextBody;
+  try {
+    body = parseFeedbackTextBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  sendJson(res, 201, insertFeedback(db, body.text));
+}
+
+function handlePatchFeedback(
+  db: DatabaseSync,
+  res: ServerResponse,
+  idParam: string,
+  bodyText: string,
+): void {
+  if (!/^\d+$/.test(idParam) || !getFeedback(db, Number(idParam))) {
+    sendJson(res, 404, { error: `Feedback "${idParam}" wurde nicht gefunden.` });
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: FeedbackTextBody;
+  try {
+    body = parseFeedbackTextBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  sendJson(res, 200, updateFeedback(db, Number(idParam), body.text));
+}
+
+function handleDeleteFeedback(db: DatabaseSync, res: ServerResponse, idParam: string): void {
+  if (!/^\d+$/.test(idParam) || !deleteFeedback(db, Number(idParam))) {
+    sendJson(res, 404, { error: `Feedback "${idParam}" wurde nicht gefunden.` });
+    return;
+  }
+  sendJson(res, 200, { message: `Feedback "${idParam}" wurde geloescht.` });
 }
 
 function getTicketInPath(
@@ -872,6 +1040,18 @@ async function handleRequest(
       handleGetHealth(res);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'status') {
       handleGetStatus(res);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'collections') {
+      handleGetCollections(config, res);
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'collections' &&
+      segments[1] === 'get'
+    ) {
+      handleGetCollectionFile(config, res, segments[2] ?? '');
+    } else if (method === 'POST' && segments.length === 1 && segments[0] === 'feedback') {
+      bodyText = await readRequestBody(req);
+      handlePostFeedback(db, res, bodyText);
     } else if (!authorizeRequest(db, req)) {
       sendJson(res, 401, {
         error: 'JWT fehlt oder ist ungueltig/abgelaufen (Header "Authorization: Bearer <token>").',
@@ -882,6 +1062,8 @@ async function handleRequest(
       handleGetPaths(config, res);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'manifest') {
       handleGetManifest(config, res);
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
+      handleGetCommands(db, config, res, segments[1] ?? '');
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -923,6 +1105,16 @@ async function handleRequest(
       handlePatchTicket(db, config, res, segments[1] ?? '', segments[2] ?? '', bodyText);
     } else if (method === 'DELETE' && segments.length === 3 && segments[0] === 'tickets') {
       handleDeleteTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
+    } else if (method === 'POST' && segments.length === 1 && segments[0] === 'collect') {
+      bodyText = await readRequestBody(req);
+      handlePostCollect(config, res, bodyText);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'feedback') {
+      handleGetFeedback(db, res);
+    } else if (method === 'PATCH' && segments.length === 2 && segments[0] === 'feedback') {
+      bodyText = await readRequestBody(req);
+      handlePatchFeedback(db, res, segments[1] ?? '', bodyText);
+    } else if (method === 'DELETE' && segments.length === 2 && segments[0] === 'feedback') {
+      handleDeleteFeedback(db, res, segments[1] ?? '');
     } else if (method === 'POST' && segments.length <= 1) {
       bodyText = await readRequestBody(req);
       handlePostCommand(db, config, res, segments[0], bodyText);
@@ -968,6 +1160,7 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/state/:id`);
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
+  console.log(`  GET  ${base}/commands/:pathName`);
   console.log(`  GET  ${base}/paths/:pathName/commands`);
   for (const pathEntry of config.paths) {
     for (const command of pathEntry.commands ?? []) {
@@ -983,6 +1176,13 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/tickets/:pathName/:id`);
   console.log(`  PATCH ${base}/tickets/:pathName/:id`);
   console.log(`  DELETE ${base}/tickets/:pathName/:id`);
+  console.log(`  POST ${base}/collect`);
+  console.log(`  GET  ${base}/collections            (kein Auth noetig)`);
+  console.log(`  GET  ${base}/collections/get/:name  (kein Auth noetig)`);
+  console.log(`  POST ${base}/feedback               (kein Auth noetig)`);
+  console.log(`  GET  ${base}/feedback`);
+  console.log(`  PATCH ${base}/feedback/:id`);
+  console.log(`  DELETE ${base}/feedback/:id`);
 }
 
 export interface RunningServer {

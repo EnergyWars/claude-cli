@@ -112,6 +112,8 @@ class ClServerApi @Inject constructor(
 
     suspend fun getState(id: String): CommandState = authedGet("state", id)
 
+    suspend fun getCommands(pathName: String): CommandList = authedGet("commands", pathName)
+
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
 
@@ -159,6 +161,16 @@ class ClServerApi @Inject constructor(
     }
 
     suspend fun getTicket(pathName: String, id: Int): Ticket = authedGet("tickets", pathName, id.toString())
+
+    suspend fun collect(targetName: String? = null): CollectSummary =
+        authedPost(json.encodeToString(CollectRequest(targetName)), "collect")
+
+    suspend fun getFeedback(): FeedbackList = authedGet("feedback")
+
+    suspend fun updateFeedback(id: Int, text: String): FeedbackEntry =
+        authedPatch(json.encodeToString(FeedbackPatchRequest(text)), "feedback", id.toString())
+
+    suspend fun deleteFeedback(id: Int): MessageResponse = authedDelete("feedback", id.toString())
 
     suspend fun updateTicket(pathName: String, id: Int, patch: TicketPatchRequest): Ticket =
         authedPatch(json.encodeToString(patch), "tickets", pathName, id.toString())

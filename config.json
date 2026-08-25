@@ -29,8 +29,8 @@
       ]
     },
     {
-      "name": "periodical",
-      "path": "/home/simon/IdeaProjects/periodical",
+      "name": "periodical-work",
+      "path": "/home/simon/IdeaProjects/periodical-work",
       "hosted": [
         {
           "name": "debug-apk",
@@ -61,6 +61,18 @@
           "command": "./gradlew assembleRelease",
           "displayName": "Build Release",
           "description": "Baut die Release-APK."
+        },
+        {
+          "key": "commit",
+          "command": "git add . && cit commit -m 'remote update code commit' && git push",
+          "displayName": "Commit and Push",
+          "description": "Macht ein git commit mit allen changes und pusht."
+        },
+        {
+          "key": "update",
+          "command": "git merge master",
+          "displayName": "merge-master",
+          "description": "Merged den master in diesen branch."
         }
       ]
     }
@@ -77,6 +89,13 @@
   ],
   "ticketAgent": {
     "model": "haiku",
-    "task": "Du bekommst einen kurzen, oft unklaren Text zu einem Software-Projekt. Untersuche das Projekt im aktuellen Arbeitsverzeichnis (Dateien, README, CLAUDE.md, context.md, Code, Architektur), um zu verstehen, was der Text im Kontext dieses Projekts bedeuten könnte. Erstelle daraus ein kurz gehaltenes, aber aussagekräftiges Ticket."
-  }
+    "task": "Du bekommst einen kurzen, oft unklaren Text zu einem Software-Projekt. Untersuche das Projekt im aktuellen Arbeitsverzeichnis (Dateien, README, CLAUDE.md, context.md, Code, Architektur), um zu verstehen, was der Text im Kontext dieses Projekts bedeuten könnte. Erstelle daraus ein extrem kurz gehaltenes Ticket."
+  },
+  "contentPath": "/home/simon/collected",
+  "collection": [
+    {
+      "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
+      "targetName": "periodical-debug"
+    }
+  ]
 }

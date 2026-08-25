@@ -100,6 +100,15 @@ export function openDatabase(directory: string): DatabaseSync {
   ]);
   migrateLegacyTicketColumns(db);
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_path_name ON t_tickets (path_name)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_commands_path ON t_commands (path)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
   return db;
 }
 
@@ -190,6 +199,14 @@ function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
 export function getCommand(db: DatabaseSync, id: string): CommandRow | undefined {
   const row = db.prepare('SELECT * FROM t_commands WHERE id = ?').get(id);
   return row === undefined ? undefined : toCommandRow(row);
+}
+
+/** Neueste zuerst; "rowid" als Tiebreaker fuer Commands mit identischem created_at (Millisekunden-Aufloesung). */
+export function listCommands(db: DatabaseSync, path: string): CommandRow[] {
+  const rows = db
+    .prepare('SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC')
+    .all(path);
+  return rows.map((row) => toCommandRow(row));
 }
 
 export interface TotpRow {
@@ -374,5 +391,62 @@ export function updateTicket(
 
 export function deleteTicket(db: DatabaseSync, id: number): boolean {
   const result = db.prepare('DELETE FROM t_tickets WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export interface FeedbackRow {
+  id: number;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function toFeedbackRow(row: Record<string, SQLOutputValue>): FeedbackRow {
+  return {
+    id: Number(row.id),
+    text: String(row.text),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export function insertFeedback(db: DatabaseSync, text: string): FeedbackRow {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare('INSERT INTO t_feedback (text, created_at, updated_at) VALUES (?, ?, ?)')
+    .run(text, now, now);
+  const feedback = getFeedback(db, Number(result.lastInsertRowid));
+  if (!feedback) {
+    throw new Error('Feedback konnte nach dem Anlegen nicht gelesen werden.');
+  }
+  return feedback;
+}
+
+export function getFeedback(db: DatabaseSync, id: number): FeedbackRow | undefined {
+  const row = db.prepare('SELECT * FROM t_feedback WHERE id = ?').get(id);
+  return row === undefined ? undefined : toFeedbackRow(row);
+}
+
+/** Neueste zuerst. */
+export function listFeedback(db: DatabaseSync): FeedbackRow[] {
+  const rows = db.prepare('SELECT * FROM t_feedback ORDER BY id DESC').all();
+  return rows.map((row) => toFeedbackRow(row));
+}
+
+export function updateFeedback(db: DatabaseSync, id: number, text: string): FeedbackRow | undefined {
+  const existing = getFeedback(db, id);
+  if (!existing) {
+    return undefined;
+  }
+  db.prepare('UPDATE t_feedback SET text = ?, updated_at = ? WHERE id = ?').run(
+    text,
+    new Date().toISOString(),
+    id,
+  );
+  return getFeedback(db, id);
+}
+
+export function deleteFeedback(db: DatabaseSync, id: number): boolean {
+  const result = db.prepare('DELETE FROM t_feedback WHERE id = ?').run(id);
   return result.changes > 0;
 }

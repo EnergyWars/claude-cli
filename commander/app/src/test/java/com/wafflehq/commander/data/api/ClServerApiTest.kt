@@ -241,6 +241,21 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getCommands requests the path-scoped history and parses newest-first`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"commands":[{"id":"2","agent":"main","model":"sonnet","command":"b","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"2","updatedAt":"2"},{"id":"1","agent":"main","model":"sonnet","command":"a","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"1","updatedAt":"1"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getCommands("myapp")
+
+        assertEquals(listOf("2", "1"), result.commands.map { it.id })
+        val recorded = server.takeRequest()
+        assertEquals("/commands/myapp", recorded.target)
+    }
+
+    @Test
     fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
         server.enqueue(
             MockResponse(
@@ -361,6 +376,72 @@ class ClServerApiTest {
         val recorded = server.takeRequest()
         assertEquals("DELETE", recorded.method)
         assertEquals("/tickets/myapp/1", recorded.target)
+    }
+
+    @Test
+    fun `collect posts an empty body without a targetName`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"results":[],"errors":[]}"""))
+
+        val result = apiWithConnection().collect()
+
+        assertTrue(result.results.isEmpty())
+        assertTrue(result.errors.isEmpty())
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/collect", recorded.target)
+        assertFalse(recorded.body?.utf8().orEmpty().contains("targetName"))
+    }
+
+    @Test
+    fun `collect sends the targetName when given`() = runBlocking {
+        server.enqueue(
+            MockResponse(body = """{"results":[{"targetName":"test","fileName":"test.apk","status":"ok"}],"errors":[]}"""),
+        )
+
+        val result = apiWithConnection().collect("test")
+
+        assertEquals(1, result.results.size)
+        val recorded = server.takeRequest()
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"targetName\":\"test\""))
+    }
+
+    @Test
+    fun `getFeedback lists feedback entries`() = runBlocking {
+        server.enqueue(
+            MockResponse(body = """{"feedback":[{"id":1,"text":"Bitte Dark Mode.","createdAt":"c","updatedAt":"c"}]}"""),
+        )
+
+        val result = apiWithConnection().getFeedback()
+
+        assertEquals(1, result.feedback.size)
+        assertEquals("Bitte Dark Mode.", result.feedback.first().text)
+        val recorded = server.takeRequest()
+        assertEquals("/feedback", recorded.target)
+    }
+
+    @Test
+    fun `updateFeedback sends a PATCH request with the new text`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"id":1,"text":"Neu","createdAt":"c","updatedAt":"u"}"""))
+
+        val result = apiWithConnection().updateFeedback(1, "Neu")
+
+        assertEquals("Neu", result.text)
+        val recorded = server.takeRequest()
+        assertEquals("PATCH", recorded.method)
+        assertEquals("/feedback/1", recorded.target)
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"text\":\"Neu\""))
+    }
+
+    @Test
+    fun `deleteFeedback sends a DELETE request`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"message":"Feedback \"1\" wurde geloescht."}"""))
+
+        val result = apiWithConnection().deleteFeedback(1)
+
+        assertTrue(result.message.isNotEmpty())
+        val recorded = server.takeRequest()
+        assertEquals("DELETE", recorded.method)
+        assertEquals("/feedback/1", recorded.target)
     }
 
     @Test

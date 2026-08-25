@@ -44,6 +44,11 @@ export interface FixtureTicketAgent {
   task?: string;
 }
 
+export interface FixtureCollectionEntry {
+  sourcePath: string;
+  targetName: string;
+}
+
 export interface FixtureConfigOptions {
   main?: { description?: string; contexts?: string[]; model?: string; permissions?: string[] };
   agents?: FixtureAgent[];
@@ -52,6 +57,8 @@ export interface FixtureConfigOptions {
   paths?: FixturePathEntry[];
   tasks?: FixtureTask[];
   ticketAgent?: FixtureTicketAgent;
+  contentPath?: string;
+  collection?: FixtureCollectionEntry[];
 }
 
 export interface Fixture {
@@ -89,6 +96,8 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
       task: 'Test-Ticket-Agent-Aufgabe',
       ...options.ticketAgent,
     },
+    contentPath: options.contentPath ?? join(rootDir, 'content'),
+    collection: options.collection ?? [],
   };
   writeFileSync(join(rootDir, 'config.json'), JSON.stringify(config, null, 2));
 

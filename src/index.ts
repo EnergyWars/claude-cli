@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { Command } from 'commander';
 
+import { collectAll, collectOne } from './collect.js';
 import {
   type AgentSummary,
   type Config,
@@ -528,6 +529,21 @@ ticketCommand
       console.log(`Ticket "${idArg}" wurde geloescht.`);
     } finally {
       db.close();
+    }
+  });
+
+program
+  .command('collect')
+  .description(
+    'Kopiert alle (oder einen einzelnen) Eintraege aus config.json "collection" in "contentPath". Ohne Argument werden alle Eintraege gesammelt, mit Argument nur der mit passendem targetName.',
+  )
+  .argument('[targetName]', 'targetName eines Eintrags aus config.json (collection[].targetName).')
+  .action((targetName: string | undefined) => {
+    const config = loadConfig();
+    const summary = targetName === undefined ? collectAll(config) : collectOne(config, targetName);
+    console.log(JSON.stringify(summary, null, 2));
+    if (summary.errors.length > 0) {
+      process.exitCode = 1;
     }
   });
 

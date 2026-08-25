@@ -8,19 +8,25 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   completeCommand,
   confirmTotpSecret,
+  deleteFeedback,
   deleteTicket,
   deleteTotpSecret,
   getCommand,
+  getFeedback,
   getTicket,
   getTotpSecret,
   insertCommand,
+  insertFeedback,
   insertTicket,
   listAllTickets,
+  listCommands,
+  listFeedback,
   listTickets,
   logAccess,
   openDatabase,
   setPendingTotpSecret,
   updateCommandOutput,
+  updateFeedback,
   updateTicket,
 } from './db.js';
 
@@ -147,6 +153,40 @@ test('insertCommand + getCommand: Roundtrip mit status "running"', () => {
 
 test('getCommand: undefined fuer unbekannte ID', () => {
   assert.equal(getCommand(db, 'does-not-exist'), undefined);
+});
+
+test('listCommands: liefert nur Commands des angegebenen Pfads, neueste zuerst', () => {
+  insertCommand(db, {
+    id: 'lc-other-path',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'a',
+    path: '/list-commands-other',
+  });
+  insertCommand(db, {
+    id: 'lc-1',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'b',
+    path: '/list-commands-test',
+  });
+  insertCommand(db, {
+    id: 'lc-2',
+    agent: 'dev',
+    model: 'sonnet',
+    command: 'c',
+    path: '/list-commands-test',
+  });
+  const rows = listCommands(db, '/list-commands-test');
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['lc-2', 'lc-1'],
+  );
+  assert.ok(rows.every((row) => row.path === '/list-commands-test'));
+});
+
+test('listCommands: leeres Array fuer Pfad ohne Commands', () => {
+  assert.deepEqual(listCommands(db, '/no-such-path'), []);
 });
 
 test('updateCommandOutput: aktualisiert output, laesst status unveraendert', () => {
@@ -560,4 +600,45 @@ test('openDatabase: migriert alte title/description/task-Spalten und Status "clo
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('insertFeedback + getFeedback: Roundtrip', () => {
+  const feedback = insertFeedback(db, 'Bitte Dark Mode hinzufuegen.');
+  assert.equal(typeof feedback.id, 'number');
+  assert.equal(feedback.text, 'Bitte Dark Mode hinzufuegen.');
+  assert.equal(feedback.createdAt, feedback.updatedAt);
+  assert.deepEqual(getFeedback(db, feedback.id), feedback);
+});
+
+test('getFeedback: undefined fuer unbekannte ID', () => {
+  assert.equal(getFeedback(db, 999_999), undefined);
+});
+
+test('listFeedback: neueste zuerst', () => {
+  const first = insertFeedback(db, 'Erstes Feedback');
+  const second = insertFeedback(db, 'Zweites Feedback');
+  const all = listFeedback(db);
+  const firstIndex = all.findIndex((entry) => entry.id === first.id);
+  const secondIndex = all.findIndex((entry) => entry.id === second.id);
+  assert.ok(secondIndex < firstIndex);
+});
+
+test('updateFeedback: aendert den Text und updatedAt', () => {
+  const feedback = insertFeedback(db, 'Alter Text');
+  const updated = updateFeedback(db, feedback.id, 'Neuer Text');
+  assert.ok(updated);
+  assert.equal(updated.text, 'Neuer Text');
+  assert.equal(updated.id, feedback.id);
+  assert.equal(updated.createdAt, feedback.createdAt);
+});
+
+test('updateFeedback: liefert undefined fuer unbekannte ID, ohne zu werfen', () => {
+  assert.equal(updateFeedback(db, 999_999, 'x'), undefined);
+});
+
+test('deleteFeedback: entfernt den Eintrag und liefert true, sonst false', () => {
+  const feedback = insertFeedback(db, 'Zu loeschen');
+  assert.equal(deleteFeedback(db, feedback.id), true);
+  assert.equal(getFeedback(db, feedback.id), undefined);
+  assert.equal(deleteFeedback(db, feedback.id), false);
 });

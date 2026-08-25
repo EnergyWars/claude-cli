@@ -49,6 +49,9 @@ fun ProjectHomeScreen(
     onOpenDownloads: (pathName: String) -> Unit,
     onOpenAgents: (pathName: String) -> Unit,
     onOpenTickets: (pathName: String) -> Unit,
+    onOpenHistory: (pathName: String) -> Unit,
+    onOpenFeedback: () -> Unit,
+    onOpenCollect: () -> Unit,
     onOpenSettings: () -> Unit,
     viewModel: ProjectHomeViewModel = hiltViewModel(),
 ) {
@@ -116,6 +119,21 @@ fun ProjectHomeScreen(
                 title = stringResource(R.string.project_home_tickets),
                 subtitle = null,
                 onClick = { onOpenTickets(projectName) },
+            )
+            SettingsListRow(
+                title = stringResource(R.string.project_home_history),
+                subtitle = null,
+                onClick = { onOpenHistory(projectName) },
+            )
+            SettingsListRow(
+                title = stringResource(R.string.project_home_feedback),
+                subtitle = null,
+                onClick = onOpenFeedback,
+            )
+            SettingsListRow(
+                title = stringResource(R.string.project_home_collect),
+                subtitle = null,
+                onClick = onOpenCollect,
             )
         }
     }

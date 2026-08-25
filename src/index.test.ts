@@ -664,6 +664,76 @@ test('cl ticket --help: listet die konfigurierten Pfade auf', async () => {
   assert.match(result.stdout, /Pfade \(aus config\.json, paths\[\]\.name\)/);
 });
 
+interface CollectSummary {
+  results: { targetName: string; fileName: string; status: string }[];
+  errors: { targetName: string; error: string }[];
+}
+
+test('cl collect (ohne Argument): sammelt alle Eintraege, gibt JSON-Zusammenfassung aus', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'cl-collect-cli-'));
+  const sourcePath = join(rootDir, 'source.apk');
+  writeFileSync(sourcePath, 'FAKE-APK');
+  const contentPath = join(rootDir, 'content');
+  const collectFixture = createFixtureRoot({
+    contentPath,
+    collection: [{ sourcePath, targetName: 'test' }],
+  });
+  try {
+    const result = await runCli(['collect'], {
+      env: { CL_ROOT_DIR: collectFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const summary = JSON.parse(result.stdout) as CollectSummary;
+    assert.deepEqual(summary.errors, []);
+    assert.deepEqual(summary.results, [
+      { targetName: 'test', fileName: 'test.apk', status: 'ok' },
+    ]);
+    assert.equal(readFileSync(join(contentPath, 'test.apk'), 'utf8'), 'FAKE-APK');
+  } finally {
+    collectFixture.cleanup();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('cl collect <targetName>: sammelt nur den passenden Eintrag', async () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'cl-collect-cli-'));
+  const sourceA = join(rootDir, 'a.apk');
+  const sourceB = join(rootDir, 'b.apk');
+  writeFileSync(sourceA, 'A');
+  writeFileSync(sourceB, 'B');
+  const contentPath = join(rootDir, 'content');
+  const collectFixture = createFixtureRoot({
+    contentPath,
+    collection: [
+      { sourcePath: sourceA, targetName: 'a' },
+      { sourcePath: sourceB, targetName: 'b' },
+    ],
+  });
+  try {
+    const result = await runCli(['collect', 'b'], {
+      env: { CL_ROOT_DIR: collectFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const summary = JSON.parse(result.stdout) as CollectSummary;
+    assert.deepEqual(summary.results, [{ targetName: 'b', fileName: 'b.apk', status: 'ok' }]);
+  } finally {
+    collectFixture.cleanup();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('cl collect <targetName>: unbekannter targetName bricht mit Fehler und Exit != 0 ab', async () => {
+  const collectFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['collect', 'doesnotexist'], {
+      env: { CL_ROOT_DIR: collectFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    collectFixture.cleanup();
+  }
+});
+
 test('cl task mytask: startet immer interaktiv, startCommand wird als Prompt ohne --print gesendet', async () => {
   const result = await runCli(['task', 'mytask'], { env: baseEnv() });
   assert.equal(result.exitCode, 0);

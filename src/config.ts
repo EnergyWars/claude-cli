@@ -54,6 +54,11 @@ export interface TicketAgentConfig {
   task: string;
 }
 
+export interface CollectionEntry {
+  sourcePath: string;
+  targetName: string;
+}
+
 export interface Config {
   main: AgentDefinition;
   agents: AgentConfig[];
@@ -61,6 +66,8 @@ export interface Config {
   paths: PathEntry[];
   tasks: TaskConfig[];
   ticketAgent: TicketAgentConfig;
+  contentPath: string;
+  collection: CollectionEntry[];
 }
 
 export const MODEL_COMMANDS = [
@@ -78,6 +85,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   'inst',
   'instr',
   'ticket',
+  'collect',
 ]);
 
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -203,6 +211,19 @@ function isTicketAgentConfig(value: unknown): value is TicketAgentConfig {
   );
 }
 
+function isCollectionEntry(value: unknown): value is CollectionEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.sourcePath === 'string' &&
+    record.sourcePath.trim() !== '' &&
+    typeof record.targetName === 'string' &&
+    record.targetName.trim() !== ''
+  );
+}
+
 function isConfig(value: unknown): value is Config {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -217,7 +238,10 @@ function isConfig(value: unknown): value is Config {
     record.paths.every(isPathEntry) &&
     Array.isArray(record.tasks) &&
     record.tasks.every(isTaskConfig) &&
-    isTicketAgentConfig(record.ticketAgent)
+    isTicketAgentConfig(record.ticketAgent) &&
+    typeof record.contentPath === 'string' &&
+    Array.isArray(record.collection) &&
+    record.collection.every(isCollectionEntry)
   );
 }
 
@@ -235,7 +259,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }) oder "ticketAgent" (Objekt { model, task }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName }) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);

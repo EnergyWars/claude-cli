@@ -18,9 +18,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.wafflehq.commander.ui.agents.AgentsScreen
+import com.wafflehq.commander.ui.collect.CollectScreen
 import com.wafflehq.commander.ui.command.CommandDetailScreen
 import com.wafflehq.commander.ui.commands.CommandsScreen
 import com.wafflehq.commander.ui.downloads.DownloadsScreen
+import com.wafflehq.commander.ui.feedback.FeedbackListScreen
+import com.wafflehq.commander.ui.history.HistoryScreen
 import com.wafflehq.commander.ui.login.LoginScreen
 import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
@@ -46,6 +49,9 @@ object Routes {
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
     const val TICKETS = "tickets/{pathName}"
     const val TICKET_DETAIL = "tickets/{pathName}/{id}"
+    const val HISTORY = "history/{pathName}"
+    const val FEEDBACK = "feedback"
+    const val COLLECT = "collect"
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings_display"
     const val SETTINGS_CONTEXTS = "settings_contexts"
@@ -69,6 +75,8 @@ object Routes {
     fun tickets(pathName: String): String = "tickets/${Uri.encode(pathName)}"
 
     fun ticketDetail(pathName: String, id: Int): String = "tickets/${Uri.encode(pathName)}/$id"
+
+    fun history(pathName: String): String = "history/${Uri.encode(pathName)}"
 
     fun settingsContextEdit(id: Long): String = "settings_contexts/edit/$id"
 }
@@ -137,6 +145,9 @@ fun AppNavHost() {
                 onOpenDownloads = { pathName -> navController.navigate(Routes.downloads(pathName)) },
                 onOpenAgents = { pathName -> navController.navigate(Routes.agents(pathName)) },
                 onOpenTickets = { pathName -> navController.navigate(Routes.tickets(pathName)) },
+                onOpenHistory = { pathName -> navController.navigate(Routes.history(pathName)) },
+                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
+                onOpenCollect = { navController.navigate(Routes.COLLECT) },
                 onOpenSettings = openSettings,
             )
         }
@@ -202,8 +213,28 @@ fun AppNavHost() {
                 navArgument("pathName") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
             ),
-        ) {
-            TicketDetailScreen(onBack = { navController.popBackStack() })
+        ) { entry ->
+            val pathName = checkNotNull(entry.arguments?.getString("pathName"))
+            TicketDetailScreen(
+                onBack = { navController.popBackStack() },
+                onCommandStarted = { commandId -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
+            )
+        }
+        composable(
+            route = Routes.HISTORY,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) { entry ->
+            val pathName = checkNotNull(entry.arguments?.getString("pathName"))
+            HistoryScreen(
+                onBack = { navController.popBackStack() },
+                onOpenCommand = { id -> navController.navigate(Routes.commandDetail(id, pathName)) },
+            )
+        }
+        composable(Routes.FEEDBACK) {
+            FeedbackListScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.COLLECT) {
+            CollectScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

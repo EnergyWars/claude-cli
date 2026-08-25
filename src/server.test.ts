@@ -58,6 +58,8 @@ before(async () => {
       },
       { name: 'other', path: hostedDir },
     ],
+    contentPath: join(hostedDir, 'content'),
+    collection: [{ sourcePath: join(hostedDir, 'notes.txt'), targetName: 'notes-collected' }],
   });
   mock = createMockClaude({ outputChunks: ['erste Zeile\n', 'zweite Zeile\n'], chunkDelayMs: 30 });
 
@@ -255,6 +257,37 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
 
 test('GET /manifest: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/manifest`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /commands/default: listet Commands dieses Pfads, neueste zuerst', async () => {
+  const postRes = await fetch(`${baseUrl()}/paths/default/commands/pwd`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const { id } = (await postRes.json()) as { id: string };
+
+  const res = await fetch(`${baseUrl()}/commands/default`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    commands: { id: string; command: string; createdAt: string }[];
+  };
+  const entry = body.commands.find((command) => command.id === id);
+  assert.ok(entry);
+  assert.equal(entry.command, 'pwd');
+  const createdAtTimestamps = body.commands.map((command) => new Date(command.createdAt).getTime());
+  for (let i = 1; i < createdAtTimestamps.length; i++) {
+    assert.ok((createdAtTimestamps[i - 1] ?? 0) >= (createdAtTimestamps[i] ?? 0));
+  }
+});
+
+test('GET /commands/doesnotexist: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/commands/doesnotexist`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /commands/default: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/commands/default`);
   assert.equal(res.status, 401);
 });
 
@@ -745,6 +778,166 @@ test('DELETE /tickets/default/:id: loescht das Ticket, danach 404 beim erneuten 
 
 test('DELETE /tickets/default/:id: 404 bei unbekannter ID', async () => {
   const res = await fetch(`${baseUrl()}/tickets/default/999999`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /collect: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/collect`, { method: 'POST' });
+  assert.equal(res.status, 401);
+});
+
+test('POST /collect: sammelt alle konfigurierten Eintraege', async () => {
+  const res = await fetch(`${baseUrl()}/collect`, { method: 'POST', headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    results: { targetName: string; fileName: string }[];
+    errors: unknown[];
+  };
+  assert.deepEqual(body.errors, []);
+  assert.deepEqual(body.results, [
+    { targetName: 'notes-collected', fileName: 'notes-collected.txt', status: 'ok' },
+  ]);
+});
+
+test('POST /collect: sammelt nur den angegebenen targetName', async () => {
+  const res = await fetch(`${baseUrl()}/collect`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ targetName: 'notes-collected' }),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { results: { targetName: string }[] };
+  assert.equal(body.results.length, 1);
+  assert.equal(body.results[0]?.targetName, 'notes-collected');
+});
+
+test('POST /collect: 404 bei unbekanntem targetName', async () => {
+  const res = await fetch(`${baseUrl()}/collect`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ targetName: 'doesnotexist' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('GET /collections: kein Auth noetig, listet gesammelte Dateien', async () => {
+  await fetch(`${baseUrl()}/collect`, { method: 'POST', headers: authHeaders() });
+
+  const res = await fetch(`${baseUrl()}/collections`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { files: { name: string; timestamp: string }[] };
+  const names = body.files.map((f) => f.name);
+  assert.ok(names.includes('notes-collected.txt'));
+});
+
+test('GET /collections/get/notes-collected.txt: kein Auth noetig, laedt die Datei herunter', async () => {
+  await fetch(`${baseUrl()}/collect`, { method: 'POST', headers: authHeaders() });
+
+  const res = await fetch(`${baseUrl()}/collections/get/notes-collected.txt`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), 'hosted-file-inhalt');
+});
+
+test('GET /collections/get/:name: 404 bei unbekanntem Namen', async () => {
+  const res = await fetch(`${baseUrl()}/collections/get/doesnotexist.txt`);
+  assert.equal(res.status, 404);
+});
+
+test('POST /feedback: kein Auth noetig, legt einen Eintrag an', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Bitte Dark Mode.' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { id: number; text: string };
+  assert.equal(body.text, 'Bitte Dark Mode.');
+  assert.equal(typeof body.id, 'number');
+});
+
+test('POST /feedback: 400 bei leerem Text', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '  ' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+async function createFeedback(text = 'Feedback-Text'): Promise<{ id: number; text: string }> {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  return (await res.json()) as { id: number; text: string };
+}
+
+test('GET /feedback: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /feedback: listet Eintraege, authentifiziert', async () => {
+  const created = await createFeedback();
+  const res = await fetch(`${baseUrl()}/feedback`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { feedback: { id: number }[] };
+  assert.ok(body.feedback.some((entry) => entry.id === created.id));
+});
+
+test('PATCH /feedback/:id: aktualisiert den Text', async () => {
+  const created = await createFeedback('Alt');
+  const res = await fetch(`${baseUrl()}/feedback/${String(created.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ text: 'Neu' }),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { text: string };
+  assert.equal(body.text, 'Neu');
+});
+
+test('PATCH /feedback/:id: 400 bei fehlendem Text', async () => {
+  const created = await createFeedback();
+  const res = await fetch(`${baseUrl()}/feedback/${String(created.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('PATCH /feedback/:id: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/feedback/999999`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ text: 'x' }),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('DELETE /feedback/:id: loescht den Eintrag, danach 404 beim erneuten Zugriff', async () => {
+  const created = await createFeedback();
+  const res = await fetch(`${baseUrl()}/feedback/${String(created.id)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 200);
+
+  const patchRes = await fetch(`${baseUrl()}/feedback/${String(created.id)}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ text: 'x' }),
+  });
+  assert.equal(patchRes.status, 404);
+});
+
+test('DELETE /feedback/:id: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/feedback/999999`, {
     method: 'DELETE',
     headers: authHeaders(),
   });

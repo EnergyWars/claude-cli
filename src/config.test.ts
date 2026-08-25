@@ -43,6 +43,8 @@ function validRawConfig(): unknown {
       },
     ],
     ticketAgent: { model: 'haiku', task: 'Erstelle ein Ticket aus dem Text.' },
+    contentPath: '/tmp/content',
+    collection: [{ sourcePath: '/tmp/source.apk', targetName: 'test' }],
   };
 }
 
@@ -229,6 +231,43 @@ test('parseConfig: wirft wenn "ticketAgent.model" leer ist', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
+test('parseConfig: wirft ohne Feld "contentPath"', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  delete raw.contentPath;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft ohne Feld "collection"', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  delete raw.collection;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert ein leeres "collection"-Array', () => {
+  const raw = validRawConfig() as { collection: unknown };
+  raw.collection = [];
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.collection, []);
+});
+
+test('parseConfig: wirft wenn ein Collection-Eintrag "sourcePath" fehlt', () => {
+  const raw = validRawConfig() as { collection: Record<string, unknown>[] };
+  raw.collection[0] = { targetName: 'test' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Collection-Eintrag "targetName" leer ist', () => {
+  const raw = validRawConfig() as { collection: Record<string, unknown>[] };
+  raw.collection[0] = { sourcePath: '/tmp/source.apk', targetName: '  ' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft bei Agent-Namen "collect"', () => {
+  const raw = validRawConfig();
+  firstAgentOf(raw).name = 'collect';
+  assert.throws(() => parseConfig(raw), /reservierten Commands/);
+});
+
 function firstAgentOf(raw: unknown): Record<string, unknown> {
   const record = raw as { agents: Record<string, unknown>[] };
   const [firstAgent] = record.agents;
@@ -314,6 +353,8 @@ test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
     paths: [],
     tasks: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
   };
   assert.deepEqual(listAgents(config), [
     { command: 'cl', description: 'Main-Desc' },
@@ -381,6 +422,8 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
     ],
     tasks: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
   };
 
   assert.deepEqual(listHostedNames(config, 'myapp'), ['notes', 'docs']);
@@ -423,6 +466,8 @@ test('listHostedSummaries: liefert Name + Typ der Hosted-Eintraege eines Pfads',
     ],
     tasks: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
   };
 
   assert.deepEqual(listHostedSummaries(config, 'myapp'), [
@@ -454,6 +499,8 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
     ],
     tasks: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
   };
 
   assert.deepEqual(listPathCommands(config, 'myapp'), [
@@ -563,6 +610,8 @@ test('loadPathsOverride/applyPathsOverride: liest Datei und ersetzt config.paths
       paths: [{ name: 'original', path: '/original' }],
       tasks: [],
       ticketAgent: { model: 'haiku', task: 'Test-Task' },
+      contentPath: '/tmp/content',
+      collection: [],
     };
     const overridden = applyPathsOverride(config, paths);
     assert.deepEqual(overridden.paths, [{ name: 'override', path: '/override' }]);
@@ -599,6 +648,8 @@ test('listTasks: jeder Task als "cl task <name>" mit description', () => {
       { name: 'b', description: 'B-Desc', contexts: [], model: 'opus', startCommand: 'y' },
     ],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
   };
   assert.deepEqual(listTasks(config), [
     { command: 'cl task a', description: 'A-Desc' },
