@@ -372,6 +372,61 @@ test('POST + GET /state/<id>: running -> completed mit vollstaendigem Output', a
   assert.match(final.output, /zweite Zeile/);
 });
 
+function parseSseEvents(text: string): { status: string; output: string }[] {
+  return text
+    .split('\n\n')
+    .filter((chunk) => chunk.startsWith('data: '))
+    .map((chunk) => JSON.parse(chunk.slice('data: '.length)) as { status: string; output: string });
+}
+
+test('GET /state/<id>/stream: 401 ohne gueltigen Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/state/anything/stream`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /state/<id>/stream: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/state/unknown-id/stream`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /state/<id>/stream: liefert Live-Events bis der Command abgeschlossen ist, dann schliesst die Verbindung', async () => {
+  const postRes = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'teste sse', path: 'default' }),
+  });
+  const { id } = (await postRes.json()) as { id: string };
+
+  const streamRes = await fetch(`${baseUrl()}/state/${id}/stream`, { headers: authHeaders() });
+  assert.equal(streamRes.status, 200);
+  assert.match(streamRes.headers.get('content-type') ?? '', /text\/event-stream/);
+
+  const events = parseSseEvents(await streamRes.text());
+  assert.ok(events.length >= 2, 'erwartet mindestens ein Zwischen- und ein Abschluss-Event');
+  const last = events.at(-1);
+  assert.ok(last);
+  assert.equal(last.status, 'completed');
+  assert.match(last.output, /erste Zeile/);
+  assert.match(last.output, /zweite Zeile/);
+});
+
+test('GET /state/<id>/stream: bereits abgeschlossener Command liefert genau ein Event und schliesst sofort', async () => {
+  const postRes = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'x', path: 'default' }),
+  });
+  const { id } = (await postRes.json()) as { id: string };
+  await sleep(300);
+
+  const streamRes = await fetch(`${baseUrl()}/state/${id}/stream`, { headers: authHeaders() });
+  const events = parseSseEvents(await streamRes.text());
+  assert.equal(events.length, 1);
+  const [only] = events;
+  assert.ok(only);
+  assert.equal(only.status, 'completed');
+});
+
 test('POST /: model im Body ueberschreibt config.json-Default', async () => {
   const res = await fetch(`${baseUrl()}/`, {
     method: 'POST',
@@ -532,6 +587,27 @@ function validTicketAgentOutput(overrides: Partial<Record<string, unknown>> = {}
   });
 }
 
+async function waitForTicketReady(
+  pathName: string,
+  id: number,
+  timeoutMs = 5000,
+): Promise<TicketBody> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await fetch(`${baseUrl()}/tickets/${pathName}/${String(id)}`, {
+      headers: authHeaders(),
+    });
+    const ticket = (await res.json()) as TicketBody;
+    if (ticket.status !== 'generating') {
+      return ticket;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`Timeout beim Warten auf die Ticket-Generierung (id ${String(id)}).`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 async function createTicket(pathName = 'default', text = 'ein neues Feature'): Promise<TicketBody> {
   return withTicketAgentOutput([validTicketAgentOutput()], async () => {
     const res = await fetch(`${baseUrl()}/tickets/${pathName}`, {
@@ -540,21 +616,42 @@ async function createTicket(pathName = 'default', text = 'ein neues Feature'): P
       body: JSON.stringify({ text }),
     });
     assert.equal(res.status, 201);
-    return (await res.json()) as TicketBody;
+    const created = (await res.json()) as TicketBody;
+    assert.equal(created.status, 'generating');
+    return waitForTicketReady(pathName, created.id);
   });
 }
 
-test('POST /tickets/default: erstellt ein Ticket via Ticket-Agent, antwortet mit 201 + Ticket', async () => {
+test('POST /tickets/default: legt sofort ein leeres Ticket im Status "generating" an', async () => {
+  await withTicketAgentOutput([validTicketAgentOutput()], async () => {
+    const res = await fetch(`${baseUrl()}/tickets/default`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ text: 'ein neues Feature' }),
+    });
+    assert.equal(res.status, 201);
+    const ticket = (await res.json()) as TicketBody;
+    assert.equal(typeof ticket.id, 'number');
+    assert.equal(ticket.pathName, 'default');
+    assert.equal(ticket.originalRequest, 'ein neues Feature');
+    assert.equal(ticket.summary, '');
+    assert.equal(ticket.claudeInstruction, '');
+    assert.equal(ticket.category, '');
+    assert.equal(ticket.status, 'generating');
+    assert.equal(typeof ticket.ipAddress, 'string');
+    assert.ok(ticket.ipAddress && ticket.ipAddress.length > 0);
+    await waitForTicketReady('default', ticket.id);
+  });
+});
+
+test('POST /tickets/default: Ticket-Agent laeuft im Hintergrund, Ticket wechselt danach auf Status "open"', async () => {
   const ticket = await createTicket('default', 'ein neues Feature');
-  assert.equal(typeof ticket.id, 'number');
   assert.equal(ticket.pathName, 'default');
   assert.equal(ticket.originalRequest, 'ein neues Feature');
   assert.equal(ticket.summary, 'Ticket-Zusammenfassung');
   assert.equal(ticket.claudeInstruction, 'Ticket-Claude-Anweisung');
   assert.equal(ticket.category, 'Backend');
   assert.equal(ticket.status, 'open');
-  assert.equal(typeof ticket.ipAddress, 'string');
-  assert.ok(ticket.ipAddress && ticket.ipAddress.length > 0);
 });
 
 test('POST /tickets/default: 400 bei fehlendem "text"', async () => {
@@ -584,15 +681,20 @@ test('POST /tickets/doesnotexist: 404 bei unbekanntem Pfad', async () => {
   assert.equal(res.status, 404);
 });
 
-test('POST /tickets/default: 502 wenn die Agent-Antwort kein gueltiges Ticket-JSON enthaelt', async () => {
-  const res = await withTicketAgentOutput(['kein json hier'], async () =>
-    fetch(`${baseUrl()}/tickets/default`, {
+test('POST /tickets/default: Ticket wechselt auf Status "rejected", wenn die Agent-Antwort kein gueltiges Ticket-JSON enthaelt', async () => {
+  await withTicketAgentOutput(['kein json hier'], async () => {
+    const res = await fetch(`${baseUrl()}/tickets/default`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ text: 'x' }),
-    }),
-  );
-  assert.equal(res.status, 502);
+    });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as TicketBody;
+    assert.equal(created.status, 'generating');
+    const failed = await waitForTicketReady('default', created.id);
+    assert.equal(failed.status, 'rejected');
+    assert.ok(failed.summary.includes('Ticket-Agent fehlgeschlagen'));
+  });
 });
 
 test('POST /tickets/default: 401 ohne Authorization-Header', async () => {

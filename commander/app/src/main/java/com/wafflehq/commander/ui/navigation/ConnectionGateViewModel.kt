@@ -2,6 +2,7 @@ package com.wafflehq.commander.ui.navigation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
 import com.wafflehq.commander.data.settings.SettingsRepository
@@ -28,6 +29,7 @@ sealed interface GateState {
 class ConnectionGateViewModel @Inject constructor(
     connectionSource: ConnectionSource,
     settingsRepository: SettingsRepository,
+    private val clServerApi: ClServerApi,
 ) : ViewModel() {
 
     private val _gateState = MutableStateFlow<GateState>(GateState.Loading)
@@ -41,6 +43,11 @@ class ConnectionGateViewModel @Inject constructor(
                 session to projectName
             }.collect { (session, projectName) -> applyState(session, projectName) }
         }
+    }
+
+    /** Triggered when the app comes to the foreground (see AppNavHost's lifecycle observer). */
+    fun refreshTokenOnForeground() {
+        viewModelScope.launch { clServerApi.refreshSessionIfLoggedIn() }
     }
 
     private fun applyState(session: Session?, projectName: String?) {

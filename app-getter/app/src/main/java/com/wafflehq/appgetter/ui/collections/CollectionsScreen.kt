@@ -26,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.appgetter.R
 import com.wafflehq.appgetter.data.api.CollectedFile
+import com.wafflehq.appgetter.data.install.DownloadStatus
 import com.wafflehq.appgetter.ui.components.AppBanner
 import com.wafflehq.appgetter.ui.components.AppButton
 import com.wafflehq.appgetter.ui.components.AppCard
@@ -41,6 +42,7 @@ fun CollectionsScreen(
     viewModel: CollectionsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     LaunchedEffect(uiState.installFile) {
@@ -105,7 +107,13 @@ fun CollectionsScreen(
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
                     items(state.files, key = { it.name }) { file ->
-                        CollectedFileRow(file = file, onInstall = { viewModel.downloadAndInstall(file) })
+                        CollectedFileRow(
+                            file = file,
+                            isDownloading = uiState.downloadingFileName == file.name,
+                            enabled = uiState.downloadingFileName == null,
+                            downloadStatus = downloadStatus,
+                            onInstall = { viewModel.downloadAndInstall(file) },
+                        )
                     }
                 }
             }
@@ -114,25 +122,43 @@ fun CollectionsScreen(
 }
 
 @Composable
-private fun CollectedFileRow(file: CollectedFile, onInstall: () -> Unit) {
+private fun CollectedFileRow(
+    file: CollectedFile,
+    isDownloading: Boolean,
+    enabled: Boolean,
+    downloadStatus: DownloadStatus?,
+    onInstall: () -> Unit,
+) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(AppSpacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(file.name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
-                Text(formatTimestamp(file.timestamp), style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.onSurfaceVariant)
+        Column(modifier = Modifier.padding(AppSpacing.lg)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(file.name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
+                    if (!isDownloading) {
+                        Text(
+                            text = formatTimestamp(file.timestamp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppTheme.colors.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (!isDownloading) {
+                    AppIconButton(
+                        icon = Icons.Outlined.Download,
+                        contentDescription = stringResource(R.string.home_install),
+                        role = AppRole.Primary,
+                        enabled = enabled,
+                        onClick = onInstall,
+                    )
+                }
             }
-            AppIconButton(
-                icon = Icons.Outlined.Download,
-                contentDescription = stringResource(R.string.home_install),
-                role = AppRole.Primary,
-                onClick = onInstall,
-            )
+            if (isDownloading) {
+                DownloadProgressIndicator(status = downloadStatus, modifier = Modifier.padding(top = AppSpacing.sm))
+            }
         }
     }
 }

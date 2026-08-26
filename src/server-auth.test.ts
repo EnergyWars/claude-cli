@@ -196,6 +196,38 @@ test('POST /auth/login: 200 bei korrektem Code, liefert ein frisches JWT', async
     headers: { Authorization: `Bearer ${body.token}` },
   });
   assert.equal(authed.status, 200);
+
+  const expiresInMs = Date.parse(body.expiresAt) - Date.now();
+  assert.ok(expiresInMs > 1000 * 60 * 60 * 1.9 && expiresInMs <= 1000 * 60 * 60 * 2, `expiresAt sollte ca. 2 Stunden in der Zukunft liegen, war ${expiresInMs.toString()}ms`);
+});
+
+test('POST /auth/refresh: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/auth/refresh`, { method: 'POST' });
+  assert.equal(res.status, 401);
+});
+
+test('POST /auth/refresh: 401 bei manipuliertem/ungueltigem Token', async () => {
+  const res = await fetch(`${baseUrl()}/auth/refresh`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer nicht.ein.jwt' },
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /auth/refresh: 200 bei gueltigem Token, liefert ein frisches, nutzbares JWT', async () => {
+  const res = await fetch(`${baseUrl()}/auth/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${issuedToken}` },
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { token: string; expiresAt: string };
+  assert.match(body.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.equal(Number.isNaN(Date.parse(body.expiresAt)), false);
+
+  const authed = await fetch(`${baseUrl()}/paths`, {
+    headers: { Authorization: `Bearer ${body.token}` },
+  });
+  assert.equal(authed.status, 200);
 });
 
 test('GET /auth/setup: liefert HTML mit Hinweis "bereits aktiv" statt QR, wenn schon eingerichtet', async () => {

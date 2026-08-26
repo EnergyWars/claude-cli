@@ -27,7 +27,8 @@
 
     <string name="project_home_commands">Commands</string>
     <string name="project_home_downloads">Downloads</string>
-    <string name="project_home_agents">Dev agent</string>
+    <string name="project_home_agents">Development</string>
+    <string name="project_home_agents_subtitle">Start and monitor agents</string>
     <string name="project_home_tickets">Tickets</string>
     <string name="project_home_history">History</string>
     <string name="project_home_feedback">Feedback</string>
@@ -38,11 +39,17 @@
 
     <string name="history_title">History</string>
     <string name="history_empty">No commands sent yet.</string>
+    <string name="history_row_meta">%1$s · %2$s</string>
+    <string name="history_retry_action">Retry</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">No files.</string>
+    <string name="download_status_downloading">Downloading…</string>
+    <string name="download_status_verifying">Verifying…</string>
+    <string name="download_status_installing">Installing…</string>
+    <string name="download_status_opening">Opening…</string>
 
-    <string name="agents_title">Dev agent</string>
+    <string name="agents_title">Development</string>
     <string name="agents_empty">No agents configured.</string>
 
     <string name="agent_run_path_label">Project: %1$s</string>
@@ -55,8 +62,11 @@
 
     <string name="command_detail_title">Command</string>
     <string name="command_detail_output_title">Output</string>
+    <string name="command_detail_output_copy">Copy output</string>
+    <string name="command_detail_output_copied">Output copied</string>
     <string name="command_detail_output_empty">No output yet.</string>
     <string name="command_detail_exit_code">Exit code: %1$d</string>
+    <string name="command_detail_duration">Duration: %1$s</string>
     <string name="command_detail_downloads_title">Downloads</string>
 
     <string name="tickets_title">Tickets</string>
@@ -65,8 +75,6 @@
     <string name="tickets_create_submit">Create ticket</string>
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">All</string>
-    <string name="tickets_pending_label">Loading ticket %1$d…</string>
-    <string name="tickets_pending_dismiss">Remove</string>
     <string name="ticket_detail_title">Ticket</string>
     <string name="ticket_detail_original_request_label">Original request</string>
     <string name="ticket_detail_summary_label">Summary</string>
@@ -84,6 +92,7 @@
     <string name="ticket_detail_delete">Delete ticket</string>
     <string name="ticket_detail_delete_confirm_title">Delete ticket?</string>
     <string name="ticket_detail_delete_confirm_body">This can\'t be undone.</string>
+    <string name="ticket_status_generating">Generating…</string>
     <string name="ticket_status_open">Open</string>
     <string name="ticket_status_in_progress">In progress</string>
     <string name="ticket_status_done">Done</string>

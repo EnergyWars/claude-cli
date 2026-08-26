@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
 import com.wafflehq.commander.data.api.ManifestHostedEntry
+import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
@@ -43,6 +44,7 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     LaunchedEffect(state.downloadedFile) {
@@ -84,6 +86,8 @@ fun DownloadsScreen(
                 HostedEntryRow(
                     entry = entry,
                     expandedFiles = state.expandedHostedFiles[entry.name],
+                    downloadingName = state.downloadingName,
+                    downloadStatus = downloadStatus,
                     onToggleExpand = { viewModel.toggleExpandHosted(entry.name) },
                     onDownload = { viewModel.downloadEntry(entry.name) },
                     onDownloadNested = { fileName -> viewModel.downloadNestedFile(entry.name, fileName) },
@@ -97,11 +101,14 @@ fun DownloadsScreen(
 private fun HostedEntryRow(
     entry: ManifestHostedEntry,
     expandedFiles: List<String>?,
+    downloadingName: String?,
+    downloadStatus: DownloadStatus?,
     onToggleExpand: () -> Unit,
     onDownload: () -> Unit,
     onDownloadNested: (String) -> Unit,
 ) {
     val isFile = entry.type == HOSTED_TYPE_FILE
+    val isDownloading = isFile && downloadingName == entry.name
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(AppSpacing.lg)) {
             Row(
@@ -116,10 +123,15 @@ private fun HostedEntryRow(
                 )
                 Text(entry.name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                 if (isFile) {
-                    AppIconButton(icon = Icons.Outlined.Download, contentDescription = entry.name, role = AppRole.Primary, onClick = onDownload)
+                    if (!isDownloading) {
+                        AppIconButton(icon = Icons.Outlined.Download, contentDescription = entry.name, role = AppRole.Primary, onClick = onDownload)
+                    }
                 } else {
                     AppIconButton(icon = Icons.Outlined.ChevronRight, contentDescription = entry.name, role = AppRole.Neutral, onClick = onToggleExpand)
                 }
+            }
+            if (isDownloading) {
+                DownloadProgressIndicator(status = downloadStatus, modifier = Modifier.padding(top = AppSpacing.sm))
             }
             if (expandedFiles != null) {
                 Column(
@@ -130,18 +142,26 @@ private fun HostedEntryRow(
                         Text(stringResource(R.string.downloads_files_empty), color = AppTheme.colors.onSurfaceVariant)
                     }
                     expandedFiles.forEach { fileName ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
-                        ) {
-                            Text(fileName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
-                            AppIconButton(
-                                icon = Icons.Outlined.Download,
-                                contentDescription = fileName,
-                                role = AppRole.Primary,
-                                onClick = { onDownloadNested(fileName) },
-                            )
+                        val isNestedDownloading = downloadingName == fileName
+                        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+                            ) {
+                                Text(fileName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
+                                if (!isNestedDownloading) {
+                                    AppIconButton(
+                                        icon = Icons.Outlined.Download,
+                                        contentDescription = fileName,
+                                        role = AppRole.Primary,
+                                        onClick = { onDownloadNested(fileName) },
+                                    )
+                                }
+                            }
+                            if (isNestedDownloading) {
+                                DownloadProgressIndicator(status = downloadStatus)
+                            }
                         }
                     }
                 }

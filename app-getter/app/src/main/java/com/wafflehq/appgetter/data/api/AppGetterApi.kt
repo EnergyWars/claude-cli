@@ -8,17 +8,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody
+import okio.Buffer
 import okio.buffer
 import okio.sink
 
 private val CONTENT_DISPOSITION_FILENAME = Regex("filename=\"([^\"]+)\"")
+private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private const val DOWNLOAD_CHUNK_SIZE = 8_192L
+private const val PROGRESS_EMIT_INTERVAL_NANOS = 150_000_000L
 
-/** Unauthenticated client for a `cl server`'s public /status and /collections endpoints. */
+/** Unauthenticated client for a `cl server`'s public /status, /collections and /feedback endpoints. */
 @Singleton
 class AppGetterApi @Inject constructor() {
 
@@ -56,7 +64,13 @@ class AppGetterApi @Inject constructor() {
         return execute(request)
     }
 
-    suspend fun downloadCollectionFile(host: String, port: Int, name: String, destinationDir: File): File {
+    suspend fun downloadCollectionFile(
+        host: String,
+        port: Int,
+        name: String,
+        destinationDir: File,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): File {
         val request = Request.Builder()
             .url(urlBuilder(host, port).addPathSegments("collections/get").addPathSegment(name).build())
             .get()
@@ -68,10 +82,43 @@ class AppGetterApi @Inject constructor() {
                 val fileName = contentDispositionFileName(response.header("Content-Disposition")) ?: name
                 destinationDir.mkdirs()
                 val destination = File(destinationDir, fileName)
-                destination.sink().buffer().use { sink -> sink.writeAll(body.source()) }
+                writeBodyWithProgress(body, destination, onProgress)
                 destination
             }
         }
+    }
+
+    private fun writeBodyWithProgress(body: ResponseBody, destination: File, onProgress: (DownloadProgress) -> Unit) {
+        val totalBytes = body.contentLength().takeIf { it >= 0 }
+        val tracker = DownloadProgressTracker()
+        val startNanos = System.nanoTime()
+        var lastEmitNanos = startNanos
+        var bytesDownloaded = 0L
+        val buffer = Buffer()
+        body.source().use { source ->
+            destination.sink().buffer().use { sink ->
+                while (true) {
+                    val read = source.read(buffer, DOWNLOAD_CHUNK_SIZE)
+                    if (read == -1L) break
+                    sink.write(buffer, read)
+                    bytesDownloaded += read
+                    val now = System.nanoTime()
+                    if (now - lastEmitNanos >= PROGRESS_EMIT_INTERVAL_NANOS) {
+                        lastEmitNanos = now
+                        onProgress(tracker.update((now - startNanos) / 1_000_000, bytesDownloaded, totalBytes))
+                    }
+                }
+            }
+        }
+        onProgress(tracker.update((System.nanoTime() - startNanos) / 1_000_000, bytesDownloaded, totalBytes))
+    }
+
+    /** POST /feedback: kein Auth, legt einen neuen Feedback-Eintrag auf dem Server an. */
+    suspend fun sendFeedback(host: String, port: Int, text: String): FeedbackEntry {
+        val request = Request.Builder()
+            .url(urlBuilder(host, port).addPathSegment("feedback").build())
+            .post(json.encodeToString(FeedbackRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
+        return execute(request)
     }
 
     private fun contentDispositionFileName(header: String?): String? =

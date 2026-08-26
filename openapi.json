@@ -556,6 +556,44 @@
         }
       }
     },
+    "/state/{id}/stream": {
+      "get": {
+        "summary": "Live-Output eines Commands per Server-Sent Events abonnieren",
+        "description": "Server-Sent Events statt Polling: schickt sofort den aktuellen Stand, danach ein weiteres Event bei jedem Output-Update sowie ein abschliessendes Event, sobald der Status nicht mehr \"running\" ist - direkt danach schliesst der Server die Verbindung. Ist der Command beim Verbindungsaufbau bereits abgeschlossen, liefert der Stream genau ein Event und schliesst sofort. GET /state/{id} bleibt unveraendert als Polling-Fallback nutzbar (z.B. falls ein Proxy lang laufende Verbindungen kappt).",
+        "operationId": "streamCommandState",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Von POST / bzw. POST /{agent} zurueckgegebene Command-ID.",
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream; jedes \"data:\"-Feld ist ein vollstaendiges JSON-serialisiertes CommandState-Objekt.",
+            "content": {
+              "text/event-stream": {
+                "schema": { "$ref": "#/components/schemas/CommandState" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Command mit dieser ID bekannt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/tickets": {
       "get": {
         "summary": "Listet Tickets ueber alle Pfade hinweg",
@@ -641,8 +679,8 @@
         }
       },
       "post": {
-        "summary": "Erstellt ein Ticket per Ticket-Agent",
-        "description": "\"text\" wird unveraendert als \"originalRequest\" gespeichert. Fuehrt synchron einen Agent aus (Model + Aufgabe aus config.json ticketAgent, siehe TicketAgentConfig) im Dateisystem-Verzeichnis des Pfad-Eintrags: Der Agent interpretiert \"text\" im Projektkontext und liefert summary/claudeInstruction/category fuer ein neues Ticket (Status immer \"open\"). Antwortet erst nach Abschluss des Agents (kein 202/Polling wie bei den Agent-Endpunkten).",
+        "summary": "Legt sofort ein Ticket an und fuellt es per Ticket-Agent im Hintergrund",
+        "description": "\"text\" wird unveraendert als \"originalRequest\" gespeichert. Antwortet sofort mit 201 und einem leeren Ticket im Status \"generating\" (summary/claudeInstruction/category sind leer), ohne auf den Agent zu warten. Im Hintergrund laeuft ein Agent (Model + Aufgabe aus config.json ticketAgent, siehe TicketAgentConfig) im Dateisystem-Verzeichnis des Pfad-Eintrags: Der Agent interpretiert \"text\" im Projektkontext und liefert summary/claudeInstruction/category. Bei Erfolg wechselt das Ticket auf Status \"open\" mit den befuellten Feldern; schlaegt der Agent fehl oder liefert kein gueltiges Ticket-JSON, wechselt das Ticket stattdessen auf Status \"rejected\" mit einer Fehlermeldung in \"summary\". Der Fortschritt ist ausschliesslich per Polling (GET /tickets/{pathName}/{id} bzw. GET /tickets/{pathName}) sichtbar, nicht als Teil der POST-Antwort.",
         "operationId": "createTicket",
         "parameters": [
           {
@@ -663,7 +701,7 @@
         },
         "responses": {
           "201": {
-            "description": "Ticket wurde angelegt.",
+            "description": "Ticket wurde angelegt, Status \"generating\", Felder summary/claudeInstruction/category noch leer.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } }
             }
@@ -682,12 +720,6 @@
           },
           "404": {
             "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
-            }
-          },
-          "502": {
-            "description": "Der Ticket-Agent ist fehlgeschlagen oder seine Antwort enthielt kein gueltiges Ticket-JSON.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -1278,7 +1310,7 @@
       },
       "TicketStatus": {
         "type": "string",
-        "enum": ["open", "in progress", "done", "rejected"]
+        "enum": ["generating", "open", "in progress", "done", "rejected"]
       },
       "Ticket": {
         "type": "object",

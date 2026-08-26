@@ -17,6 +17,7 @@ import {
   getTotpSecret,
   insertCommand,
   insertFeedback,
+  insertGeneratingTicket,
   insertTicket,
   listAllTickets,
   listCommands,
@@ -338,6 +339,30 @@ test('insertTicket: IDs sind fortlaufend und eindeutig ueber alle Pfade hinweg',
     category: 'c2',
   });
   assert.equal(second.id, first.id + 1);
+});
+
+test('insertGeneratingTicket: legt ein leeres Ticket mit Status "generating" an', () => {
+  const ticket = insertGeneratingTicket(db, {
+    pathName: 'myapp',
+    originalRequest: 'Original-Anweisung',
+    ipAddress: '203.0.113.5',
+  });
+  assert.equal(typeof ticket.id, 'number');
+  assert.equal(ticket.pathName, 'myapp');
+  assert.equal(ticket.originalRequest, 'Original-Anweisung');
+  assert.equal(ticket.summary, '');
+  assert.equal(ticket.claudeInstruction, '');
+  assert.equal(ticket.category, '');
+  assert.equal(ticket.status, 'generating');
+  assert.equal(ticket.ipAddress, '203.0.113.5');
+});
+
+test('insertGeneratingTicket: ipAddress ist optional und wird als null gespeichert, wenn nicht angegeben', () => {
+  const ticket = insertGeneratingTicket(db, {
+    pathName: 'myapp',
+    originalRequest: 'Original-Anweisung',
+  });
+  assert.equal(ticket.ipAddress, null);
 });
 
 test('getTicket: undefined fuer unbekannte ID', () => {

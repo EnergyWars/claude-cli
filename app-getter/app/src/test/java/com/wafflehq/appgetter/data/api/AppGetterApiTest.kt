@@ -77,6 +77,20 @@ class AppGetterApiTest {
     }
 
     @Test
+    fun `downloadCollectionFile reports the final progress with the known total size`(): Unit = runBlocking {
+        val body = "x".repeat(1_000)
+        server.enqueue(MockResponse(code = 200, body = body))
+        val destinationDir = File.createTempFile("appgetter-test", "").also { it.delete(); it.mkdirs() }
+        val progressUpdates = mutableListOf<DownloadProgress>()
+
+        api.downloadCollectionFile(server.hostName, server.port, "test.apk", destinationDir, onProgress = { progressUpdates.add(it) })
+
+        val last = progressUpdates.last()
+        assertEquals(1_000L, last.bytesDownloaded)
+        assertEquals(1_000L, last.totalBytes)
+    }
+
+    @Test
     fun `getCollections throws an ApiException with the server error message`() = runBlocking {
         server.enqueue(MockResponse(code = 404, body = """{"error":"nicht gefunden"}"""))
 
@@ -86,6 +100,38 @@ class AppGetterApiTest {
         } catch (error: ApiException) {
             assertEquals(404, error.httpCode)
             assertEquals("nicht gefunden", error.message)
+        }
+    }
+
+    @Test
+    fun `sendFeedback posts the text and parses the created entry`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                code = 201,
+                body = """{"id":1,"text":"Hallo","createdAt":"2026-08-26T00:00:00.000Z","updatedAt":"2026-08-26T00:00:00.000Z"}""",
+            ),
+        )
+
+        val result = api.sendFeedback(server.hostName, server.port, "Hallo")
+
+        assertEquals(1, result.id)
+        assertEquals("Hallo", result.text)
+        val request = server.takeRequest()
+        assertEquals("/feedback", request.target)
+        assertEquals("POST", request.method)
+        assertEquals("""{"text":"Hallo"}""", request.body?.utf8())
+    }
+
+    @Test
+    fun `sendFeedback throws an ApiException with the server error message`() = runBlocking {
+        server.enqueue(MockResponse(code = 400, body = """{"error":"text fehlt"}"""))
+
+        try {
+            api.sendFeedback(server.hostName, server.port, "")
+            throw AssertionError("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals(400, error.httpCode)
+            assertEquals("text fehlt", error.message)
         }
     }
 }

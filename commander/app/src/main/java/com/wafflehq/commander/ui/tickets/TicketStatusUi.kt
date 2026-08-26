@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.TICKET_STATUS_DONE
+import com.wafflehq.commander.data.api.TICKET_STATUS_GENERATING
 import com.wafflehq.commander.data.api.TICKET_STATUS_IN_PROGRESS
 import com.wafflehq.commander.data.api.TICKET_STATUS_OPEN
 import com.wafflehq.commander.data.api.TICKET_STATUS_REJECTED
@@ -16,7 +17,10 @@ val TICKET_STATUS_ORDER = listOf(
     TICKET_STATUS_REJECTED,
 )
 
+val TICKET_STATUS_FILTER_ORDER = listOf(TICKET_STATUS_GENERATING) + TICKET_STATUS_ORDER
+
 fun ticketStatusRole(status: String): AppRole = when (status) {
+    TICKET_STATUS_GENERATING -> AppRole.Neutral
     TICKET_STATUS_OPEN -> AppRole.Warning
     TICKET_STATUS_IN_PROGRESS -> AppRole.Primary
     TICKET_STATUS_DONE -> AppRole.Success
@@ -26,6 +30,7 @@ fun ticketStatusRole(status: String): AppRole = when (status) {
 
 @Composable
 fun ticketStatusLabel(status: String): String = when (status) {
+    TICKET_STATUS_GENERATING -> stringResource(R.string.ticket_status_generating)
     TICKET_STATUS_OPEN -> stringResource(R.string.ticket_status_open)
     TICKET_STATUS_IN_PROGRESS -> stringResource(R.string.ticket_status_in_progress)
     TICKET_STATUS_DONE -> stringResource(R.string.ticket_status_done)

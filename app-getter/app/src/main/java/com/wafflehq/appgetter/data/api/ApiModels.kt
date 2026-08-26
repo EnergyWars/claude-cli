@@ -11,4 +11,10 @@ data class CollectionList(val files: List<CollectedFile>)
 @Serializable
 data class ErrorResponse(val error: String)
 
+@Serializable
+data class FeedbackRequest(val text: String)
+
+@Serializable
+data class FeedbackEntry(val id: Int, val text: String, val createdAt: String, val updatedAt: String)
+
 class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)

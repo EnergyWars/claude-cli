@@ -1,10 +1,13 @@
 package com.wafflehq.commander.ui.navigation
 
+import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.connection.AuthSession
 import com.wafflehq.commander.data.connection.Connection
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
 import com.wafflehq.commander.data.settings.SettingsRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.time.Instant
@@ -30,6 +33,10 @@ private fun fakeSettingsRepository(selectedProjectName: String? = null): Setting
         every { this@mockk.selectedProjectName } returns flowOf(selectedProjectName)
     }
 
+private fun fakeClServerApi(): ClServerApi = mockk<ClServerApi> {
+    coEvery { refreshSessionIfLoggedIn() } returns Unit
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectionGateViewModelTest {
 
@@ -47,7 +54,7 @@ class ConnectionGateViewModelTest {
 
     @Test
     fun `no stored connection maps to NoConnection`() = runTest(dispatcher) {
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(null), fakeSettingsRepository())
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(null), fakeSettingsRepository(), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NoConnection, viewModel.gateState.value)
@@ -56,7 +63,7 @@ class ConnectionGateViewModelTest {
     @Test
     fun `connection without an auth session maps to NeedsLogin`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), auth = null)
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NeedsLogin, viewModel.gateState.value)
@@ -65,7 +72,7 @@ class ConnectionGateViewModelTest {
     @Test
     fun `connection with a valid token but no selected project maps to Ready without a project`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(3600)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = null))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = null), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.Ready(hasSelectedProject = false), viewModel.gateState.value)
@@ -74,7 +81,7 @@ class ConnectionGateViewModelTest {
     @Test
     fun `connection with a valid token and a remembered project maps to Ready with a project`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(3600)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = "periodical"))
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(selectedProjectName = "periodical"), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.Ready(hasSelectedProject = true), viewModel.gateState.value)
@@ -83,7 +90,7 @@ class ConnectionGateViewModelTest {
     @Test
     fun `connection with an already-expired token maps to NeedsLogin`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().minusSeconds(1)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NeedsLogin, viewModel.gateState.value)
@@ -92,7 +99,7 @@ class ConnectionGateViewModelTest {
     @Test
     fun `state flips to NeedsLogin on its own once the token expires, without a new emission`() = runTest(dispatcher) {
         val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(5)))
-        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository())
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(), fakeClServerApi())
         dispatcher.scheduler.runCurrent()
         assertEquals(GateState.Ready(hasSelectedProject = false), viewModel.gateState.value)
 
@@ -100,5 +107,18 @@ class ConnectionGateViewModelTest {
         dispatcher.scheduler.runCurrent()
 
         assertEquals(GateState.NeedsLogin, viewModel.gateState.value)
+    }
+
+    @Test
+    fun `refreshTokenOnForeground delegates to ClServerApi`() = runTest(dispatcher) {
+        val session = Session(Connection("host", 1), AuthSession("token", Instant.now().plusSeconds(3600)))
+        val clServerApi = fakeClServerApi()
+        val viewModel = ConnectionGateViewModel(FakeConnectionSource(session), fakeSettingsRepository(), clServerApi)
+        dispatcher.scheduler.runCurrent()
+
+        viewModel.refreshTokenOnForeground()
+        dispatcher.scheduler.runCurrent()
+
+        coVerify(exactly = 1) { clServerApi.refreshSessionIfLoggedIn() }
     }
 }

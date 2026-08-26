@@ -7,6 +7,7 @@ import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.CommandState
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
+import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.HostedFileDownloader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -28,6 +29,7 @@ data class CommandDetailUiState(
     val error: String? = null,
     val hostedFiles: List<String> = emptyList(),
     val downloadedFile: File? = null,
+    val downloadingName: String? = null,
 )
 
 @HiltViewModel
@@ -43,19 +45,31 @@ class CommandDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CommandDetailUiState())
     val uiState: StateFlow<CommandDetailUiState> = _uiState.asStateFlow()
 
+    val downloadStatus: StateFlow<DownloadStatus?> = downloader.downloadStatus
+
     init {
         loadHostedFiles()
         viewModelScope.launch {
-            while (isActive) {
+            var reachedTerminalStatus = false
+            try {
+                api.streamState(id).collect { state ->
+                    _uiState.update { it.copy(state = state, loading = false, error = null) }
+                    if (state.status != COMMAND_STATUS_RUNNING) reachedTerminalStatus = true
+                }
+            } catch (_: ApiException) {
+                // SSE-Verbindung abgebrochen, bevor ein Endstatus ankam (z.B. Proxy ohne Streaming-Unterstuetzung) -
+                // Fallback auf Polling unten.
+            }
+            while (isActive && !reachedTerminalStatus) {
                 try {
                     val state = api.getState(id)
                     _uiState.update { it.copy(state = state, loading = false, error = null) }
-                    if (state.status != COMMAND_STATUS_RUNNING) break
+                    if (state.status != COMMAND_STATUS_RUNNING) reachedTerminalStatus = true
                 } catch (error: ApiException) {
                     _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
-                    break
+                    reachedTerminalStatus = true
                 }
-                delay(POLL_INTERVAL_MS)
+                if (!reachedTerminalStatus) delay(POLL_INTERVAL_MS)
             }
         }
     }
@@ -79,18 +93,22 @@ class CommandDetailViewModel @Inject constructor(
 
     fun download(hostedName: String) {
         val name = pathName ?: return
+        if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
             try {
                 val file = downloader.downloadEntry(name, hostedName)
                 _uiState.update { it.copy(downloadedFile = file) }
             } catch (error: ApiException) {
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.") }
+                downloader.clearDownloadStatus()
+                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
             }
         }
     }
 
     fun consumeDownloadedFile() {
-        _uiState.update { it.copy(downloadedFile = null) }
+        downloader.clearDownloadStatus()
+        _uiState.update { it.copy(downloadedFile = null, downloadingName = null) }
     }
 
     fun openOrInstallIntent(file: File) = downloader.openOrInstallIntent(file)

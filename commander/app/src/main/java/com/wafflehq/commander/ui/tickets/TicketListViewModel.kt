@@ -5,25 +5,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
+import com.wafflehq.commander.data.api.TICKET_STATUS_GENERATING
 import com.wafflehq.commander.data.api.Ticket
-import com.wafflehq.commander.data.tickets.PendingTicketCreation
-import com.wafflehq.commander.data.tickets.TicketCreationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 const val TICKET_STATUS_FILTER_ALL = ""
-val TICKET_STATUS_FILTERS = listOf(TICKET_STATUS_FILTER_ALL) + TICKET_STATUS_ORDER
+val TICKET_STATUS_FILTERS = listOf(TICKET_STATUS_FILTER_ALL) + TICKET_STATUS_FILTER_ORDER
 
-private const val PENDING_TICKET_POLL_INTERVAL_MS = 1_000L
+private const val GENERATING_TICKET_POLL_INTERVAL_MS = 1_000L
 
 data class TicketListUiState(
     val tickets: List<Ticket> = emptyList(),
@@ -31,75 +28,70 @@ data class TicketListUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val createText: String = "",
-    val pendingCreations: List<PendingTicketCreation> = emptyList(),
 )
 
 @HiltViewModel
 class TicketListViewModel @Inject constructor(
     private val api: ClServerApi,
-    private val creationRepository: TicketCreationRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     val pathName: String = checkNotNull(savedStateHandle["pathName"])
 
-    private val localState = MutableStateFlow(TicketListUiState())
-
-    val uiState: StateFlow<TicketListUiState> = combine(
-        localState,
-        creationRepository.pendingCreations,
-    ) { state, pending ->
-        state.copy(pendingCreations = pending.filter { it.pathName == pathName })
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, TicketListUiState())
+    private val _uiState = MutableStateFlow(TicketListUiState())
+    val uiState: StateFlow<TicketListUiState> = _uiState.asStateFlow()
 
     private var pollJob: Job? = null
 
     init {
         refresh()
-        ensurePendingPoll()
     }
 
     fun refresh(showLoading: Boolean = true) {
         viewModelScope.launch {
-            if (showLoading) localState.update { it.copy(loading = true, error = null) }
+            if (showLoading) _uiState.update { it.copy(loading = true, error = null) }
             try {
-                val status = TICKET_STATUS_FILTERS.getOrNull(localState.value.statusFilterIndex)?.ifEmpty { null }
+                val status = TICKET_STATUS_FILTERS.getOrNull(_uiState.value.statusFilterIndex)?.ifEmpty { null }
                 val tickets = api.listTickets(pathName, status).tickets
-                localState.update { it.copy(tickets = tickets, loading = false) }
+                _uiState.update { it.copy(tickets = tickets, loading = false) }
+                ensureGeneratingPoll()
             } catch (error: ApiException) {
-                localState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
+                _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
             }
         }
     }
 
     fun onStatusFilterSelected(index: Int) {
-        localState.update { it.copy(statusFilterIndex = index) }
+        _uiState.update { it.copy(statusFilterIndex = index) }
         refresh()
     }
 
     fun onCreateTextChange(value: String) {
-        localState.update { it.copy(createText = value) }
+        _uiState.update { it.copy(createText = value) }
     }
 
     fun createTicket() {
-        val text = localState.value.createText
+        val text = _uiState.value.createText
         if (text.isBlank()) return
 
-        localState.update { it.copy(createText = "", error = null) }
-        creationRepository.create(pathName, text)
-        ensurePendingPoll()
+        _uiState.update { it.copy(createText = "", error = null) }
+        viewModelScope.launch {
+            try {
+                api.createTicket(pathName, text)
+                refresh(showLoading = false)
+            } catch (error: ApiException) {
+                _uiState.update { it.copy(error = error.message ?: "Unbekannter Fehler.") }
+            }
+        }
     }
 
-    fun onDismissPendingCreation(tempId: Int) {
-        creationRepository.dismiss(tempId)
-    }
-
-    /** Solange ein Ticket noch erstellt wird, jede Sekunde neu laden, damit die Liste aktuell bleibt. */
-    private fun ensurePendingPoll() {
+    /** Solange ein Ticket im Status "generating" in der Liste steht, jede Sekunde neu laden. */
+    private fun ensureGeneratingPoll() {
         if (pollJob?.isActive == true) return
+        if (_uiState.value.tickets.none { it.status == TICKET_STATUS_GENERATING }) return
         pollJob = viewModelScope.launch {
-            while (uiState.value.pendingCreations.isNotEmpty()) {
-                delay(PENDING_TICKET_POLL_INTERVAL_MS)
+            while (uiState.value.tickets.any { it.status == TICKET_STATUS_GENERATING }) {
+                delay(GENERATING_TICKET_POLL_INTERVAL_MS)
                 refresh(showLoading = false)
             }
         }

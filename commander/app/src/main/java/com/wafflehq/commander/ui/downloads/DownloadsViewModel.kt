@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.ManifestHostedEntry
+import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.HostedFileDownloader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -23,6 +24,7 @@ data class DownloadsUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val downloadedFile: File? = null,
+    val downloadingName: String? = null,
 )
 
 @HiltViewModel
@@ -36,6 +38,8 @@ class DownloadsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
+
+    val downloadStatus: StateFlow<DownloadStatus?> = downloader.downloadStatus
 
     init {
         refresh()
@@ -70,29 +74,36 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun downloadEntry(hostedName: String) {
+        if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
             try {
                 val file = downloader.downloadEntry(pathName, hostedName)
                 _uiState.update { it.copy(downloadedFile = file) }
             } catch (error: ApiException) {
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.") }
+                downloader.clearDownloadStatus()
+                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
             }
         }
     }
 
     fun downloadNestedFile(hostedName: String, fileName: String) {
+        if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            _uiState.update { it.copy(downloadingName = fileName, error = null) }
             try {
                 val file = downloader.downloadFile(pathName, hostedName, fileName)
                 _uiState.update { it.copy(downloadedFile = file) }
             } catch (error: ApiException) {
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.") }
+                downloader.clearDownloadStatus()
+                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
             }
         }
     }
 
     fun consumeDownloadedFile() {
-        _uiState.update { it.copy(downloadedFile = null) }
+        downloader.clearDownloadStatus()
+        _uiState.update { it.copy(downloadedFile = null, downloadingName = null) }
     }
 
     fun openOrInstallIntent(file: File): Intent = downloader.openOrInstallIntent(file)

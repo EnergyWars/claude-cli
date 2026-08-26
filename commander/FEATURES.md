@@ -10,7 +10,14 @@ Button „Automatisch suchen": ermittelt die eigene lokale IPv4-Adresse, scannt 
 
 ## Login
 
-Nach dem Verbinden fragt der Login-Screen den aktuellen 6-stelligen TOTP-Code ab und tauscht ihn gegen ein JWT (`POST /auth/login`). Läuft das Token ab, führt die App automatisch zurück zum Login. „Verbindung wechseln" führt zurück zum Setup.
+Nach dem Verbinden fragt der Login-Screen den aktuellen 6-stelligen TOTP-Code ab und tauscht ihn gegen ein JWT (`POST /auth/login`, 2 Stunden gültig). Läuft das Token ab, führt die App automatisch zurück zum Login. „Verbindung wechseln" führt zurück zum Setup.
+
+**Automatisches Verlängern (Sliding Session):** Die App hält die Session proaktiv am Leben, damit ein aktiver Nutzer nicht alle 2 Stunden neu einloggen muss – der Server verlängert dabei nur ein noch gültiges Token (`POST /auth/refresh`), ein bereits abgelaufenes Token erfordert weiterhin einen erneuten Login mit TOTP-Code. Zwei Auslöser:
+
+- **Nach jeder Aktion:** Jeder erfolgreiche authentifizierte Server-Aufruf löst im Hintergrund einen Refresh aus (min. 1 Minute Abstand zwischen zwei Versuchen, damit nicht jeder einzelne von mehreren gleichzeitigen Aufrufen einen eigenen Refresh anstößt).
+- **Beim Reintappen in die App:** Kommt die App in den Vordergrund (App-Start oder Rückkehr aus dem Hintergrund), wird sofort ein Refresh versucht, unabhängig vom letzten Aktions-Refresh.
+
+Schlägt ein Refresh fehl (z. B. Netzwerkfehler), bleibt die bestehende Session unverändert bestehen – der nächste erfolgreiche Aufruf oder App-Start versucht es erneut.
 
 ## Projektauswahl
 
@@ -18,11 +25,11 @@ Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App 
 
 ## Projekt-Hub
 
-Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter sieben Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen:
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter sieben Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen sechs Einträge bleiben schlichte Listenzeilen:
 
+- **Entwicklung** (hervorgehoben) – alle konfigurierten Agenten des aktuellen Projekts.
 - **Befehle** – alle Commands des aktuellen Projekts.
 - **Downloads** – alle downloadbaren Dateien des aktuellen Projekts.
-- **Dev-Agent** – alle konfigurierten Agenten des aktuellen Projekts.
 - **Tickets** – die Ticket-Liste dieses Projekts.
 - **Verlauf** – der komplette Command-Verlauf dieses Projekts (siehe unten).
 - **Feedback** – serverweite Feedback-Liste, nicht auf das aktuelle Projekt beschränkt (siehe unten).
@@ -38,36 +45,40 @@ Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen P
 
 Liste der `path.hosted`-Einträge des aktuellen Projekts. `type: "file"`-Einträge haben einen Direkt-Download-Button; `type: "path"`-Einträge lassen sich aufklappen und einzelne enthaltene Dateien herunterladen. Endet der heruntergeladene Dateiname auf `.apk`, installiert die App das Paket direkt (System-Install-Dialog inkl. einmaligem „Unbekannte Quellen erlauben", falls noch nicht freigegeben); alle anderen Dateien werden wie bisher zum Öffnen/Teilen angeboten. Downloads landen unter `getExternalFilesDir(DIRECTORY_DOWNLOADS)` (kein Speicher-Runtime-Permission nötig).
 
-## Dev-Agent
+Während eines Downloads zeigt die betroffene Zeile statt des Download-Icons einen `LinearProgressIndicator` mit Live-Text darunter: Prozentsatz, Download-Geschwindigkeit (B/s, KB/s oder MB/s) und verbleibende Zeit (sofern die Serverantwort eine Content-Length liefert – sonst ein unbestimmter Balken nur mit Geschwindigkeit). Das Text-Label wechselt je Phase: „Wird heruntergeladen…" → „Wird überprüft…" (Datei wird nach Abschluss auf Vollständigkeit geprüft) → „Wird installiert…" bei `.apk`-Dateien bzw. „Wird geöffnet…" bei allen anderen Dateitypen.
+
+## Entwicklung
 
 Liste aller im aktuellen Projekt konfigurierten Agenten (`manifest.agents`: Command + Beschreibung). Tippen auf einen Agenten öffnet den Ausführungs-Screen:
 
 - **Agent** und **Projekt** sind fix (aus der Auswahl übernommen), nur zur Anzeige – keine weitere Auswahl nötig.
 - **Kontext** (optional): Dropdown aus den unter Einstellungen → Kontexte gepflegten Presets, Default „Kein Kontext". Ist ein Kontext gewählt, wird sein Wert vor den eingegebenen Prompt gehängt (`<Kontext-Wert>\n\n<Prompt>`), bevor der Befehl an den Server geht.
 - **Model** (optional): Dropdown Standard/`haiku`/`sonnet`/`opus`/`fable`, Default vorausgewählt.
-- **Prompt**: Mehrzeiliges Textfeld.
+- **Prompt**: Mehrzeiliges Textfeld, optional – nur Pflichtfeld, wenn kein Kontext gewählt ist. Ist ein Kontext gewählt und der Prompt leer, wird nur der Kontext-Wert gesendet.
 
 „Starten" ruft `POST /<agent>` auf und öffnet die Status-Detailseite.
 
 ## Dev-Kontexte (Einstellungen)
 
-Unter Einstellungen → Kontexte lassen sich beliebig viele Name+Wert-Presets anlegen, bearbeiten und löschen (lokal in Room gespeichert). Sie dienen ausschließlich dazu, beim Dev-Agent-Start vor den Prompt gehängt zu werden (siehe oben) – kein Server-seitiges Konzept.
+Unter Einstellungen → Kontexte lassen sich beliebig viele Name+Wert-Presets anlegen, bearbeiten und löschen (lokal in Room gespeichert). Sie dienen ausschließlich dazu, beim Start eines Agenten unter „Entwicklung" vor den Prompt gehängt zu werden (siehe oben) – kein Server-seitiges Konzept.
 
 ## Command-Status (live)
 
-Pollt `GET /state/<id>` alle 2 Sekunden, solange `status == "running"`. Zeigt Status-Pill, Agent/Command-Text, den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. automatischem APK-Install, siehe „Downloads").
+Abonniert `GET /state/<id>/stream` (Server-Sent Events): Output-Updates kommen dadurch als Push, ohne festes Intervall, sobald der Server sie hat. Bricht die Stream-Verbindung ab, bevor ein Endstatus (`completed`/`failed`) ankam, fällt die App automatisch auf Polling von `GET /state/<id>` alle 2 Sekunden zurück, bis `status != "running"` ist – z. B. wenn ein Proxy zwischen App und `cl server` lang laufende Verbindungen kappt. Zeigt Status-Pill, Agent/Command-Text, die Laufzeit (`updatedAt - createdAt`, live aktuell solange der Command läuft, da `updatedAt` bei jedem Output-Chunk mitwandert), den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Neben dem „Output"-Titel kopiert ein Icon-Button den kompletten Output in die Zwischenablage (`LocalClipboardManager`), bestätigt per Toast „Output kopiert". Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. Fortschrittsanzeige und automatischem APK-Install, siehe „Downloads").
 
 ## Verlauf
 
-Erreichbar über den „Verlauf"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /commands/<pathName>`). Zeigt alle bisher für dieses Projekt abgeschickten Commands (Dev-Agent-Läufe **und** Befehle) als Liste – Status-Pill, Agent, Command-Text (gekürzt) und Zeitstempel, neueste zuerst. Pollt alle 3 Sekunden automatisch neu, solange der Screen offen ist – neue Commands (aus „Befehle"/„Dev-Agent" gestartet oder per Ticket-Play ausgelöst) erscheinen also ohne manuellen Refresh. Tippen auf einen Eintrag öffnet dieselbe Status-Detailseite wie „Befehle"/„Dev-Agent" (Live-Output, Downloads).
+Erreichbar über den „Verlauf"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /commands/<pathName>`). Zeigt alle bisher für dieses Projekt abgeschickten Commands (Agenten-Läufe aus „Entwicklung" **und** Befehle) als Liste – Status-Pill, Agent, Command-Text (gekürzt), Zeitstempel und Laufzeit, neueste zuerst. Pollt alle 3 Sekunden automatisch neu, solange der Screen offen ist – neue Commands (aus „Befehle"/„Entwicklung" gestartet oder per Ticket-Play ausgelöst) erscheinen also ohne manuellen Refresh. Tippen auf einen Eintrag öffnet dieselbe Status-Detailseite wie „Befehle"/„Entwicklung" (Live-Output, Downloads).
+
+**Fehlgeschlagenen Agenten-Lauf neu starten:** Fehlgeschlagene Einträge (Status „failed") aus „Entwicklung" zeigen zusätzlich ein Wiederholen-Icon. Tippen öffnet den „Entwicklung"-Ausführungs-Screen für denselben Agenten und Projekt, mit dem ursprünglich gesendeten Prompt bereits vorausgefüllt – abgeschickt wird erst nach erneutem, manuellem Tippen auf „Starten". Gilt nicht für fehlgeschlagene Befehle (`Befehle`-Einträge sind feste Shell-Kommandos ohne freien Prompt zum Vorausfüllen).
 
 ## Tickets
 
 Erreichbar über den „Tickets"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET/POST /tickets/<pathName>`).
 
-Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, einer **Claude-Anweisung**, einer **Kategorie**, einem **Status** (Offen/In Bearbeitung/Fertig/Abgelehnt) und der **IP-Adresse** des anlegenden Clients. ID, Pfadname und IP-Adresse sind nach dem Anlegen nicht mehr änderbar.
+Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, einer **Claude-Anweisung**, einer **Kategorie**, einem **Status** (Wird generiert/Offen/In Bearbeitung/Fertig/Abgelehnt) und der **IP-Adresse** des anlegenden Clients. ID, Pfadname und IP-Adresse sind nach dem Anlegen nicht mehr änderbar.
 
-**Liste:** Textfeld + „Ticket erstellen" legt sofort einen lokalen Platzhalter „Lädt Ticket …" an und feuert die Erstellung im Hintergrund (kann mehrere Minuten dauern) – die Liste bleibt bedienbar und aktualisiert sich einmal pro Sekunde, solange ein Platzhalter existiert. Status-Dropdown filtert die Liste. Lädt bei jedem (Wieder-)Betreten automatisch neu.
+**Liste:** Textfeld + „Ticket erstellen" ruft `POST /tickets/<pathName>` auf; der Server legt das Ticket sofort im Status „Wird generiert" an (leere Zusammenfassung/Claude-Anweisung/Kategorie) und füllt es im Hintergrund per Ticket-Agent. Ein Ticket in diesem Status erscheint als ladende Zeile (Spinner statt Kategorie-Text, Original-Anweisung als Titel) in derselben Liste wie alle anderen Tickets – kein separater lokaler Platzhalter mehr. Solange mindestens ein geladenes Ticket im Status „Wird generiert" ist, aktualisiert `TicketListViewModel` die Liste einmal pro Sekunde automatisch, bis der Agent fertig ist (Ticket wechselt dann auf „Offen" bzw. bei Fehlschlag auf „Abgelehnt" mit der Fehlermeldung als Zusammenfassung). Status-Dropdown filtert die Liste (inkl. „Wird generiert"). Lädt bei jedem (Wieder-)Betreten automatisch neu.
 
 **Detail:** Alle Felder außer Pfadname/IP-Adresse editierbar, „Speichern" (`PATCH`), ein „Ausführen und schließen"-Button startet den Play-Ablauf (siehe unten), „Ticket löschen" (`DELETE`, kehrt danach zur Liste zurück).
 

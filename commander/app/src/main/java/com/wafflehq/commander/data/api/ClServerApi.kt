@@ -2,14 +2,21 @@ package com.wafflehq.commander.data.api
 
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
-import com.wafflehq.commander.data.connection.SessionInvalidator
+import com.wafflehq.commander.data.connection.SessionWriter
 import java.io.File
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -21,33 +28,44 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody
+import okio.Buffer
 import okio.buffer
 import okio.sink
 
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 private const val AUTHORIZATION_HEADER = "Authorization"
 private val CONTENT_DISPOSITION_FILENAME = Regex("filename=\"([^\"]+)\"")
+private const val DOWNLOAD_CHUNK_SIZE = 8_192L
+private const val PROGRESS_EMIT_INTERVAL_NANOS = 150_000_000L
+private const val SSE_DATA_PREFIX = "data: "
+private const val AUTH_REFRESH_PATH = "/auth/refresh"
+private val MIN_AUTO_REFRESH_INTERVAL: Duration = Duration.ofMinutes(1)
 
 @Singleton
 class ClServerApi @Inject constructor(
     private val connectionSource: ConnectionSource,
-    private val sessionInvalidator: SessionInvalidator,
+    private val sessionInvalidator: SessionWriter,
 ) {
+    private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var lastRefreshAttemptAt: Instant = Instant.EPOCH
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** POST /tickets/:pathName runs the ticket agent synchronously server-side and can take much longer than 30s. */
-    private val ticketAgentClient = client.newBuilder()
-        .readTimeout(5, TimeUnit.MINUTES)
-        .build()
-
     /** Short timeouts for scanning many local-network addresses at once during auto-discovery. */
     private val discoveryClient = client.newBuilder()
         .connectTimeout(400, TimeUnit.MILLISECONDS)
         .readTimeout(400, TimeUnit.MILLISECONDS)
+        .build()
+
+    /** GET /state/:id/stream (Server-Sent Events) stays open until the command finishes - no read timeout. */
+    private val streamingClient = client.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -63,6 +81,39 @@ class ClServerApi @Inject constructor(
             throw AuthRequiredException("Nicht eingeloggt.")
         }
         return session
+    }
+
+    /** Called on app foreground (see ConnectionGateViewModel) to keep the session alive independent of user actions. */
+    suspend fun refreshSessionIfLoggedIn() {
+        val session = connectionSource.session.first() ?: return
+        val auth = session.auth ?: return
+        if (!auth.expiresAt.isAfter(Instant.now())) return
+        performRefresh(session)
+    }
+
+    /** Best-effort sliding-session refresh triggered after every successful authenticated call. */
+    private fun scheduleBackgroundRefresh() {
+        val now = Instant.now()
+        if (Duration.between(lastRefreshAttemptAt, now) < MIN_AUTO_REFRESH_INTERVAL) return
+        lastRefreshAttemptAt = now
+        refreshScope.launch {
+            val session = connectionSource.session.first() ?: return@launch
+            performRefresh(session)
+        }
+    }
+
+    private suspend fun performRefresh(session: Session) {
+        val auth = session.auth ?: return
+        try {
+            val request = Request.Builder()
+                .url(urlBuilder(session.connection.host, session.connection.port).addPathSegments("auth/refresh").build())
+                .header(AUTHORIZATION_HEADER, "Bearer ${auth.token}")
+                .post("".toRequestBody(JSON_MEDIA_TYPE))
+            val response: AuthTokenResponse = execute(request)
+            sessionInvalidator.saveAuthSession(response.token, Instant.parse(response.expiresAt))
+        } catch (error: ApiException) {
+            // Best effort - der naechste erfolgreiche Call versucht es erneut.
+        }
     }
 
     // -- Unauthenticated / pairing calls (host+port passed explicitly, no saved Connection yet) --
@@ -112,16 +163,53 @@ class ClServerApi @Inject constructor(
 
     suspend fun getState(id: String): CommandState = authedGet("state", id)
 
+    /**
+     * Live-Output per Server-Sent Events statt Polling. Emits one [CommandState] per "data:" event; the flow
+     * completes normally once the server closes the connection (command no longer running). Callers should
+     * fall back to polling [getState] if this flow throws before a terminal status was emitted (e.g. a proxy
+     * without streaming support).
+     */
+    fun streamState(id: String): Flow<CommandState> = flow {
+        val session = requireSession()
+        val request = Request.Builder()
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .addPathSegment("state").addPathSegment(id).addPathSegment("stream").build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
+            .get()
+            .build()
+        streamingClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw errorFrom(response)
+            val source = response.body?.source() ?: throw ApiException(response.code, "Leere Antwort.")
+            while (true) {
+                val line = source.readUtf8Line() ?: break
+                if (line.startsWith(SSE_DATA_PREFIX)) {
+                    emit(json.decodeFromString(line.removePrefix(SSE_DATA_PREFIX)))
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
     suspend fun getCommands(pathName: String): CommandList = authedGet("commands", pathName)
 
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
 
-    suspend fun downloadHostedEntry(pathName: String, hostedName: String, destinationDir: File): File =
-        downloadTo(destinationDir, hostedName, "files", pathName, hostedName)
+    suspend fun downloadHostedEntry(
+        pathName: String,
+        hostedName: String,
+        destinationDir: File,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): File = downloadTo(destinationDir, hostedName, onProgress, "files", pathName, hostedName)
 
-    suspend fun downloadHostedFile(pathName: String, hostedName: String, fileName: String, destinationDir: File): File =
-        downloadTo(destinationDir, fileName, "files", pathName, hostedName, fileName)
+    suspend fun downloadHostedFile(
+        pathName: String,
+        hostedName: String,
+        fileName: String,
+        destinationDir: File,
+        onProgress: (DownloadProgress) -> Unit = {},
+    ): File = downloadTo(destinationDir, fileName, onProgress, "files", pathName, hostedName, fileName)
 
     suspend fun listTickets(pathName: String, status: String? = null): TicketList {
         val session = requireSession()
@@ -157,7 +245,7 @@ class ClServerApi @Inject constructor(
             .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .post(json.encodeToString(TicketCreateRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        return execute(request, ticketAgentClient)
+        return execute(request)
     }
 
     suspend fun getTicket(pathName: String, id: Int): Ticket = authedGet("tickets", pathName, id.toString())
@@ -226,7 +314,12 @@ class ClServerApi @Inject constructor(
         return execute(request)
     }
 
-    private suspend fun downloadTo(destinationDir: File, fallbackFileName: String, vararg segments: String): File {
+    private suspend fun downloadTo(
+        destinationDir: File,
+        fallbackFileName: String,
+        onProgress: (DownloadProgress) -> Unit,
+        vararg segments: String,
+    ): File {
         val session = requireSession()
         val request = Request.Builder()
             .url(
@@ -243,10 +336,35 @@ class ClServerApi @Inject constructor(
                 val fileName = contentDispositionFileName(response.header("Content-Disposition")) ?: fallbackFileName
                 destinationDir.mkdirs()
                 val destination = File(destinationDir, fileName)
-                destination.sink().buffer().use { sink -> sink.writeAll(body.source()) }
+                writeBodyWithProgress(body, destination, onProgress)
                 destination
             }
         }
+    }
+
+    private fun writeBodyWithProgress(body: ResponseBody, destination: File, onProgress: (DownloadProgress) -> Unit) {
+        val totalBytes = body.contentLength().takeIf { it >= 0 }
+        val tracker = DownloadProgressTracker()
+        val startNanos = System.nanoTime()
+        var lastEmitNanos = startNanos
+        var bytesDownloaded = 0L
+        val buffer = Buffer()
+        body.source().use { source ->
+            destination.sink().buffer().use { sink ->
+                while (true) {
+                    val read = source.read(buffer, DOWNLOAD_CHUNK_SIZE)
+                    if (read == -1L) break
+                    sink.write(buffer, read)
+                    bytesDownloaded += read
+                    val now = System.nanoTime()
+                    if (now - lastEmitNanos >= PROGRESS_EMIT_INTERVAL_NANOS) {
+                        lastEmitNanos = now
+                        onProgress(tracker.update((now - startNanos) / 1_000_000, bytesDownloaded, totalBytes))
+                    }
+                }
+            }
+        }
+        onProgress(tracker.update((System.nanoTime() - startNanos) / 1_000_000, bytesDownloaded, totalBytes))
     }
 
     private fun contentDispositionFileName(header: String?): String? =
@@ -269,11 +387,15 @@ class ClServerApi @Inject constructor(
                 throw error
             }
             val text = it.body?.string().orEmpty()
-            try {
+            val result: T = try {
                 json.decodeFromString(text)
             } catch (error: SerializationException) {
                 throw ApiException(it.code, "Ungueltige Server-Antwort.", error)
             }
+            if (request.header(AUTHORIZATION_HEADER) != null && request.url.encodedPath != AUTH_REFRESH_PATH) {
+                scheduleBackgroundRefresh()
+            }
+            result
         }
     }
 

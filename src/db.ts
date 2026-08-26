@@ -249,9 +249,10 @@ export function deleteTotpSecret(db: DatabaseSync): boolean {
   return result.changes > 0;
 }
 
-export type TicketStatus = 'open' | 'in progress' | 'done' | 'rejected';
+export type TicketStatus = 'generating' | 'open' | 'in progress' | 'done' | 'rejected';
 
 export const TICKET_STATUSES: readonly TicketStatus[] = [
+  'generating',
   'open',
   'in progress',
   'done',
@@ -298,7 +299,7 @@ function toTicketRow(row: Record<string, SQLOutputValue>): TicketRow {
   };
 }
 
-export function insertTicket(
+function insertTicketRow(
   db: DatabaseSync,
   row: {
     pathName: string;
@@ -306,6 +307,7 @@ export function insertTicket(
     summary: string;
     claudeInstruction: string;
     category: string;
+    status: TicketStatus;
     ipAddress?: string | null;
   },
 ): TicketRow {
@@ -320,7 +322,7 @@ export function insertTicket(
       row.summary,
       row.claudeInstruction,
       row.category,
-      'open',
+      row.status,
       row.ipAddress ?? null,
       now,
       now,
@@ -330,6 +332,34 @@ export function insertTicket(
     throw new Error('Ticket konnte nach dem Anlegen nicht gelesen werden.');
   }
   return ticket;
+}
+
+export function insertTicket(
+  db: DatabaseSync,
+  row: {
+    pathName: string;
+    originalRequest: string;
+    summary: string;
+    claudeInstruction: string;
+    category: string;
+    ipAddress?: string | null;
+  },
+): TicketRow {
+  return insertTicketRow(db, { ...row, status: 'open' });
+}
+
+/** Legt sofort ein leeres Ticket im Status "generating" an, bevor der Ticket-Agent gelaufen ist. */
+export function insertGeneratingTicket(
+  db: DatabaseSync,
+  row: { pathName: string; originalRequest: string; ipAddress?: string | null },
+): TicketRow {
+  return insertTicketRow(db, {
+    ...row,
+    summary: '',
+    claudeInstruction: '',
+    category: '',
+    status: 'generating',
+  });
 }
 
 export function getTicket(db: DatabaseSync, id: number): TicketRow | undefined {

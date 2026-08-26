@@ -36,8 +36,9 @@ interface ConnectionSource {
     val session: Flow<Session?>
 }
 
-/** Write-only view for [com.wafflehq.commander.data.api.ClServerApi] to drop a rejected/expired session without needing the full repository. */
-interface SessionInvalidator {
+/** Write-only view for [com.wafflehq.commander.data.api.ClServerApi] to store/drop a session without needing the full repository. */
+interface SessionWriter {
+    suspend fun saveAuthSession(token: String, expiresAt: Instant)
     suspend fun clearAuthSession()
 }
 
@@ -45,7 +46,7 @@ interface SessionInvalidator {
 class ConnectionRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val cipher: KeystoreCipher,
-) : ConnectionSource, SessionInvalidator {
+) : ConnectionSource, SessionWriter {
     private val hostKey = stringPreferencesKey("host")
     private val portKey = intPreferencesKey("port")
     private val tokenEncryptedKey = stringPreferencesKey("token_encrypted")
@@ -77,7 +78,7 @@ class ConnectionRepository @Inject constructor(
         }
     }
 
-    suspend fun saveAuthSession(token: String, expiresAt: Instant) {
+    override suspend fun saveAuthSession(token: String, expiresAt: Instant) {
         context.connectionDataStore.edit { prefs ->
             prefs[tokenEncryptedKey] = cipher.encrypt(token)
             prefs[tokenExpiresAtEpochSecondsKey] = expiresAt.epochSecond

@@ -7,6 +7,7 @@ import com.wafflehq.appgetter.data.api.AppGetterApi
 import com.wafflehq.appgetter.data.api.CollectedFile
 import com.wafflehq.appgetter.data.discovery.NetworkDiscovery
 import com.wafflehq.appgetter.data.install.ApkInstaller
+import com.wafflehq.appgetter.data.install.DownloadStatus
 import com.wafflehq.appgetter.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -28,6 +29,7 @@ data class CollectionsUiState(
     val state: CollectionsState = CollectionsState.Scanning,
     val error: String? = null,
     val installFile: File? = null,
+    val downloadingFileName: String? = null,
 )
 
 @HiltViewModel
@@ -40,6 +42,8 @@ class CollectionsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(CollectionsUiState())
     val uiState: StateFlow<CollectionsUiState> = _uiState.asStateFlow()
+
+    val downloadStatus: StateFlow<DownloadStatus?> = installer.downloadStatus
 
     init {
         scan()
@@ -66,13 +70,18 @@ class CollectionsViewModel @Inject constructor(
     }
 
     fun downloadAndInstall(file: CollectedFile) {
+        if (_uiState.value.downloadingFileName != null) return
         val found = _uiState.value.state as? CollectionsState.Found ?: return
         viewModelScope.launch {
+            _uiState.update { it.copy(downloadingFileName = file.name, error = null) }
             try {
                 val downloaded = installer.downloadFile(found.host, found.port, file.name)
                 _uiState.update { it.copy(installFile = downloaded) }
             } catch (error: ApiException) {
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.") }
+                installer.clearDownloadStatus()
+                _uiState.update {
+                    it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingFileName = null)
+                }
             }
         }
     }
@@ -80,6 +89,7 @@ class CollectionsViewModel @Inject constructor(
     fun installIntent(file: File) = installer.installIntent(file)
 
     fun consumeInstallFile() {
-        _uiState.update { it.copy(installFile = null) }
+        installer.clearDownloadStatus()
+        _uiState.update { it.copy(installFile = null, downloadingFileName = null) }
     }
 }

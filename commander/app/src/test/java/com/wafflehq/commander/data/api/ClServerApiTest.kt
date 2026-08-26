@@ -4,10 +4,12 @@ import com.wafflehq.commander.data.connection.AuthSession
 import com.wafflehq.commander.data.connection.Connection
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
-import com.wafflehq.commander.data.connection.SessionInvalidator
+import com.wafflehq.commander.data.connection.SessionWriter
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -26,9 +28,18 @@ private class FakeConnectionSource(session: Session?) : ConnectionSource {
     override val session = MutableStateFlow(session)
 }
 
-private class FakeSessionInvalidator : SessionInvalidator {
+private class FakeSessionWriter : SessionWriter {
     var clearCount = 0
         private set
+    var savedToken: String? = null
+        private set
+    var savedExpiresAt: Instant? = null
+        private set
+
+    override suspend fun saveAuthSession(token: String, expiresAt: Instant) {
+        savedToken = token
+        savedExpiresAt = expiresAt
+    }
 
     override suspend fun clearAuthSession() {
         clearCount++
@@ -38,13 +49,13 @@ private class FakeSessionInvalidator : SessionInvalidator {
 class ClServerApiTest {
 
     private lateinit var server: MockWebServer
-    private lateinit var invalidator: FakeSessionInvalidator
+    private lateinit var invalidator: FakeSessionWriter
 
     @Before
     fun setUp() {
         server = MockWebServer()
         server.start()
-        invalidator = FakeSessionInvalidator()
+        invalidator = FakeSessionWriter()
     }
 
     @After
@@ -311,7 +322,7 @@ class ClServerApiTest {
         server.enqueue(
             MockResponse(
                 code = 201,
-                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"s","claudeInstruction":"i","category":"c","status":"open","ipAddress":"192.168.1.5","createdAt":"c","updatedAt":"u"}""",
+                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"","claudeInstruction":"","category":"","status":"generating","ipAddress":"192.168.1.5","createdAt":"c","updatedAt":"u"}""",
             ),
         )
 
@@ -459,5 +470,131 @@ class ClServerApiTest {
 
         assertEquals("app-debug.apk", file.name)
         assertEquals("apk-bytes", file.readText())
+    }
+
+    @Test
+    fun `downloadHostedEntry reports the final progress with the known total size`(): Unit = runBlocking {
+        val body = "x".repeat(1_000)
+        server.enqueue(MockResponse(code = 200, body = body))
+        val dir = File.createTempFile("commander-test", "").apply { delete(); mkdirs() }
+        val progressUpdates = mutableListOf<DownloadProgress>()
+
+        apiWithConnection().downloadHostedEntry("periodical", "debug-apk", dir, onProgress = { progressUpdates.add(it) })
+
+        val last = progressUpdates.last()
+        assertEquals(1_000L, last.bytesDownloaded)
+        assertEquals(1_000L, last.totalBytes)
+    }
+
+    @Test
+    fun `streamState emits one CommandState per data event`() = runBlocking {
+        val body = "data: {\"id\":\"1\",\"agent\":\"main\",\"model\":\"sonnet\",\"command\":\"x\",\"path\":\"/p\"," +
+            "\"status\":\"running\",\"output\":\"a\",\"exitCode\":null,\"createdAt\":\"c\",\"updatedAt\":\"u1\"}\n\n" +
+            "data: {\"id\":\"1\",\"agent\":\"main\",\"model\":\"sonnet\",\"command\":\"x\",\"path\":\"/p\"," +
+            "\"status\":\"completed\",\"output\":\"ab\",\"exitCode\":0,\"createdAt\":\"c\",\"updatedAt\":\"u2\"}\n\n"
+        server.enqueue(
+            MockResponse(body = body, headers = okhttp3.Headers.headersOf("Content-Type", "text/event-stream")),
+        )
+
+        val events = apiWithConnection().streamState("1").toList()
+
+        assertEquals(2, events.size)
+        assertEquals("running", events[0].status)
+        assertEquals("completed", events[1].status)
+        assertEquals(0, events[1].exitCode)
+        val recorded = server.takeRequest()
+        assertEquals("/state/1/stream", recorded.target)
+    }
+
+    @Test
+    fun `streamState ignores heartbeat comment lines`() = runBlocking {
+        val body = ": heartbeat\n\n" +
+            "data: {\"id\":\"1\",\"agent\":\"main\",\"model\":\"sonnet\",\"command\":\"x\",\"path\":\"/p\"," +
+            "\"status\":\"completed\",\"output\":\"a\",\"exitCode\":0,\"createdAt\":\"c\",\"updatedAt\":\"u\"}\n\n"
+        server.enqueue(MockResponse(body = body))
+
+        val events = apiWithConnection().streamState("1").toList()
+
+        assertEquals(1, events.size)
+        assertEquals("completed", events.first().status)
+    }
+
+    @Test
+    fun `streamState throws ApiException on an error response`() = runBlocking {
+        server.enqueue(MockResponse(code = 404, body = """{"error":"Command \"1\" wurde nicht gefunden."}"""))
+
+        try {
+            apiWithConnection().streamState("1").toList()
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals(404, error.httpCode)
+        }
+    }
+
+    @Test
+    fun `refreshSessionIfLoggedIn posts to auth refresh and saves the new token`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"token":"new.jwt.token","expiresAt":"2030-01-01T00:00:00.000Z"}"""))
+
+        apiWithConnection().refreshSessionIfLoggedIn()
+
+        val recorded = server.takeRequest()
+        assertEquals("/auth/refresh", recorded.target)
+        assertEquals("Bearer $FAKE_TOKEN", recorded.headers["Authorization"])
+        assertEquals("new.jwt.token", invalidator.savedToken)
+    }
+
+    @Test
+    fun `refreshSessionIfLoggedIn does nothing without a saved connection`() = runBlocking {
+        apiWithoutConnection().refreshSessionIfLoggedIn()
+
+        assertEquals(0, server.requestCount)
+        assertNull(invalidator.savedToken)
+    }
+
+    @Test
+    fun `refreshSessionIfLoggedIn does nothing when the token is already expired`() = runBlocking {
+        apiWithExpiredSession().refreshSessionIfLoggedIn()
+
+        assertEquals(0, server.requestCount)
+        assertNull(invalidator.savedToken)
+    }
+
+    @Test
+    fun `a successful authenticated call schedules a background token refresh`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"agents":[],"paths":[]}"""))
+        server.enqueue(MockResponse(body = """{"token":"new.jwt.token","expiresAt":"2030-01-01T00:00:00.000Z"}"""))
+
+        apiWithConnection().getManifest()
+
+        assertEquals("/manifest", server.takeRequest().target)
+        val refreshRequest = server.takeRequest(2, TimeUnit.SECONDS)
+        assertEquals("/auth/refresh", refreshRequest?.target)
+    }
+
+    @Test
+    fun `unauthenticated calls do not schedule a background token refresh`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"status":"ok","version":"0.1.0"}"""))
+
+        apiWithoutConnection().health(server.hostName, server.port)
+
+        assertEquals("/health", server.takeRequest().target)
+        assertNull(server.takeRequest(200, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `background refresh is debounced within the minimum interval`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"agents":[],"paths":[]}"""))
+        server.enqueue(MockResponse(body = """{"token":"new.jwt.token","expiresAt":"2030-01-01T00:00:00.000Z"}"""))
+        server.enqueue(MockResponse(body = """{"agents":[],"paths":[]}"""))
+
+        val api = apiWithConnection()
+        api.getManifest()
+        server.takeRequest()
+        server.takeRequest(2, TimeUnit.SECONDS)
+
+        api.getManifest()
+        server.takeRequest()
+
+        assertNull(server.takeRequest(200, TimeUnit.MILLISECONDS))
     }
 }

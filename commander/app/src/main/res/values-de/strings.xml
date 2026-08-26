@@ -27,7 +27,8 @@
 
     <string name="project_home_commands">Befehle</string>
     <string name="project_home_downloads">Downloads</string>
-    <string name="project_home_agents">Dev-Agent</string>
+    <string name="project_home_agents">Entwicklung</string>
+    <string name="project_home_agents_subtitle">Agenten starten und überwachen</string>
     <string name="project_home_tickets">Tickets</string>
     <string name="project_home_history">Verlauf</string>
     <string name="project_home_feedback">Feedback</string>
@@ -38,11 +39,17 @@
 
     <string name="history_title">Verlauf</string>
     <string name="history_empty">Noch keine Befehle gesendet.</string>
+    <string name="history_row_meta">%1$s · %2$s</string>
+    <string name="history_retry_action">Erneut versuchen</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>
+    <string name="download_status_downloading">Wird heruntergeladen…</string>
+    <string name="download_status_verifying">Wird überprüft…</string>
+    <string name="download_status_installing">Wird installiert…</string>
+    <string name="download_status_opening">Wird geöffnet…</string>
 
-    <string name="agents_title">Dev-Agent</string>
+    <string name="agents_title">Entwicklung</string>
     <string name="agents_empty">Keine Agenten konfiguriert.</string>
 
     <string name="agent_run_path_label">Projekt: %1$s</string>
@@ -55,8 +62,11 @@
 
     <string name="command_detail_title">Command</string>
     <string name="command_detail_output_title">Output</string>
+    <string name="command_detail_output_copy">Output kopieren</string>
+    <string name="command_detail_output_copied">Output kopiert</string>
     <string name="command_detail_output_empty">Noch keine Ausgabe.</string>
     <string name="command_detail_exit_code">Exit-Code: %1$d</string>
+    <string name="command_detail_duration">Dauer: %1$s</string>
     <string name="command_detail_downloads_title">Downloads</string>
 
     <string name="tickets_title">Tickets</string>
@@ -65,8 +75,6 @@
     <string name="tickets_create_submit">Ticket erstellen</string>
     <string name="tickets_filter_label">Status</string>
     <string name="tickets_filter_all">Alle</string>
-    <string name="tickets_pending_label">Lädt Ticket %1$d…</string>
-    <string name="tickets_pending_dismiss">Entfernen</string>
     <string name="ticket_detail_title">Ticket</string>
     <string name="ticket_detail_original_request_label">Original-Anweisung</string>
     <string name="ticket_detail_summary_label">Zusammenfassung</string>
@@ -84,6 +92,7 @@
     <string name="ticket_detail_delete">Ticket löschen</string>
     <string name="ticket_detail_delete_confirm_title">Ticket löschen?</string>
     <string name="ticket_detail_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
+    <string name="ticket_status_generating">Wird generiert…</string>
     <string name="ticket_status_open">Offen</string>
     <string name="ticket_status_in_progress">In Bearbeitung</string>
     <string name="ticket_status_done">Fertig</string>

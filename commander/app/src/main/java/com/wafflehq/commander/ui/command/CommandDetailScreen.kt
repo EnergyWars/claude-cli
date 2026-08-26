@@ -1,5 +1,6 @@
 package com.wafflehq.commander.ui.command
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -20,8 +22,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
@@ -30,6 +34,8 @@ import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.downloads.DownloadProgressIndicator
+import com.wafflehq.commander.ui.history.formatDuration
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
@@ -51,7 +57,10 @@ fun CommandDetailScreen(
     viewModel: CommandDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val copiedMessage = stringResource(R.string.command_detail_output_copied)
 
     LaunchedEffect(uiState.downloadedFile) {
         uiState.downloadedFile?.let { file ->
@@ -93,27 +102,51 @@ fun CommandDetailScreen(
                     color = AppTheme.colors.onSurfaceVariant,
                 )
                 uiState.hostedFiles.forEach { hostedName ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
-                    ) {
-                        Text(hostedName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
-                        AppIconButton(
-                            icon = Icons.Outlined.Download,
-                            contentDescription = hostedName,
-                            role = AppRole.Primary,
-                            onClick = { viewModel.download(hostedName) },
-                        )
+                    val isDownloading = uiState.downloadingName == hostedName
+                    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+                        ) {
+                            Text(hostedName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
+                            if (!isDownloading) {
+                                AppIconButton(
+                                    icon = Icons.Outlined.Download,
+                                    contentDescription = hostedName,
+                                    role = AppRole.Primary,
+                                    onClick = { viewModel.download(hostedName) },
+                                )
+                            }
+                        }
+                        if (isDownloading) {
+                            DownloadProgressIndicator(status = downloadStatus)
+                        }
                     }
                 }
             }
 
-            Text(
-                text = stringResource(R.string.command_detail_output_title),
-                style = MaterialTheme.typography.titleSmall,
-                color = AppTheme.colors.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+            ) {
+                Text(
+                    text = stringResource(R.string.command_detail_output_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = AppTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                AppIconButton(
+                    icon = Icons.Outlined.ContentCopy,
+                    contentDescription = stringResource(R.string.command_detail_output_copy),
+                    role = AppRole.Primary,
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(state.output))
+                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
             Text(
                 text = state.output.ifEmpty { stringResource(R.string.command_detail_output_empty) },
                 style = TextStyle(fontFamily = GeistMono, fontSize = MaterialTheme.typography.bodySmall.fontSize),
@@ -138,6 +171,14 @@ private fun CommandSummary(state: CommandState) {
             Text(state.agent, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
         }
         Text(state.command, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurfaceVariant)
+        Text(
+            text = stringResource(
+                R.string.command_detail_duration,
+                formatDuration(state.createdAt, state.updatedAt),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTheme.colors.onSurfaceVariant,
+        )
         val exitCode = state.exitCode
         if (exitCode != null) {
             Text(

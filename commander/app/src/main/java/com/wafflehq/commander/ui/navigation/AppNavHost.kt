@@ -6,10 +6,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -45,7 +49,7 @@ object Routes {
     const val COMMANDS = "commands/{pathName}"
     const val DOWNLOADS = "downloads/{pathName}"
     const val AGENTS = "agents/{pathName}"
-    const val AGENT_RUN = "agent_run/{pathName}/{agentCommand}"
+    const val AGENT_RUN = "agent_run/{pathName}/{agentCommand}?prefillPrompt={prefillPrompt}"
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
     const val TICKETS = "tickets/{pathName}"
     const val TICKET_DETAIL = "tickets/{pathName}/{id}"
@@ -64,8 +68,10 @@ object Routes {
 
     fun agents(pathName: String): String = "agents/${Uri.encode(pathName)}"
 
-    fun agentRun(pathName: String, agentCommand: String): String =
-        "agent_run/${Uri.encode(pathName)}/${Uri.encode(agentCommand)}"
+    fun agentRun(pathName: String, agentCommand: String, prefillPrompt: String? = null): String {
+        val query = prefillPrompt?.let { "?prefillPrompt=${Uri.encode(it)}" }.orEmpty()
+        return "agent_run/${Uri.encode(pathName)}/${Uri.encode(agentCommand)}$query"
+    }
 
     fun commandDetail(id: String, pathName: String? = null): String {
         val query = pathName?.let { "?pathName=${Uri.encode(it)}" }.orEmpty()
@@ -85,6 +91,17 @@ object Routes {
 fun AppNavHost() {
     val gateViewModel: ConnectionGateViewModel = hiltViewModel()
     val gateState by gateViewModel.gateState.collectAsStateWithLifecycle()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                gateViewModel.refreshTokenOnForeground()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     if (gateState is GateState.Loading) {
         Surface(color = AppTheme.colors.background, modifier = Modifier.fillMaxSize()) {
@@ -181,6 +198,7 @@ fun AppNavHost() {
             arguments = listOf(
                 navArgument("pathName") { type = NavType.StringType },
                 navArgument("agentCommand") { type = NavType.StringType },
+                navArgument("prefillPrompt") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             val pathName = checkNotNull(entry.arguments?.getString("pathName"))
@@ -228,6 +246,9 @@ fun AppNavHost() {
             HistoryScreen(
                 onBack = { navController.popBackStack() },
                 onOpenCommand = { id -> navController.navigate(Routes.commandDetail(id, pathName)) },
+                onRetryCommand = { agentCommand, prompt ->
+                    navController.navigate(Routes.agentRun(pathName, agentCommand, prompt))
+                },
             )
         }
         composable(Routes.FEEDBACK) {

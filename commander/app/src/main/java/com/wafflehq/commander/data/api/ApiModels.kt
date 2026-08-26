@@ -76,6 +76,7 @@ data class Manifest(val agents: List<ManifestAgent>, val paths: List<ManifestPat
 const val HOSTED_TYPE_FILE = "file"
 const val HOSTED_TYPE_PATH = "path"
 
+const val TICKET_STATUS_GENERATING = "generating"
 const val TICKET_STATUS_OPEN = "open"
 const val TICKET_STATUS_IN_PROGRESS = "in progress"
 const val TICKET_STATUS_DONE = "done"
@@ -139,6 +140,15 @@ data class FeedbackPatchRequest(val text: String)
 
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
+
+private const val PATH_COMMAND_AGENT_PREFIX = "path-command:"
+private const val COMMAND_STATUS_FAILED = "failed"
+
+/** True for failed agent runs (retryable via the run-agent screen) - excludes shell-based path commands, which have no free-text prompt to retry. */
+fun CommandState.isRetryable(): Boolean = status == COMMAND_STATUS_FAILED && !agent.startsWith(PATH_COMMAND_AGENT_PREFIX)
+
+/** Reverses the server's `agentNameOrNull()` mapping: turns a stored `CommandState.agent` (e.g. "main", "dev") back into the `ManifestAgent.command` used to look it up (e.g. "cl", "cl dev"). */
+fun CommandState.retryAgentCommand(): String = if (agent == "main") "cl" else "cl $agent"
 
 class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)
 

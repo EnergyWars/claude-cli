@@ -69,6 +69,12 @@
           "description": "Macht ein git commit mit allen changes und pusht."
         },
         {
+          "key": "status",
+          "command": "git status",
+          "displayName": "Status",
+          "description": "Zeigt den aktuellen git-Status."
+        },
+        {
           "key": "update",
           "command": "git merge master",
           "displayName": "merge-master",

@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,11 +33,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
+import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
+import com.wafflehq.commander.ui.components.CardVariant
 import com.wafflehq.commander.ui.components.SettingsListRow
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRadius
@@ -100,6 +107,8 @@ fun ProjectHomeScreen(
                 AppBanner(title = stringResource(R.string.setup_error_title), body = error, role = AppRole.Error)
             }
 
+            ProjectHomeDevelopmentCard(onClick = { onOpenAgents(projectName) })
+
             SettingsListRow(
                 title = stringResource(R.string.project_home_commands),
                 subtitle = null,
@@ -109,11 +118,6 @@ fun ProjectHomeScreen(
                 title = stringResource(R.string.project_home_downloads),
                 subtitle = null,
                 onClick = { onOpenDownloads(projectName) },
-            )
-            SettingsListRow(
-                title = stringResource(R.string.project_home_agents),
-                subtitle = null,
-                onClick = { onOpenAgents(projectName) },
             )
             SettingsListRow(
                 title = stringResource(R.string.project_home_tickets),
@@ -134,6 +138,55 @@ fun ProjectHomeScreen(
                 title = stringResource(R.string.project_home_collect),
                 subtitle = null,
                 onClick = onOpenCollect,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProjectHomeDevelopmentCard(onClick: () -> Unit) {
+    val colors = AppTheme.colors
+    AppCard(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(AppRadius.card)).clickable(onClick = onClick),
+        role = AppRole.Primary,
+        variant = CardVariant.Filled,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(AppSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(AppRadius.card))
+                    .background(colors.primary.onContainer.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.SmartToy,
+                    contentDescription = null,
+                    tint = colors.primary.onContainer,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.project_home_agents),
+                    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 22.sp),
+                    color = colors.primary.onContainer,
+                )
+                Text(
+                    text = stringResource(R.string.project_home_agents_subtitle),
+                    style = TextStyle(fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
+                    color = colors.primary.onContainer.copy(alpha = 0.75f),
+                )
+            }
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = colors.primary.onContainer,
+                modifier = Modifier.size(22.dp),
             )
         }
     }

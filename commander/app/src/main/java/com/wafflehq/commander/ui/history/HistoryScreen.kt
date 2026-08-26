@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,9 +23,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.CommandState
+import com.wafflehq.commander.data.api.isRetryable
+import com.wafflehq.commander.data.api.retryAgentCommand
 import com.wafflehq.commander.ui.command.COMMAND_STATUS_RUNNING
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
+import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -43,6 +48,7 @@ private fun historyStatusRole(status: String): AppRole = when (status) {
 fun HistoryScreen(
     onBack: () -> Unit,
     onOpenCommand: (id: String) -> Unit,
+    onRetryCommand: (agentCommand: String, prompt: String) -> Unit,
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -76,7 +82,11 @@ fun HistoryScreen(
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
                 items(state.commands, key = { it.id }) { command ->
-                    HistoryRow(command = command, onClick = { onOpenCommand(command.id) })
+                    HistoryRow(
+                        command = command,
+                        onClick = { onOpenCommand(command.id) },
+                        onRetry = { onRetryCommand(command.retryAgentCommand(), command.command) },
+                    )
                 }
             }
         }
@@ -84,7 +94,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun HistoryRow(command: CommandState, onClick: () -> Unit) {
+private fun HistoryRow(command: CommandState, onClick: () -> Unit, onRetry: () -> Unit) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -98,7 +108,20 @@ private fun HistoryRow(command: CommandState, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
             ) {
                 AppStatusPill(text = command.status, role = historyStatusRole(command.status))
-                Text(command.agent, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
+                Text(
+                    command.agent,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = AppTheme.colors.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                if (command.isRetryable()) {
+                    AppIconButton(
+                        icon = Icons.Outlined.Replay,
+                        contentDescription = stringResource(R.string.history_retry_action),
+                        role = AppRole.Primary,
+                        onClick = onRetry,
+                    )
+                }
             }
             Text(
                 text = command.command,
@@ -108,7 +131,11 @@ private fun HistoryRow(command: CommandState, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = formatTimestamp(command.createdAt),
+                text = stringResource(
+                    R.string.history_row_meta,
+                    formatTimestamp(command.createdAt),
+                    formatDuration(command.createdAt, command.updatedAt),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.onSurfaceVariant,
             )

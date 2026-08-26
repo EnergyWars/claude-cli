@@ -14,6 +14,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.appgetter.R
 import com.wafflehq.appgetter.data.settings.ThemeMode
+import com.wafflehq.appgetter.ui.components.AppBanner
 import com.wafflehq.appgetter.ui.components.AppButton
 import com.wafflehq.appgetter.ui.components.AppTextField
 import com.wafflehq.appgetter.ui.components.SettingsDropdownField
@@ -35,9 +36,11 @@ private fun themeModeLabel(mode: ThemeMode): String = when (mode) {
 fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    feedbackViewModel: FeedbackViewModel = hiltViewModel(),
 ) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val feedbackState by feedbackViewModel.uiState.collectAsStateWithLifecycle()
     val modes = ThemeMode.entries
     val themeLabels = modes.map { themeModeLabel(it) }
 
@@ -95,6 +98,47 @@ fun SettingsScreen(
                     role = AppRole.Primary,
                     onClick = viewModel::save,
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            Column(modifier = Modifier.padding(top = AppSpacing.lg)) {
+                Text(
+                    text = stringResource(R.string.settings_group_feedback),
+                    color = AppTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = AppSpacing.sm),
+                )
+                AppTextField(
+                    value = feedbackState.text,
+                    onValueChange = feedbackViewModel::onTextChange,
+                    label = stringResource(R.string.feedback_text_label),
+                    role = AppRole.Neutral,
+                    enabled = !feedbackState.sending,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (feedbackState.sent) {
+                    Text(
+                        text = stringResource(R.string.feedback_sent),
+                        color = AppTheme.colors.onSurfaceVariant,
+                        modifier = Modifier.padding(top = AppSpacing.sm),
+                    )
+                }
+                val feedbackError = feedbackState.error
+                if (feedbackError != null) {
+                    AppBanner(
+                        title = stringResource(R.string.setup_error_title),
+                        body = feedbackError,
+                        role = AppRole.Error,
+                        modifier = Modifier.padding(top = AppSpacing.sm),
+                    )
+                }
+                AppButton(
+                    text = stringResource(R.string.feedback_submit),
+                    role = AppRole.Primary,
+                    onClick = feedbackViewModel::send,
+                    enabled = feedbackState.text.isNotBlank() && !feedbackState.sending,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = AppSpacing.sm),
                 )
             }
         }

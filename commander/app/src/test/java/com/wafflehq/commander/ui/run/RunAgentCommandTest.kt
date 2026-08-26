@@ -22,4 +22,17 @@ class RunAgentCommandTest {
     fun `an empty context value is still prepended verbatim`() {
         assertEquals("\n\nFix the bug", buildAgentCommand(contextValue = "", prompt = "Fix the bug"))
     }
+
+    @Test
+    fun `with a context a blank prompt is omitted`() {
+        assertEquals(
+            "Use Kotlin 2.0 conventions.",
+            buildAgentCommand(contextValue = "Use Kotlin 2.0 conventions.", prompt = "  "),
+        )
+    }
+
+    @Test
+    fun `with a context an empty prompt is omitted`() {
+        assertEquals("Use Kotlin 2.0 conventions.", buildAgentCommand(contextValue = "Use Kotlin 2.0 conventions.", prompt = ""))
+    }
 }

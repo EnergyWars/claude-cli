@@ -19,9 +19,12 @@ import javax.inject.Inject
 
 val RUN_AGENT_MODELS = listOf("", "haiku", "sonnet", "opus", "fable")
 
-/** Kein Kontext gewaehlt -&gt; nur der Prompt; sonst der Kontext-Wert vor den Prompt gehaengt. */
-fun buildAgentCommand(contextValue: String?, prompt: String): String =
-    if (contextValue != null) "$contextValue\n\n$prompt" else prompt
+/** Kein Kontext gewaehlt -&gt; nur der Prompt; sonst der Kontext-Wert vor den Prompt gehaengt, Prompt optional. */
+fun buildAgentCommand(contextValue: String?, prompt: String): String = when {
+    contextValue == null -> prompt
+    prompt.isBlank() -> contextValue
+    else -> "$contextValue\n\n$prompt"
+}
 
 data class RunAgentUiState(
     val agentCommand: String = "",
@@ -46,9 +49,10 @@ class RunAgentViewModel @Inject constructor(
 
     private val agentCommand: String = checkNotNull(savedStateHandle["agentCommand"])
     private val pathName: String = checkNotNull(savedStateHandle["pathName"])
+    private val prefillPrompt: String? = savedStateHandle["prefillPrompt"]
 
     private val _uiState = MutableStateFlow(
-        RunAgentUiState(agentCommand = agentCommand, pathName = pathName),
+        RunAgentUiState(agentCommand = agentCommand, pathName = pathName, prompt = prefillPrompt.orEmpty()),
     )
     val uiState: StateFlow<RunAgentUiState> = _uiState.asStateFlow()
 
@@ -84,12 +88,12 @@ class RunAgentViewModel @Inject constructor(
 
     fun start() {
         val state = _uiState.value
-        if (state.prompt.isBlank()) {
+        val contextValue = state.contexts.getOrNull(state.selectedContextIndex - 1)?.value
+        if (contextValue == null && state.prompt.isBlank()) {
             _uiState.update { it.copy(error = "Prompt angeben.") }
             return
         }
         val model = RUN_AGENT_MODELS.getOrNull(state.selectedModelIndex)?.ifEmpty { null }
-        val contextValue = state.contexts.getOrNull(state.selectedContextIndex - 1)?.value
         val command = buildAgentCommand(contextValue, state.prompt)
         _uiState.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch {

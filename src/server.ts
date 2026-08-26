@@ -23,7 +23,7 @@ import {
   getTotpSecret,
   insertCommand,
   insertFeedback,
-  insertTicket,
+  insertGeneratingTicket,
   isTicketStatus,
   listAllTickets,
   listCommands,
@@ -36,6 +36,7 @@ import {
   updateCommandOutput,
   updateFeedback,
   updateTicket,
+  type CommandRow,
   type TicketRow,
   type TicketStatus,
   type TicketUpdate,
@@ -64,7 +65,7 @@ import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
 
-const JWT_TTL_SECONDS = 60 * 60;
+const JWT_TTL_SECONDS = 60 * 60 * 2;
 
 const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
@@ -443,6 +444,26 @@ function handlePostAuthLogin(db: DatabaseSync, res: ServerResponse, bodyText: st
   sendJson(res, 200, { token, expiresAt });
 }
 
+function handlePostAuthRefresh(db: DatabaseSync, req: IncomingMessage, res: ServerResponse): void {
+  const totp = getTotpSecret(db);
+  if (!totp?.confirmed) {
+    sendJson(res, 400, { error: 'Kein aktiver Google Authenticator eingerichtet.' });
+    return;
+  }
+  const header = req.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+    sendJson(res, 401, { error: 'JWT fehlt (Header "Authorization: Bearer <token>").' });
+    return;
+  }
+  const token = header.slice('Bearer '.length).trim();
+  if (!verifyJwt(token, totp.jwtSecret).valid) {
+    sendJson(res, 401, { error: 'JWT ist ungueltig oder abgelaufen.' });
+    return;
+  }
+  const issued = issueAuthToken(totp.jwtSecret);
+  sendJson(res, 200, { token: issued.token, expiresAt: issued.expiresAt });
+}
+
 function handleGetHealth(res: ServerResponse): void {
   sendJson(res, 200, { status: 'ok', version: VERSION });
 }
@@ -467,6 +488,102 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
     return;
   }
   sendJson(res, 200, row);
+}
+
+const SSE_HEARTBEAT_MS = 15_000;
+
+/** Pro Command-ID die offenen SSE-Antworten, die auf Output-Updates warten. */
+const commandSubscribers = new Map<string, Set<ServerResponse>>();
+
+function addCommandSubscriber(id: string, res: ServerResponse): void {
+  let subscribers = commandSubscribers.get(id);
+  if (!subscribers) {
+    subscribers = new Set();
+    commandSubscribers.set(id, subscribers);
+  }
+  subscribers.add(res);
+}
+
+function removeCommandSubscriber(id: string, res: ServerResponse): void {
+  const subscribers = commandSubscribers.get(id);
+  if (!subscribers) {
+    return;
+  }
+  subscribers.delete(res);
+  if (subscribers.size === 0) {
+    commandSubscribers.delete(id);
+  }
+}
+
+function writeCommandEvent(res: ServerResponse, row: CommandRow): void {
+  res.write(`data: ${JSON.stringify(row)}\n\n`);
+}
+
+/** Schickt den aktuellen Stand an alle SSE-Abonnenten dieser Command-ID; schliesst deren Verbindung, sobald der Command nicht mehr "running" ist. */
+function publishCommandUpdate(id: string, row: CommandRow): void {
+  const subscribers = commandSubscribers.get(id);
+  if (!subscribers) {
+    return;
+  }
+  for (const res of subscribers) {
+    writeCommandEvent(res, row);
+    if (row.status !== 'running') {
+      res.end();
+    }
+  }
+  if (row.status !== 'running') {
+    commandSubscribers.delete(id);
+  }
+}
+
+function publishCommandState(db: DatabaseSync, id: string): void {
+  const row = getCommand(db, id);
+  if (row) {
+    publishCommandUpdate(id, row);
+  }
+}
+
+/**
+ * Server-Sent Events statt WebSocket: Live-Output ist ein reiner Server->Client-Push (kein Client->Server-
+ * Kanal noetig), SSE laeuft ueber eine gewoehnliche GET-Verbindung (kein Upgrade-Handshake, kein Framing-Code,
+ * keine zusaetzliche Dependency wie `ws`) und die bestehende Bearer-Token-Authentifizierung greift unveraendert
+ * ueber den Authorization-Header. GET /state/:id bleibt als Polling-Fallback bestehen (z.B. falls ein Proxy
+ * lang laufende Verbindungen kappt).
+ */
+function handleGetStateStream(
+  db: DatabaseSync,
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+): void {
+  const row = getCommand(db, id);
+  if (!row) {
+    sendJson(res, 404, { error: `Command "${id}" wurde nicht gefunden.` });
+    return;
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  writeCommandEvent(res, row);
+
+  if (row.status !== 'running') {
+    res.end();
+    return;
+  }
+
+  addCommandSubscriber(id, res);
+  const heartbeat = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, SSE_HEARTBEAT_MS);
+  const cleanup = (): void => {
+    clearInterval(heartbeat);
+    removeCommandSubscriber(id, res);
+  };
+  req.on('close', cleanup);
+  res.on('error', cleanup);
 }
 
 function handleGetPaths(config: Config, res: ServerResponse): void {
@@ -537,6 +654,7 @@ function handlePostPathCommand(
 
   runShellCommand(pathCommand.command, pathEntry.path, (output) => {
     updateCommandOutput(db, id, output);
+    publishCommandState(db, id);
   })
     .then((result) => {
       completeCommand(
@@ -546,10 +664,12 @@ function handlePostPathCommand(
         result.exitCode,
         result.output,
       );
+      publishCommandState(db, id);
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
     });
 }
 
@@ -796,14 +916,14 @@ function handleGetAllTickets(
   sendJson(res, 200, { tickets: listAllTickets(db, status) });
 }
 
-async function handlePostTicket(
+function handlePostTicket(
   db: DatabaseSync,
   config: Config,
   res: ServerResponse,
   pathName: string,
   bodyText: string,
   ipAddress: string | null,
-): Promise<void> {
+): void {
   let pathEntry: PathEntry;
   try {
     pathEntry = resolvePathEntry(config, pathName);
@@ -828,17 +948,19 @@ async function handlePostTicket(
     return;
   }
 
-  let output: TicketAgentOutput;
-  try {
-    output = await runTicketAgent(pathEntry.path, config.ticketAgent, body.text);
-  } catch (error) {
-    sendJson(res, 502, {
-      error: `Ticket-Agent fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
-    });
-    return;
-  }
-  const ticket = insertTicket(db, { pathName, originalRequest: body.text, ipAddress, ...output });
+  const ticket = insertGeneratingTicket(db, { pathName, originalRequest: body.text, ipAddress });
   sendJson(res, 201, ticket);
+
+  void runTicketAgent(pathEntry.path, config.ticketAgent, body.text)
+    .then((output: TicketAgentOutput) => {
+      updateTicket(db, ticket.id, { ...output, status: 'open' });
+    })
+    .catch((error: unknown) => {
+      updateTicket(db, ticket.id, {
+        summary: `Ticket-Agent fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'rejected',
+      });
+    });
 }
 
 function handleGetTicket(
@@ -983,6 +1105,7 @@ function handlePostCommand(
     cwd,
     (output) => {
       updateCommandOutput(db, id, output);
+      publishCommandState(db, id);
     },
     permissions,
   )
@@ -994,10 +1117,12 @@ function handlePostCommand(
         result.exitCode,
         result.output,
       );
+      publishCommandState(db, id);
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
     });
 }
 
@@ -1031,6 +1156,8 @@ async function handleRequest(
       } else if (method === 'POST' && segments.length === 2 && segments[1] === 'login') {
         bodyText = await readRequestBody(req);
         handlePostAuthLogin(db, res, bodyText);
+      } else if (method === 'POST' && segments.length === 2 && segments[1] === 'refresh') {
+        handlePostAuthRefresh(db, req, res);
       } else if (method === 'GET' && segments.length === 2 && segments[1] === 'status') {
         handleGetAuthStatus(db, res);
       } else {
@@ -1056,6 +1183,13 @@ async function handleRequest(
       sendJson(res, 401, {
         error: 'JWT fehlt oder ist ungueltig/abgelaufen (Header "Authorization: Bearer <token>").',
       });
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'state' &&
+      segments[2] === 'stream'
+    ) {
+      handleGetStateStream(db, req, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'state') {
       handleGetState(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'paths') {
@@ -1090,14 +1224,7 @@ async function handleRequest(
       handleGetTickets(db, config, res, segments[1] ?? '', url.searchParams.get('status'));
     } else if (method === 'POST' && segments.length === 2 && segments[0] === 'tickets') {
       bodyText = await readRequestBody(req);
-      await handlePostTicket(
-        db,
-        config,
-        res,
-        segments[1] ?? '',
-        bodyText,
-        req.socket.remoteAddress ?? null,
-      );
+      handlePostTicket(db, config, res, segments[1] ?? '', bodyText, req.socket.remoteAddress ?? null);
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'tickets') {
       handleGetTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'PATCH' && segments.length === 3 && segments[0] === 'tickets') {
@@ -1152,12 +1279,18 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  POST ${base}/auth/login           (nur aus dem lokalen Netz, sonst 404 - liefert JWT)`,
   );
+  console.log(
+    `  POST ${base}/auth/refresh         (nur aus dem lokalen Netz, sonst 404 - verlaengert JWT)`,
+  );
   console.log(`  GET  ${base}/auth/status          (nur aus dem lokalen Netz, sonst 404)`);
   console.log(`  POST ${base}/`);
   for (const agent of config.agents) {
     console.log(`  POST ${base}/${agent.name}`);
   }
   console.log(`  GET  ${base}/state/:id`);
+  console.log(
+    `  GET  ${base}/state/:id/stream (Server-Sent Events, Live-Output; Fallback: Polling ueber GET /state/:id)`,
+  );
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
   console.log(`  GET  ${base}/commands/:pathName`);

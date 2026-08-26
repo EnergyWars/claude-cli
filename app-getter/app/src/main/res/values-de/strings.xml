@@ -13,6 +13,9 @@
     <string name="home_retry">Erneut suchen</string>
     <string name="home_empty">Noch keine Dateien.</string>
     <string name="home_install">Installieren</string>
+    <string name="home_downloading">Wird heruntergeladen…</string>
+    <string name="home_verifying">Wird überprüft…</string>
+    <string name="home_installing">Wird installiert…</string>
 
     <string name="settings_title">Einstellungen</string>
     <string name="settings_group_general">Allgemein</string>
@@ -25,4 +28,8 @@
     <string name="settings_port_label">Port</string>
     <string name="settings_connection_save">Speichern</string>
     <string name="settings_connection_hint">Host leer lassen, um das lokale Netz automatisch zu durchsuchen.</string>
+    <string name="settings_group_feedback">Feedback</string>
+    <string name="feedback_text_label">Dein Feedback</string>
+    <string name="feedback_submit">Senden</string>
+    <string name="feedback_sent">Feedback gesendet. Danke.</string>
 </resources>
