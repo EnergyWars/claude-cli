@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -24,6 +27,7 @@ import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.PathCommandEntry
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
+import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -38,12 +42,28 @@ fun CommandsScreen(
     viewModel: CommandsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var pendingCommand by remember { mutableStateOf<PathCommandEntry?>(null) }
 
     LaunchedEffect(state.startedCommandId) {
         state.startedCommandId?.let { id ->
             onCommandStarted(id, viewModel.pathName)
             viewModel.consumeStartedCommand()
         }
+    }
+
+    pendingCommand?.let { command ->
+        AppConfirmDialog(
+            title = stringResource(R.string.commands_run_confirm_title),
+            body = stringResource(R.string.commands_run_confirm_body, command.displayName),
+            confirmText = stringResource(R.string.commands_run_confirm_confirm),
+            dismissText = stringResource(R.string.commands_run_confirm_dismiss),
+            confirmRole = AppRole.Primary,
+            onConfirm = {
+                viewModel.runCommand(command.key)
+                pendingCommand = null
+            },
+            onDismiss = { pendingCommand = null },
+        )
     }
 
     SettingsScaffold(
@@ -75,7 +95,7 @@ fun CommandsScreen(
             }
 
             state.commands.forEach { command ->
-                CommandRow(command = command, onClick = { viewModel.runCommand(command.key) })
+                CommandRow(command = command, onClick = { pendingCommand = command })
             }
         }
     }

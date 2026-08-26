@@ -253,6 +253,16 @@ function parseCollectRequestBody(raw: unknown): CollectRequestBody {
 interface FeedbackTextBody {
   text: string;
   section: string | null;
+  context: string | null;
+}
+
+function optionalTrimmedString(record: Record<string, unknown>, field: string): string | null {
+  const value = record[field];
+  if (value !== undefined && typeof value !== 'string') {
+    throw new Error(`Feld "${field}" muss, falls vorhanden, ein String sein.`);
+  }
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed === '' ? null : trimmed;
 }
 
 function parseFeedbackTextBody(raw: unknown): FeedbackTextBody {
@@ -263,11 +273,11 @@ function parseFeedbackTextBody(raw: unknown): FeedbackTextBody {
   if (typeof record.text !== 'string' || record.text.trim() === '') {
     throw new Error('Feld "text" (nicht-leerer String) ist erforderlich.');
   }
-  if (record.section !== undefined && typeof record.section !== 'string') {
-    throw new Error('Feld "section" muss, falls vorhanden, ein String sein.');
-  }
-  const section = typeof record.section === 'string' ? record.section.trim() : '';
-  return { text: record.text, section: section === '' ? null : section };
+  return {
+    text: record.text,
+    section: optionalTrimmedString(record, 'section'),
+    context: optionalTrimmedString(record, 'context'),
+  };
 }
 
 function parseAuthCodeBody(raw: unknown): AuthCodeBody {
@@ -830,7 +840,7 @@ function handlePostFeedback(db: DatabaseSync, res: ServerResponse, bodyText: str
     return;
   }
 
-  sendJson(res, 201, insertFeedback(db, body.text, body.section));
+  sendJson(res, 201, insertFeedback(db, body.text, body.section, body.context));
 }
 
 function handlePatchFeedback(

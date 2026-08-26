@@ -445,6 +445,19 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getFeedback exposes the context of an entry`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","context":"periodical-debug.apk (2026-08-26T10:00:00.000Z)","createdAt":"c","updatedAt":"c"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getFeedback()
+
+        assertEquals("periodical-debug.apk (2026-08-26T10:00:00.000Z)", result.feedback.first().context)
+    }
+
+    @Test
     fun `updateFeedback sends a PATCH request with the new text`() = runBlocking {
         server.enqueue(MockResponse(body = """{"id":1,"text":"Neu","createdAt":"c","updatedAt":"u"}"""))
 

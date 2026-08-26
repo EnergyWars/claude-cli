@@ -37,5 +37,6 @@
     <string name="feedback_open">Give feedback</string>
     <string name="feedback_dialog_title">Feedback for \"%1$s\"</string>
     <string name="feedback_text_label">Your feedback</string>
+    <string name="feedback_context_label">Context</string>
     <string name="feedback_submit">Send</string>
 </resources>

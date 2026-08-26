@@ -118,7 +118,7 @@ fun CollectionsScreen(
                             enabled = uiState.downloadingFileName == null,
                             downloadStatus = downloadStatus,
                             onInstall = { viewModel.downloadAndInstall(file) },
-                            onFeedback = { feedbackViewModel.open(file.name) },
+                            onFeedback = { feedbackViewModel.open(file.name, feedbackContext(file)) },
                         )
                     }
                 }
@@ -132,6 +132,8 @@ fun CollectionsScreen(
             section = openSection,
             text = feedbackState.text,
             onTextChange = feedbackViewModel::onTextChange,
+            context = feedbackState.context,
+            onContextChange = feedbackViewModel::onContextChange,
             onSend = feedbackViewModel::send,
             onDismiss = feedbackViewModel::dismiss,
         )

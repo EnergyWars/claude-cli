@@ -1451,7 +1451,7 @@
       },
       "Feedback": {
         "type": "object",
-        "required": ["id", "text", "section", "createdAt", "updatedAt"],
+        "required": ["id", "text", "section", "context", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "integer" },
           "text": { "type": "string" },
@@ -1459,6 +1459,11 @@
             "type": "string",
             "nullable": true,
             "description": "Optionaler Bezeichner des Bereichs/der Ablage, aus der das Feedback stammt (z. B. ein Collection-targetName). null wenn keiner angegeben wurde."
+          },
+          "context": {
+            "type": "string",
+            "nullable": true,
+            "description": "Optionaler Freitext-Kontext zum Feedback (z. B. APK-Name und Zeitstempel der bewerteten Datei). null wenn keiner angegeben wurde."
           },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
@@ -1482,6 +1487,10 @@
           "section": {
             "type": "string",
             "description": "Optionaler Bezeichner des Bereichs/der Ablage, aus der das Feedback stammt (z. B. ein Collection-targetName)."
+          },
+          "context": {
+            "type": "string",
+            "description": "Optionaler Freitext-Kontext (z. B. APK-Name und Zeitstempel der bewerteten Datei)."
           }
         },
         "additionalProperties": false

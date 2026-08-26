@@ -30,4 +30,10 @@ class DownloadStateTest {
         val downloaded = mapOf("other.apk" to file.timestamp)
         assertEquals(DownloadState.NOT_DOWNLOADED, downloadState(file, downloaded))
     }
+
+    @Test
+    fun `feedbackContext combines file name and timestamp`() {
+        val file = CollectedFile("periodical-debug.apk", "2026-08-26T10:00:00.000Z")
+        assertEquals("periodical-debug.apk (2026-08-26T10:00:00.000Z)", feedbackContext(file))
+    }
 }

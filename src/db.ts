@@ -106,11 +106,15 @@ export function openDatabase(directory: string): DatabaseSync {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       text TEXT NOT NULL,
       section TEXT,
+      context TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
   `);
-  ensureColumns(db, 't_feedback', [{ name: 'section', definition: 'section TEXT' }]);
+  ensureColumns(db, 't_feedback', [
+    { name: 'section', definition: 'section TEXT' },
+    { name: 'context', definition: 'context TEXT' },
+  ]);
   return db;
 }
 
@@ -430,6 +434,7 @@ export interface FeedbackRow {
   id: number;
   text: string;
   section: string | null;
+  context: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -439,16 +444,22 @@ function toFeedbackRow(row: Record<string, SQLOutputValue>): FeedbackRow {
     id: Number(row.id),
     text: String(row.text),
     section: row.section === null || row.section === undefined ? null : String(row.section),
+    context: row.context === null || row.context === undefined ? null : String(row.context),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
 }
 
-export function insertFeedback(db: DatabaseSync, text: string, section: string | null = null): FeedbackRow {
+export function insertFeedback(
+  db: DatabaseSync,
+  text: string,
+  section: string | null = null,
+  context: string | null = null,
+): FeedbackRow {
   const now = new Date().toISOString();
   const result = db
-    .prepare('INSERT INTO t_feedback (text, section, created_at, updated_at) VALUES (?, ?, ?, ?)')
-    .run(text, section, now, now);
+    .prepare('INSERT INTO t_feedback (text, section, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run(text, section, context, now, now);
   const feedback = getFeedback(db, Number(result.lastInsertRowid));
   if (!feedback) {
     throw new Error('Feedback konnte nach dem Anlegen nicht gelesen werden.');

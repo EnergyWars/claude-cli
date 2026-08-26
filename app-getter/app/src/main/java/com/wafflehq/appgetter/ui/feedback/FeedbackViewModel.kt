@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 data class FeedbackUiState(
     val openSection: String? = null,
     val text: String = "",
+    val context: String = "",
     val error: String? = null,
 )
 
@@ -31,16 +32,20 @@ class FeedbackViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(FeedbackUiState())
     val uiState: StateFlow<FeedbackUiState> = _uiState.asStateFlow()
 
-    fun open(section: String) {
-        _uiState.update { it.copy(openSection = section, text = "", error = null) }
+    fun open(section: String, context: String = "") {
+        _uiState.update { it.copy(openSection = section, text = "", context = context, error = null) }
     }
 
     fun dismiss() {
-        _uiState.update { it.copy(openSection = null, text = "") }
+        _uiState.update { it.copy(openSection = null, text = "", context = "") }
     }
 
     fun onTextChange(value: String) {
         _uiState.update { it.copy(text = value) }
+    }
+
+    fun onContextChange(value: String) {
+        _uiState.update { it.copy(context = value) }
     }
 
     fun clearError() {
@@ -52,7 +57,8 @@ class FeedbackViewModel @Inject constructor(
         val section = state.openSection ?: return
         val text = state.text.trim()
         if (text.isEmpty()) return
-        _uiState.update { it.copy(openSection = null, text = "") }
+        val context = state.context.trim().ifEmpty { null }
+        _uiState.update { it.copy(openSection = null, text = "", context = "") }
         viewModelScope.launch {
             val override = settingsRepository.serverOverride.first()
             val host = override.host ?: discovery.discoverHost(override.port)
@@ -61,7 +67,7 @@ class FeedbackViewModel @Inject constructor(
                 return@launch
             }
             try {
-                api.sendFeedback(host, override.port, text, section)
+                api.sendFeedback(host, override.port, text, section, context)
             } catch (error: ApiException) {
                 _uiState.update { it.copy(error = error.message ?: "Senden fehlgeschlagen.") }
             }

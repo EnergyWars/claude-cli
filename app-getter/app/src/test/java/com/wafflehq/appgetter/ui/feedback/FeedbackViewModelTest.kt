@@ -52,19 +52,30 @@ class FeedbackViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("periodical-debug", state.openSection)
         assertEquals("", state.text)
+        assertEquals("", state.context)
+    }
+
+    @Test
+    fun `open prefills the context`() {
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), mockk())
+
+        viewModel.open("periodical-debug", "periodical-debug.apk (2026-08-26T10:00:00.000Z)")
+
+        assertEquals("periodical-debug.apk (2026-08-26T10:00:00.000Z)", viewModel.uiState.value.context)
     }
 
     @Test
     fun `dismiss closes the dialog and clears the text`() {
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), mockk())
 
-        viewModel.open("periodical-debug")
+        viewModel.open("periodical-debug", "Kontext")
         viewModel.onTextChange("Draft")
         viewModel.dismiss()
 
         val state = viewModel.uiState.value
         assertNull(state.openSection)
         assertEquals("", state.text)
+        assertEquals("", state.context)
     }
 
     @Test
@@ -83,8 +94,8 @@ class FeedbackViewModelTest {
     @Test
     fun `send clears the field and closes the dialog immediately`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
-            coEvery { sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug") } returns
-                FeedbackEntry(1, "Tolle App", "periodical-debug", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+            coEvery { sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", null) } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", null, "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
@@ -101,8 +112,8 @@ class FeedbackViewModelTest {
     @Test
     fun `send includes the section automatically`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
-            coEvery { sendFeedback(any(), any(), any(), any()) } returns
-                FeedbackEntry(1, "Tolle App", "periodical-debug", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+            coEvery { sendFeedback(any(), any(), any(), any(), any()) } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", null, "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
@@ -111,13 +122,36 @@ class FeedbackViewModelTest {
         viewModel.send()
         dispatcher.scheduler.runCurrent()
 
-        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug") }
+        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", null) }
+    }
+
+    @Test
+    fun `send includes the edited context and drops a blank one`() = runTest(dispatcher) {
+        val api = mockk<AppGetterApi> {
+            coEvery { sendFeedback(any(), any(), any(), any(), any()) } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", "Kontext", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+        }
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
+
+        viewModel.open("periodical-debug", "Vorbelegt")
+        viewModel.onContextChange("  Kontext  ")
+        viewModel.onTextChange("Tolle App")
+        viewModel.send()
+        dispatcher.scheduler.runCurrent()
+        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", "Kontext") }
+
+        viewModel.open("periodical-debug", "Vorbelegt")
+        viewModel.onContextChange("   ")
+        viewModel.onTextChange("Tolle App")
+        viewModel.send()
+        dispatcher.scheduler.runCurrent()
+        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", null) }
     }
 
     @Test
     fun `failed background send reports the error without reopening the dialog`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
-            coEvery { sendFeedback(any(), any(), any(), any()) } throws ApiException(500, "Serverfehler.")
+            coEvery { sendFeedback(any(), any(), any(), any(), any()) } throws ApiException(500, "Serverfehler.")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 

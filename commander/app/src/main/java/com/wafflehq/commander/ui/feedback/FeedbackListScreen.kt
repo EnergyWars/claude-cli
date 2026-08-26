@@ -174,6 +174,14 @@ private fun FeedbackRow(
                         color = AppTheme.colors.onSurfaceVariant,
                     )
                 }
+                val context = entry.context
+                if (context != null) {
+                    Text(
+                        text = stringResource(R.string.feedback_context, context),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppTheme.colors.onSurfaceVariant,
+                    )
+                }
                 Text(entry.createdAt, style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                     AppIconButton(

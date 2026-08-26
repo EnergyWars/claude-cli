@@ -142,8 +142,10 @@ test('openDatabase: ergaenzt fehlende Spalte "section" in einer alten t_feedback
       const legacy = listFeedback(migratedDb)[0];
       assert.ok(legacy);
       assert.equal(legacy.section, null);
-      const created = insertFeedback(migratedDb, 'Neues Feedback.', 'periodical-debug');
+      assert.equal(legacy.context, null);
+      const created = insertFeedback(migratedDb, 'Neues Feedback.', 'periodical-debug', 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
       assert.equal(created.section, 'periodical-debug');
+      assert.equal(created.context, 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
     } finally {
       migratedDb.close();
     }
@@ -664,6 +666,7 @@ test('insertFeedback + getFeedback: Roundtrip', () => {
   assert.equal(typeof feedback.id, 'number');
   assert.equal(feedback.text, 'Bitte Dark Mode hinzufuegen.');
   assert.equal(feedback.section, null);
+  assert.equal(feedback.context, null);
   assert.equal(feedback.createdAt, feedback.updatedAt);
   assert.deepEqual(getFeedback(db, feedback.id), feedback);
 });
@@ -672,6 +675,21 @@ test('insertFeedback: speichert den optionalen Abschnitt', () => {
   const feedback = insertFeedback(db, 'App stuerzt ab.', 'periodical-debug');
   assert.equal(feedback.section, 'periodical-debug');
   assert.deepEqual(getFeedback(db, feedback.id), feedback);
+});
+
+test('insertFeedback: speichert den optionalen Kontext', () => {
+  const feedback = insertFeedback(db, 'App stuerzt ab.', 'periodical-debug', 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+  assert.equal(feedback.context, 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+  assert.deepEqual(getFeedback(db, feedback.id), feedback);
+});
+
+test('updateFeedback: laesst Abschnitt und Kontext unveraendert', () => {
+  const feedback = insertFeedback(db, 'Alt.', 'periodical-debug', 'Kontext');
+  const updated = updateFeedback(db, feedback.id, 'Neu.');
+  assert.ok(updated);
+  assert.equal(updated.text, 'Neu.');
+  assert.equal(updated.section, 'periodical-debug');
+  assert.equal(updated.context, 'Kontext');
 });
 
 test('getFeedback: undefined fuer unbekannte ID', () => {

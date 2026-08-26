@@ -451,14 +451,14 @@ Implementiert in `src/collect.ts` (`collectAll`/`collectOne`/`listCollectedFiles
 
 Ein leichtgewichtiger, komplett serverweiter (nicht pfadgebundener) Feedback-Kasten:
 
-- **`POST /feedback`** – **komplett unauthentifiziert**, Body `{ "text": string, "section"?: string }`, legt einen Eintrag in `t_feedback` an (`201` mit dem Datensatz). `section` ist optional und bezeichnet den Bereich/die Ablage, aus der das Feedback stammt (z. B. ein Collection-`targetName` wie `"periodical-debug"`); leerer/fehlender Wert wird als `null` gespeichert. Gedacht für beliebige Absender im lokalen Netz, ohne Login (z. B. eine eigene kleine Feedback-Quelle).
-- **`GET /feedback`** (authentifiziert) – listet alle Einträge (inkl. `section`), neueste zuerst.
-- **`PATCH /feedback/<id>`** (authentifiziert) – Body `{ "text": string }` (Pflicht), `404` bei unbekannter ID. `section` bleibt dabei unveraendert (nicht editierbar).
+- **`POST /feedback`** – **komplett unauthentifiziert**, Body `{ "text": string, "section"?: string, "context"?: string }`, legt einen Eintrag in `t_feedback` an (`201` mit dem Datensatz). `section` ist optional und bezeichnet den Bereich/die Ablage, aus der das Feedback stammt (z. B. ein Collection-`targetName` wie `"periodical-debug"`); `context` ist ein optionaler Freitext mit Zusatzinformationen (z. B. `"periodical-debug.apk (2026-08-26T10:00:00.000Z)"` – APK-Name und Zeitstempel der bewerteten Datei). Leerer/fehlender Wert wird jeweils als `null` gespeichert. Gedacht für beliebige Absender im lokalen Netz, ohne Login (z. B. eine eigene kleine Feedback-Quelle).
+- **`GET /feedback`** (authentifiziert) – listet alle Einträge (inkl. `section` und `context`), neueste zuerst.
+- **`PATCH /feedback/<id>`** (authentifiziert) – Body `{ "text": string }` (Pflicht), `404` bei unbekannter ID. `section` und `context` bleiben dabei unveraendert (nicht editierbar).
 - **`DELETE /feedback/<id>`** (authentifiziert) – löscht den Eintrag unwiderruflich, `404` bei unbekannter ID.
 
 Der `commander` verwaltet Feedback (siehe `commander/FEATURES.md`): ansehen (inkl. Abschnitt, falls vorhanden), bearbeiten (mehrzeiliges Textfeld), löschen, oder per Klick in ein Ticket umwandeln (ruft clientseitig `POST /tickets/<pathName>` mit dem Feedback-Text und danach `DELETE /feedback/<id>` auf – kein eigener Server-Endpunkt für die Umwandlung nötig). Es gibt bewusst keine Möglichkeit, Feedback aus dem `commander` heraus **anzulegen** – `POST /feedback` ist für externe Absender gedacht, allen voran `app-getter` (siehe unten), das den Namen der jeweiligen Ablage automatisch als `section` mitschickt.
 
-Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-Spalte, `insertFeedback`/`listFeedback`/`getFeedback`/`updateFeedback`/`deleteFeedback`), `src/server.ts` (Routing, Validierung von `section`), `openapi.json`.
+Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`- und `context`-Spalte, `insertFeedback`/`listFeedback`/`getFeedback`/`updateFeedback`/`deleteFeedback`), `src/server.ts` (Routing, Validierung von `section`), `openapi.json`.
 
 ## Tests (`npm test`)
 

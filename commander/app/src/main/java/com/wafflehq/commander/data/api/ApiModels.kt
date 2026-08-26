@@ -134,6 +134,7 @@ data class FeedbackEntry(
     val id: Int,
     val text: String,
     val section: String? = null,
+    val context: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

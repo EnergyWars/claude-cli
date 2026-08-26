@@ -955,9 +955,10 @@ test('POST /feedback: kein Auth noetig, legt einen Eintrag an', async () => {
     body: JSON.stringify({ text: 'Bitte Dark Mode.' }),
   });
   assert.equal(res.status, 201);
-  const body = (await res.json()) as { id: number; text: string; section: string | null };
+  const body = (await res.json()) as { id: number; text: string; section: string | null; context: string | null };
   assert.equal(body.text, 'Bitte Dark Mode.');
   assert.equal(body.section, null);
+  assert.equal(body.context, null);
   assert.equal(typeof body.id, 'number');
 });
 
@@ -970,6 +971,37 @@ test('POST /feedback: speichert den optionalen Abschnitt', async () => {
   assert.equal(res.status, 201);
   const body = (await res.json()) as { section: string | null };
   assert.equal(body.section, 'periodical-debug');
+});
+
+test('POST /feedback: speichert den optionalen Kontext', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'App stuerzt ab.', context: 'periodical-debug.apk (2026-08-26T10:00:00.000Z)' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { context: string | null };
+  assert.equal(body.context, 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+});
+
+test('POST /feedback: leerer Kontext wird zu null', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Text', context: '   ' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { context: string | null };
+  assert.equal(body.context, null);
+});
+
+test('POST /feedback: 400 wenn "context" kein String ist', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Text', context: 42 }),
+  });
+  assert.equal(res.status, 400);
 });
 
 test('POST /feedback: 400 bei leerem Text', async () => {

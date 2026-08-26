@@ -36,6 +36,10 @@
 
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
+    <string name="commands_run_confirm_title">Befehl ausführen?</string>
+    <string name="commands_run_confirm_body">„%1$s“ jetzt ausführen?</string>
+    <string name="commands_run_confirm_confirm">Ausführen</string>
+    <string name="commands_run_confirm_dismiss">Abbrechen</string>
 
     <string name="history_title">Verlauf</string>
     <string name="history_empty">Noch keine Befehle gesendet.</string>
@@ -133,6 +137,7 @@
     <string name="feedback_title">Feedback</string>
     <string name="feedback_empty">Noch kein Feedback.</string>
     <string name="feedback_section">Bereich: %1$s</string>
+    <string name="feedback_context">Kontext: %1$s</string>
     <string name="feedback_edit">Bearbeiten</string>
     <string name="feedback_save">Speichern</string>
     <string name="feedback_cancel">Abbrechen</string>

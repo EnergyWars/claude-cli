@@ -9,3 +9,5 @@ fun downloadState(file: CollectedFile, downloadedTimestamps: Map<String, String>
     val downloadedTimestamp = downloadedTimestamps[file.name] ?: return DownloadState.NOT_DOWNLOADED
     return if (downloadedTimestamp == file.timestamp) DownloadState.UP_TO_DATE else DownloadState.UPDATE_AVAILABLE
 }
+
+fun feedbackContext(file: CollectedFile): String = "${file.name} (${file.timestamp})"

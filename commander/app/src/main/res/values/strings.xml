@@ -36,6 +36,10 @@
 
     <string name="commands_title">Commands</string>
     <string name="commands_empty">No commands.</string>
+    <string name="commands_run_confirm_title">Run command?</string>
+    <string name="commands_run_confirm_body">Run \"%1$s\" now?</string>
+    <string name="commands_run_confirm_confirm">Run</string>
+    <string name="commands_run_confirm_dismiss">Cancel</string>
 
     <string name="history_title">History</string>
     <string name="history_empty">No commands sent yet.</string>
@@ -133,6 +137,7 @@
     <string name="feedback_title">Feedback</string>
     <string name="feedback_empty">No feedback yet.</string>
     <string name="feedback_section">Section: %1$s</string>
+    <string name="feedback_context">Context: %1$s</string>
     <string name="feedback_edit">Edit</string>
     <string name="feedback_save">Save</string>
     <string name="feedback_cancel">Cancel</string>

@@ -12,13 +12,14 @@ data class CollectionList(val files: List<CollectedFile>)
 data class ErrorResponse(val error: String)
 
 @Serializable
-data class FeedbackRequest(val text: String, val section: String? = null)
+data class FeedbackRequest(val text: String, val section: String? = null, val context: String? = null)
 
 @Serializable
 data class FeedbackEntry(
     val id: Int,
     val text: String,
     val section: String? = null,
+    val context: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

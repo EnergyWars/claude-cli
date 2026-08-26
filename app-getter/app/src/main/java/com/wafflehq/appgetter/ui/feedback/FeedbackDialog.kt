@@ -1,5 +1,7 @@
 package com.wafflehq.appgetter.ui.feedback
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -13,6 +15,7 @@ import com.wafflehq.appgetter.ui.components.AppTextField
 import com.wafflehq.appgetter.ui.components.ButtonVariant
 import com.wafflehq.appgetter.ui.theme.AppRadius
 import com.wafflehq.appgetter.ui.theme.AppRole
+import com.wafflehq.appgetter.ui.theme.AppSpacing
 import com.wafflehq.appgetter.ui.theme.AppTheme
 
 @Composable
@@ -20,6 +23,8 @@ fun FeedbackDialog(
     section: String,
     text: String,
     onTextChange: (String) -> Unit,
+    context: String,
+    onContextChange: (String) -> Unit,
     onSend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -31,14 +36,23 @@ fun FeedbackDialog(
         textContentColor = AppTheme.tokens.surface.onSurface,
         title = { Text(stringResource(R.string.feedback_dialog_title, section)) },
         text = {
-            AppTextField(
-                value = text,
-                onValueChange = onTextChange,
-                label = stringResource(R.string.feedback_text_label),
-                role = AppRole.Neutral,
-                minLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+                AppTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    label = stringResource(R.string.feedback_text_label),
+                    role = AppRole.Neutral,
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                AppTextField(
+                    value = context,
+                    onValueChange = onContextChange,
+                    label = stringResource(R.string.feedback_context_label),
+                    role = AppRole.Neutral,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         },
         confirmButton = {
             AppButton(

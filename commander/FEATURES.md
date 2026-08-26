@@ -39,7 +39,7 @@ Die letzten beiden Einträge sind bewusst serverweit statt pro Projekt, da `cont
 
 ## Befehle
 
-Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen Projekts. Tippen führt den Befehl aus (`POST /paths/<path>/commands/<key>`) und öffnet die Status-Detailseite. Sonst nichts auf diesem Screen.
+Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen Projekts. Tippen öffnet einen Bestätigungsdialog („Befehl ausführen?" mit Anzeigename); erst nach Bestätigung wird der Befehl ausgeführt (`POST /paths/<path>/commands/<key>`) und die Status-Detailseite geöffnet. Sonst nichts auf diesem Screen.
 
 ## Downloads
 
@@ -88,7 +88,7 @@ Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, e
 
 Erreichbar über den „Feedback"-Eintrag im Projekt-Hub – **serverweit**, nicht auf das aktuelle Projekt beschränkt (`GET /feedback`, `cl server`s Feedback-Kasten sammelt Text von beliebigen, unauthentifizierten Absendern im Netz).
 
-Liste aller Feedback-Einträge, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) verknüpft, wird dieser unter dem Text angezeigt. Pro Eintrag:
+Liste aller Feedback-Einträge, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) und/oder einem Kontext (Freitext, z. B. APK-Name und Zeitstempel) verknüpft, werden diese unter dem Text angezeigt. Pro Eintrag:
 
 - **Bearbeiten:** Mehrzeiliges Textfeld (Textarea) ersetzt den Text – Feedback darf beliebig lang sein –, „Speichern" (`PATCH /feedback/<id>`).
 - **Löschen:** Bestätigungsdialog, danach `DELETE /feedback/<id>`.
