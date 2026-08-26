@@ -169,7 +169,7 @@ class ClServerApi @Inject constructor(
      * fall back to polling [getState] if this flow throws before a terminal status was emitted (e.g. a proxy
      * without streaming support).
      */
-    fun streamState(id: String): Flow<CommandState> = flow {
+    fun streamState(id: String): Flow<CommandState> = flow<CommandState> {
         val session = requireSession()
         val request = Request.Builder()
             .url(
@@ -185,7 +185,7 @@ class ClServerApi @Inject constructor(
             while (true) {
                 val line = source.readUtf8Line() ?: break
                 if (line.startsWith(SSE_DATA_PREFIX)) {
-                    emit(json.decodeFromString(line.removePrefix(SSE_DATA_PREFIX)))
+                    emit(json.decodeFromString<CommandState>(line.removePrefix(SSE_DATA_PREFIX)))
                 }
             }
         }

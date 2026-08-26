@@ -1,5 +1,6 @@
 package com.wafflehq.commander.ui.command
 
+import android.content.ClipData
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -20,12 +21,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
@@ -42,6 +44,7 @@ import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 import com.wafflehq.commander.ui.theme.GeistMono
+import kotlinx.coroutines.launch
 
 private const val STATUS_COMPLETED = "completed"
 
@@ -59,7 +62,8 @@ fun CommandDetailScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.command_detail_output_copied)
 
     LaunchedEffect(uiState.downloadedFile) {
@@ -142,7 +146,9 @@ fun CommandDetailScreen(
                     contentDescription = stringResource(R.string.command_detail_output_copy),
                     role = AppRole.Primary,
                     onClick = {
-                        clipboardManager.setText(AnnotatedString(state.output))
+                        coroutineScope.launch {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("", state.output)))
+                        }
                         Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
                     },
                 )
