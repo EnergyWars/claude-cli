@@ -47,6 +47,9 @@
     <string name="download_status_downloading">Wird heruntergeladen…</string>
     <string name="download_status_verifying">Wird überprüft…</string>
     <string name="download_status_installing">Wird installiert…</string>
+    <string name="apk_action_title">APK heruntergeladen</string>
+    <string name="apk_action_install">Installieren</string>
+    <string name="apk_action_share">Teilen</string>
     <string name="download_status_opening">Wird geöffnet…</string>
 
     <string name="agents_title">Entwicklung</string>
@@ -129,6 +132,7 @@
 
     <string name="feedback_title">Feedback</string>
     <string name="feedback_empty">Noch kein Feedback.</string>
+    <string name="feedback_section">Bereich: %1$s</string>
     <string name="feedback_edit">Bearbeiten</string>
     <string name="feedback_save">Speichern</string>
     <string name="feedback_cancel">Abbrechen</string>

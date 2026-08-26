@@ -130,7 +130,13 @@ data class CollectErrorEntry(val targetName: String, val error: String)
 data class CollectSummary(val results: List<CollectResultEntry>, val errors: List<CollectErrorEntry>)
 
 @Serializable
-data class FeedbackEntry(val id: Int, val text: String, val createdAt: String, val updatedAt: String)
+data class FeedbackEntry(
+    val id: Int,
+    val text: String,
+    val section: String? = null,
+    val createdAt: String,
+    val updatedAt: String,
+)
 
 @Serializable
 data class FeedbackList(val feedback: List<FeedbackEntry>)

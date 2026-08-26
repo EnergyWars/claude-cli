@@ -252,6 +252,7 @@ function parseCollectRequestBody(raw: unknown): CollectRequestBody {
 
 interface FeedbackTextBody {
   text: string;
+  section: string | null;
 }
 
 function parseFeedbackTextBody(raw: unknown): FeedbackTextBody {
@@ -262,7 +263,11 @@ function parseFeedbackTextBody(raw: unknown): FeedbackTextBody {
   if (typeof record.text !== 'string' || record.text.trim() === '') {
     throw new Error('Feld "text" (nicht-leerer String) ist erforderlich.');
   }
-  return { text: record.text };
+  if (record.section !== undefined && typeof record.section !== 'string') {
+    throw new Error('Feld "section" muss, falls vorhanden, ein String sein.');
+  }
+  const section = typeof record.section === 'string' ? record.section.trim() : '';
+  return { text: record.text, section: section === '' ? null : section };
 }
 
 function parseAuthCodeBody(raw: unknown): AuthCodeBody {
@@ -825,7 +830,7 @@ function handlePostFeedback(db: DatabaseSync, res: ServerResponse, bodyText: str
     return;
   }
 
-  sendJson(res, 201, insertFeedback(db, body.text));
+  sendJson(res, 201, insertFeedback(db, body.text, body.section));
 }
 
 function handlePatchFeedback(

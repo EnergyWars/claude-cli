@@ -114,10 +114,10 @@ class AppGetterApi @Inject constructor() {
     }
 
     /** POST /feedback: kein Auth, legt einen neuen Feedback-Eintrag auf dem Server an. */
-    suspend fun sendFeedback(host: String, port: Int, text: String): FeedbackEntry {
+    suspend fun sendFeedback(host: String, port: Int, text: String, section: String? = null): FeedbackEntry {
         val request = Request.Builder()
             .url(urlBuilder(host, port).addPathSegment("feedback").build())
-            .post(json.encodeToString(FeedbackRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
+            .post(json.encodeToString(FeedbackRequest(text, section)).toRequestBody(JSON_MEDIA_TYPE))
         return execute(request)
     }
 

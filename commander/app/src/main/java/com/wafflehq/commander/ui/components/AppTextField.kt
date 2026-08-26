@@ -24,6 +24,7 @@ fun AppTextField(
     isError: Boolean = false,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    minLines: Int = 1,
 ) {
     val t = AppTheme.tokens.textField
     val r = t.forRole(role)
@@ -36,6 +37,7 @@ fun AppTextField(
         enabled = enabled,
         isError = isError,
         singleLine = false,
+        minLines = minLines,
         shape = RoundedCornerShape(AppRadius.textField),
         colors = TextFieldDefaults.colors(
             focusedContainerColor   = r.background,

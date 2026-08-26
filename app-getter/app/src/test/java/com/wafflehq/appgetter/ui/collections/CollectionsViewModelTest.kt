@@ -8,10 +8,12 @@ import com.wafflehq.appgetter.data.discovery.NetworkDiscovery
 import com.wafflehq.appgetter.data.install.ApkInstaller
 import com.wafflehq.appgetter.data.install.DownloadPhase
 import com.wafflehq.appgetter.data.install.DownloadStatus
+import com.wafflehq.appgetter.data.settings.DownloadHistoryRepository
 import com.wafflehq.appgetter.data.settings.ServerOverride
 import com.wafflehq.appgetter.data.settings.SettingsRepository
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -48,13 +50,26 @@ class CollectionsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel(installer: ApkInstaller, api: AppGetterApi = mockk {
-        coEvery { getCollections("host", 8787) } returns CollectionList(listOf(file))
-    }): CollectionsViewModel {
+    private fun viewModel(
+        installer: ApkInstaller,
+        api: AppGetterApi = mockk {
+            coEvery { getCollections("host", 8787) } returns CollectionList(listOf(file))
+        },
+        downloadHistoryRepository: DownloadHistoryRepository = mockk {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            coEvery { recordDownload(any(), any()) } just Runs
+        },
+    ): CollectionsViewModel {
         val settingsRepository = mockk<SettingsRepository> {
             every { serverOverride } returns flowOf(ServerOverride("host", 8787))
         }
-        val viewModel = CollectionsViewModel(settingsRepository, mockk<NetworkDiscovery>(), api, installer)
+        val viewModel = CollectionsViewModel(
+            settingsRepository,
+            mockk<NetworkDiscovery>(),
+            api,
+            installer,
+            downloadHistoryRepository,
+        )
         dispatcher.scheduler.advanceUntilIdle()
         return viewModel
     }
@@ -70,7 +85,11 @@ class CollectionsViewModelTest {
                 downloaded
             }
         }
-        val viewModel = viewModel(installer)
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            coEvery { recordDownload(any(), any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
 
         viewModel.downloadAndInstall(file)
         dispatcher.scheduler.runCurrent()
@@ -79,6 +98,7 @@ class CollectionsViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(downloaded, viewModel.uiState.value.installFile)
         assertEquals("test.apk", viewModel.uiState.value.downloadingFileName)
+        coVerify { downloadHistoryRepository.recordDownload("test.apk", file.timestamp) }
 
         viewModel.consumeInstallFile()
         assertNull(viewModel.uiState.value.downloadingFileName)
@@ -134,5 +154,16 @@ class CollectionsViewModelTest {
         statusFlow.value = DownloadStatus(DownloadPhase.VERIFYING)
 
         assertEquals(DownloadPhase.VERIFYING, viewModel.downloadStatus.value?.phase)
+    }
+
+    @Test
+    fun `downloadedTimestamps passes through the repository's flow`() = runTest(dispatcher) {
+        val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(mapOf("test.apk" to file.timestamp))
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        assertEquals(mapOf("test.apk" to file.timestamp), viewModel.downloadedTimestamps.value)
     }
 }

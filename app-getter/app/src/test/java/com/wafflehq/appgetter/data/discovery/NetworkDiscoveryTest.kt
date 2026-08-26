@@ -18,6 +18,24 @@ class NetworkDiscoveryTest {
     }
 
     @Test
+    fun `subnetHosts respects a smaller prefix length such as -28`() {
+        val hosts = subnetHosts("10.0.0.20", prefixLength = 28)
+
+        assertEquals(14, hosts.size)
+        assertEquals("10.0.0.17", hosts.first())
+        assertEquals("10.0.0.30", hosts.last())
+    }
+
+    @Test
+    fun `subnetHosts falls back to the device -24 window for very large networks`() {
+        val hosts = subnetHosts("10.1.2.3", prefixLength = 8)
+
+        assertEquals(254, hosts.size)
+        assertEquals("10.1.2.1", hosts.first())
+        assertEquals("10.1.2.254", hosts.last())
+    }
+
+    @Test
     fun `raceFirstMatch returns the first candidate for which the predicate is true`() = runBlocking {
         val result = raceFirstMatch((1..20).toList()) { candidate -> candidate == 7 }
 

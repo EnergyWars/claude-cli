@@ -123,6 +123,22 @@ class AppGetterApiTest {
     }
 
     @Test
+    fun `sendFeedback posts the section when given`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                code = 201,
+                body = """{"id":2,"text":"Hallo","section":"periodical-debug","createdAt":"2026-08-26T00:00:00.000Z","updatedAt":"2026-08-26T00:00:00.000Z"}""",
+            ),
+        )
+
+        val result = api.sendFeedback(server.hostName, server.port, "Hallo", "periodical-debug")
+
+        assertEquals("periodical-debug", result.section)
+        val request = server.takeRequest()
+        assertEquals("""{"text":"Hallo","section":"periodical-debug"}""", request.body?.utf8())
+    }
+
+    @Test
     fun `sendFeedback throws an ApiException with the server error message`() = runBlocking {
         server.enqueue(MockResponse(code = 400, body = """{"error":"text fehlt"}"""))
 

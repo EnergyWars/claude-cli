@@ -1451,10 +1451,15 @@
       },
       "Feedback": {
         "type": "object",
-        "required": ["id", "text", "createdAt", "updatedAt"],
+        "required": ["id", "text", "section", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "integer" },
           "text": { "type": "string" },
+          "section": {
+            "type": "string",
+            "nullable": true,
+            "description": "Optionaler Bezeichner des Bereichs/der Ablage, aus der das Feedback stammt (z. B. ein Collection-targetName). null wenn keiner angegeben wurde."
+          },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }
@@ -1473,7 +1478,11 @@
         "type": "object",
         "required": ["text"],
         "properties": {
-          "text": { "type": "string", "minLength": 1 }
+          "text": { "type": "string", "minLength": 1 },
+          "section": {
+            "type": "string",
+            "description": "Optionaler Bezeichner des Bereichs/der Ablage, aus der das Feedback stammt (z. B. ein Collection-targetName)."
+          }
         },
         "additionalProperties": false
       },

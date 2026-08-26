@@ -4,7 +4,6 @@ import android.content.Context
 import com.wafflehq.appgetter.data.api.ApiException
 import com.wafflehq.appgetter.data.api.AppGetterApi
 import com.wafflehq.appgetter.data.api.DownloadProgress
-import io.mockk.arg
 import io.mockk.coEvery
 import io.mockk.mockk
 import java.io.File

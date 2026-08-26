@@ -16,6 +16,11 @@
     <string name="home_downloading">Wird heruntergeladen…</string>
     <string name="home_verifying">Wird überprüft…</string>
     <string name="home_installing">Wird installiert…</string>
+    <string name="home_download_up_to_date">✓ Aktuell</string>
+    <string name="home_download_update_available">Neue Version verfügbar</string>
+    <string name="apk_action_title">APK heruntergeladen</string>
+    <string name="apk_action_install">Installieren</string>
+    <string name="apk_action_share">Teilen</string>
 
     <string name="settings_title">Einstellungen</string>
     <string name="settings_group_general">Allgemein</string>
@@ -28,8 +33,9 @@
     <string name="settings_port_label">Port</string>
     <string name="settings_connection_save">Speichern</string>
     <string name="settings_connection_hint">Host leer lassen, um das lokale Netz automatisch zu durchsuchen.</string>
-    <string name="settings_group_feedback">Feedback</string>
+
+    <string name="feedback_open">Feedback geben</string>
+    <string name="feedback_dialog_title">Feedback zu „%1$s“</string>
     <string name="feedback_text_label">Dein Feedback</string>
     <string name="feedback_submit">Senden</string>
-    <string name="feedback_sent">Feedback gesendet. Danke.</string>
 </resources>

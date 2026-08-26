@@ -1,4 +1,4 @@
-package com.wafflehq.appgetter.ui.settings
+package com.wafflehq.appgetter.ui.feedback
 
 import com.wafflehq.appgetter.data.api.ApiException
 import com.wafflehq.appgetter.data.api.AppGetterApi
@@ -44,51 +44,90 @@ class FeedbackViewModelTest {
         }
 
     @Test
+    fun `open sets the section and resets any leftover text`() {
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), mockk())
+
+        viewModel.open("periodical-debug")
+
+        val state = viewModel.uiState.value
+        assertEquals("periodical-debug", state.openSection)
+        assertEquals("", state.text)
+    }
+
+    @Test
+    fun `dismiss closes the dialog and clears the text`() {
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), mockk())
+
+        viewModel.open("periodical-debug")
+        viewModel.onTextChange("Draft")
+        viewModel.dismiss()
+
+        val state = viewModel.uiState.value
+        assertNull(state.openSection)
+        assertEquals("", state.text)
+    }
+
+    @Test
     fun `blank text does not trigger a request`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi>()
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
+        viewModel.open("periodical-debug")
         viewModel.onTextChange("   ")
         viewModel.send()
         dispatcher.scheduler.runCurrent()
 
-        assertEquals(false, viewModel.uiState.value.sending)
-        assertEquals(false, viewModel.uiState.value.sent)
+        assertEquals("periodical-debug", viewModel.uiState.value.openSection)
     }
 
     @Test
-    fun `successful send clears the text and marks it sent`() = runTest(dispatcher) {
+    fun `send clears the field and closes the dialog immediately`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
-            coEvery { sendFeedback("192.168.1.5", 8787, "Tolle App") } returns
-                FeedbackEntry(1, "Tolle App", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+            coEvery { sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug") } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
+        viewModel.open("periodical-debug")
         viewModel.onTextChange("Tolle App")
         viewModel.send()
-        dispatcher.scheduler.runCurrent()
 
         val state = viewModel.uiState.value
-        assertTrue(state.sent)
+        assertNull(state.openSection)
         assertEquals("", state.text)
-        assertEquals(false, state.sending)
         assertNull(state.error)
     }
 
     @Test
-    fun `failed send keeps the text and reports the error`() = runTest(dispatcher) {
+    fun `send includes the section automatically`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
-            coEvery { sendFeedback(any(), any(), any()) } throws ApiException(500, "Serverfehler.")
+            coEvery { sendFeedback(any(), any(), any(), any()) } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
+        viewModel.open("periodical-debug")
+        viewModel.onTextChange("Tolle App")
+        viewModel.send()
+        dispatcher.scheduler.runCurrent()
+
+        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug") }
+    }
+
+    @Test
+    fun `failed background send reports the error without reopening the dialog`() = runTest(dispatcher) {
+        val api = mockk<AppGetterApi> {
+            coEvery { sendFeedback(any(), any(), any(), any()) } throws ApiException(500, "Serverfehler.")
+        }
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
+
+        viewModel.open("periodical-debug")
         viewModel.onTextChange("Tolle App")
         viewModel.send()
         dispatcher.scheduler.runCurrent()
 
         val state = viewModel.uiState.value
-        assertEquals(false, state.sent)
-        assertEquals("Tolle App", state.text)
+        assertNull(state.openSection)
         assertEquals("Serverfehler.", state.error)
     }
 
@@ -100,12 +139,27 @@ class FeedbackViewModelTest {
         val api = mockk<AppGetterApi>()
         val viewModel = FeedbackViewModel(settingsRepository(host = null), discovery, api)
 
+        viewModel.open("periodical-debug")
         viewModel.onTextChange("Tolle App")
         viewModel.send()
         dispatcher.scheduler.runCurrent()
 
-        assertEquals(false, viewModel.uiState.value.sending)
-        assertEquals(false, viewModel.uiState.value.sent)
         assertTrue(viewModel.uiState.value.error != null)
+    }
+
+    @Test
+    fun `clearError resets the error state`() = runTest(dispatcher) {
+        val discovery = mockk<NetworkDiscovery> {
+            coEvery { discoverHost(8787) } returns null
+        }
+        val viewModel = FeedbackViewModel(settingsRepository(host = null), discovery, mockk())
+
+        viewModel.open("periodical-debug")
+        viewModel.onTextChange("Tolle App")
+        viewModel.send()
+        dispatcher.scheduler.runCurrent()
+        viewModel.clearError()
+
+        assertNull(viewModel.uiState.value.error)
     }
 }

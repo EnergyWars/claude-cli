@@ -83,6 +83,18 @@ class HostedFileDownloader @Inject constructor(
         }
     }
 
+    fun shareApkIntent(file: File): Intent {
+        val uri = FileProvider.getUriForFile(context, context.packageName + FILE_PROVIDER_SUFFIX, file)
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = APK_MIME_TYPE
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return Intent.createChooser(sendIntent, null).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
     fun openOrInstallIntent(file: File): Intent =
         if (isApkFileName(file.name)) installIntent(file) else shareIntent(file)
 }

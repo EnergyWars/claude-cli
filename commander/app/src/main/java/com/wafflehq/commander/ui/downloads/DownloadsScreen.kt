@@ -29,6 +29,8 @@ import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
 import com.wafflehq.commander.data.api.ManifestHostedEntry
 import com.wafflehq.commander.data.download.DownloadStatus
+import com.wafflehq.commander.data.download.isApkFileName
+import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
@@ -47,11 +49,29 @@ fun DownloadsScreen(
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    LaunchedEffect(state.downloadedFile) {
-        state.downloadedFile?.let { file ->
-            context.startActivity(viewModel.openOrInstallIntent(file))
-            viewModel.consumeDownloadedFile()
+    val downloadedFile = state.downloadedFile
+    LaunchedEffect(downloadedFile) {
+        downloadedFile?.let { file ->
+            if (!isApkFileName(file.name)) {
+                context.startActivity(viewModel.openOrInstallIntent(file))
+                viewModel.consumeDownloadedFile()
+            }
         }
+    }
+
+    if (downloadedFile != null && isApkFileName(downloadedFile.name)) {
+        ApkActionDialog(
+            fileName = downloadedFile.name,
+            onInstall = {
+                context.startActivity(viewModel.installIntent(downloadedFile))
+                viewModel.consumeDownloadedFile()
+            },
+            onShare = {
+                context.startActivity(viewModel.shareApkIntent(downloadedFile))
+                viewModel.consumeDownloadedFile()
+            },
+            onDismiss = { viewModel.consumeDownloadedFile() },
+        )
     }
 
     SettingsScaffold(

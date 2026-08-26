@@ -1,4 +1,4 @@
-package com.wafflehq.appgetter.ui.settings
+package com.wafflehq.appgetter.ui.feedback
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,9 +16,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class FeedbackUiState(
+    val openSection: String? = null,
     val text: String = "",
-    val sending: Boolean = false,
-    val sent: Boolean = false,
     val error: String? = null,
 )
 
@@ -32,26 +31,39 @@ class FeedbackViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(FeedbackUiState())
     val uiState: StateFlow<FeedbackUiState> = _uiState.asStateFlow()
 
+    fun open(section: String) {
+        _uiState.update { it.copy(openSection = section, text = "", error = null) }
+    }
+
+    fun dismiss() {
+        _uiState.update { it.copy(openSection = null, text = "") }
+    }
+
     fun onTextChange(value: String) {
-        _uiState.update { it.copy(text = value, sent = false) }
+        _uiState.update { it.copy(text = value) }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
     }
 
     fun send() {
-        val text = _uiState.value.text.trim()
+        val state = _uiState.value
+        val section = state.openSection ?: return
+        val text = state.text.trim()
         if (text.isEmpty()) return
+        _uiState.update { it.copy(openSection = null, text = "") }
         viewModelScope.launch {
-            _uiState.update { it.copy(sending = true, error = null, sent = false) }
             val override = settingsRepository.serverOverride.first()
             val host = override.host ?: discovery.discoverHost(override.port)
             if (host == null) {
-                _uiState.update { it.copy(sending = false, error = "Kein Server gefunden.") }
+                _uiState.update { it.copy(error = "Kein Server gefunden.") }
                 return@launch
             }
             try {
-                api.sendFeedback(host, override.port, text)
-                _uiState.update { it.copy(sending = false, sent = true, text = "") }
+                api.sendFeedback(host, override.port, text, section)
             } catch (error: ApiException) {
-                _uiState.update { it.copy(sending = false, error = error.message ?: "Senden fehlgeschlagen.") }
+                _uiState.update { it.copy(error = error.message ?: "Senden fehlgeschlagen.") }
             }
         }
     }

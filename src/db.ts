@@ -105,10 +105,12 @@ export function openDatabase(directory: string): DatabaseSync {
     CREATE TABLE IF NOT EXISTS t_feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       text TEXT NOT NULL,
+      section TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
   `);
+  ensureColumns(db, 't_feedback', [{ name: 'section', definition: 'section TEXT' }]);
   return db;
 }
 
@@ -427,6 +429,7 @@ export function deleteTicket(db: DatabaseSync, id: number): boolean {
 export interface FeedbackRow {
   id: number;
   text: string;
+  section: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -435,16 +438,17 @@ function toFeedbackRow(row: Record<string, SQLOutputValue>): FeedbackRow {
   return {
     id: Number(row.id),
     text: String(row.text),
+    section: row.section === null || row.section === undefined ? null : String(row.section),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
 }
 
-export function insertFeedback(db: DatabaseSync, text: string): FeedbackRow {
+export function insertFeedback(db: DatabaseSync, text: string, section: string | null = null): FeedbackRow {
   const now = new Date().toISOString();
   const result = db
-    .prepare('INSERT INTO t_feedback (text, created_at, updated_at) VALUES (?, ?, ?)')
-    .run(text, now, now);
+    .prepare('INSERT INTO t_feedback (text, section, created_at, updated_at) VALUES (?, ?, ?, ?)')
+    .run(text, section, now, now);
   const feedback = getFeedback(db, Number(result.lastInsertRowid));
   if (!feedback) {
     throw new Error('Feedback konnte nach dem Anlegen nicht gelesen werden.');

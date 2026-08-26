@@ -120,6 +120,38 @@ test('openDatabase: ergaenzt fehlende Spalte "jwt_secret" in einer alten t_totp-
   }
 });
 
+test('openDatabase: ergaenzt fehlende Spalte "section" in einer alten t_feedback-Tabelle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-migration-feedback-'));
+  try {
+    const legacyDb = new DatabaseSync(join(dir, 'commands.db'));
+    legacyDb.exec(`
+      CREATE TABLE t_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    legacyDb
+      .prepare('INSERT INTO t_feedback (text, created_at, updated_at) VALUES (?, ?, ?)')
+      .run('Altes Feedback ohne Abschnitt.', new Date().toISOString(), new Date().toISOString());
+    legacyDb.close();
+
+    const migratedDb = openDatabase(dir);
+    try {
+      const legacy = listFeedback(migratedDb)[0];
+      assert.ok(legacy);
+      assert.equal(legacy.section, null);
+      const created = insertFeedback(migratedDb, 'Neues Feedback.', 'periodical-debug');
+      assert.equal(created.section, 'periodical-debug');
+    } finally {
+      migratedDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('openDatabase: erzeugt t_access_log, t_commands, t_totp und t_tickets', () => {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -631,7 +663,14 @@ test('insertFeedback + getFeedback: Roundtrip', () => {
   const feedback = insertFeedback(db, 'Bitte Dark Mode hinzufuegen.');
   assert.equal(typeof feedback.id, 'number');
   assert.equal(feedback.text, 'Bitte Dark Mode hinzufuegen.');
+  assert.equal(feedback.section, null);
   assert.equal(feedback.createdAt, feedback.updatedAt);
+  assert.deepEqual(getFeedback(db, feedback.id), feedback);
+});
+
+test('insertFeedback: speichert den optionalen Abschnitt', () => {
+  const feedback = insertFeedback(db, 'App stuerzt ab.', 'periodical-debug');
+  assert.equal(feedback.section, 'periodical-debug');
   assert.deepEqual(getFeedback(db, feedback.id), feedback);
 });
 

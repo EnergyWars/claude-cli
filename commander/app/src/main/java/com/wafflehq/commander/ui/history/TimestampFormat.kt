@@ -2,9 +2,21 @@ package com.wafflehq.commander.ui.history
 
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
-/** ISO-8601 ("2026-08-25T19:13:12.620Z") zu einer kompakten, lesbaren Form ("2026-08-25 19:13:12"). */
-fun formatTimestamp(iso: String): String = iso.replace('T', ' ').substringBefore('.')
+private val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+/** UTC-ISO-8601 ("2026-08-25T19:13:12.620Z") in die Zeitzone des Geräts umgerechnet und kompakt formatiert. */
+fun formatTimestamp(iso: String): String {
+    val instant = try {
+        Instant.parse(iso)
+    } catch (error: DateTimeParseException) {
+        return iso.replace('T', ' ').substringBefore('.')
+    }
+    return formatter.format(instant.atZone(ZoneId.systemDefault()))
+}
 
 /** Differenz zwischen zwei ISO-8601-Zeitstempeln als kompakte Dauer ("3s", "1m 05s", "1h 02m"). */
 fun formatDuration(createdAt: String, updatedAt: String): String {

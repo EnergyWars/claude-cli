@@ -112,4 +112,8 @@ class CommandDetailViewModel @Inject constructor(
     }
 
     fun openOrInstallIntent(file: File) = downloader.openOrInstallIntent(file)
+
+    fun installIntent(file: File) = downloader.installIntent(file)
+
+    fun shareApkIntent(file: File) = downloader.shareApkIntent(file)
 }

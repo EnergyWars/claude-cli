@@ -147,6 +147,7 @@ private fun FeedbackRow(
                     onValueChange = onEditTextChange,
                     label = stringResource(R.string.feedback_title),
                     role = AppRole.Neutral,
+                    minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
@@ -165,6 +166,14 @@ private fun FeedbackRow(
                 }
             } else {
                 Text(entry.text, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurface)
+                val section = entry.section
+                if (section != null) {
+                    Text(
+                        text = stringResource(R.string.feedback_section, section),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppTheme.colors.onSurfaceVariant,
+                    )
+                }
                 Text(entry.createdAt, style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                     AppIconButton(

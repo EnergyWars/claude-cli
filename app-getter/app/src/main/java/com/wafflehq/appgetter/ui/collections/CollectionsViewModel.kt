@@ -8,14 +8,17 @@ import com.wafflehq.appgetter.data.api.CollectedFile
 import com.wafflehq.appgetter.data.discovery.NetworkDiscovery
 import com.wafflehq.appgetter.data.install.ApkInstaller
 import com.wafflehq.appgetter.data.install.DownloadStatus
+import com.wafflehq.appgetter.data.settings.DownloadHistoryRepository
 import com.wafflehq.appgetter.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -38,12 +41,16 @@ class CollectionsViewModel @Inject constructor(
     private val discovery: NetworkDiscovery,
     private val api: AppGetterApi,
     private val installer: ApkInstaller,
+    private val downloadHistoryRepository: DownloadHistoryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CollectionsUiState())
     val uiState: StateFlow<CollectionsUiState> = _uiState.asStateFlow()
 
     val downloadStatus: StateFlow<DownloadStatus?> = installer.downloadStatus
+
+    val downloadedTimestamps: StateFlow<Map<String, String>> = downloadHistoryRepository.downloadedTimestamps
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     init {
         scan()
@@ -76,6 +83,7 @@ class CollectionsViewModel @Inject constructor(
             _uiState.update { it.copy(downloadingFileName = file.name, error = null) }
             try {
                 val downloaded = installer.downloadFile(found.host, found.port, file.name)
+                downloadHistoryRepository.recordDownload(file.name, file.timestamp)
                 _uiState.update { it.copy(installFile = downloaded) }
             } catch (error: ApiException) {
                 installer.clearDownloadStatus()
@@ -87,6 +95,8 @@ class CollectionsViewModel @Inject constructor(
     }
 
     fun installIntent(file: File) = installer.installIntent(file)
+
+    fun shareIntent(file: File) = installer.shareIntent(file)
 
     fun consumeInstallFile() {
         installer.clearDownloadStatus()

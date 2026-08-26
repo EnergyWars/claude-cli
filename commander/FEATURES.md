@@ -43,7 +43,7 @@ Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen P
 
 ## Downloads
 
-Liste der `path.hosted`-Einträge des aktuellen Projekts. `type: "file"`-Einträge haben einen Direkt-Download-Button; `type: "path"`-Einträge lassen sich aufklappen und einzelne enthaltene Dateien herunterladen. Endet der heruntergeladene Dateiname auf `.apk`, installiert die App das Paket direkt (System-Install-Dialog inkl. einmaligem „Unbekannte Quellen erlauben", falls noch nicht freigegeben); alle anderen Dateien werden wie bisher zum Öffnen/Teilen angeboten. Downloads landen unter `getExternalFilesDir(DIRECTORY_DOWNLOADS)` (kein Speicher-Runtime-Permission nötig).
+Liste der `path.hosted`-Einträge des aktuellen Projekts. `type: "file"`-Einträge haben einen Direkt-Download-Button; `type: "path"`-Einträge lassen sich aufklappen und einzelne enthaltene Dateien herunterladen. Endet der heruntergeladene Dateiname auf `.apk`, erscheint nach Abschluss ein Dialog mit den zwei Aktionen „Installieren" (System-Install-Dialog inkl. einmaligem „Unbekannte Quellen erlauben", falls noch nicht freigegeben) und „Teilen" (`ACTION_SEND`-Chooser, um die APK z. B. per Messenger/Mail/Cloud-Speicher weiterzugeben); Tippen außerhalb des Dialogs bricht ohne Aktion ab. Alle anderen Dateien werden wie bisher direkt zum Öffnen/Teilen angeboten (kein Dialog, da keine Installationsoption zutrifft). Downloads landen unter `getExternalFilesDir(DIRECTORY_DOWNLOADS)` (kein Speicher-Runtime-Permission nötig).
 
 Während eines Downloads zeigt die betroffene Zeile statt des Download-Icons einen `LinearProgressIndicator` mit Live-Text darunter: Prozentsatz, Download-Geschwindigkeit (B/s, KB/s oder MB/s) und verbleibende Zeit (sofern die Serverantwort eine Content-Length liefert – sonst ein unbestimmter Balken nur mit Geschwindigkeit). Das Text-Label wechselt je Phase: „Wird heruntergeladen…" → „Wird überprüft…" (Datei wird nach Abschluss auf Vollständigkeit geprüft) → „Wird installiert…" bei `.apk`-Dateien bzw. „Wird geöffnet…" bei allen anderen Dateitypen.
 
@@ -64,7 +64,7 @@ Unter Einstellungen → Kontexte lassen sich beliebig viele Name+Wert-Presets an
 
 ## Command-Status (live)
 
-Abonniert `GET /state/<id>/stream` (Server-Sent Events): Output-Updates kommen dadurch als Push, ohne festes Intervall, sobald der Server sie hat. Bricht die Stream-Verbindung ab, bevor ein Endstatus (`completed`/`failed`) ankam, fällt die App automatisch auf Polling von `GET /state/<id>` alle 2 Sekunden zurück, bis `status != "running"` ist – z. B. wenn ein Proxy zwischen App und `cl server` lang laufende Verbindungen kappt. Zeigt Status-Pill, Agent/Command-Text, die Laufzeit (`updatedAt - createdAt`, live aktuell solange der Command läuft, da `updatedAt` bei jedem Output-Chunk mitwandert), den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Neben dem „Output"-Titel kopiert ein Icon-Button den kompletten Output in die Zwischenablage (`LocalClipboardManager`), bestätigt per Toast „Output kopiert". Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. Fortschrittsanzeige und automatischem APK-Install, siehe „Downloads").
+Abonniert `GET /state/<id>/stream` (Server-Sent Events): Output-Updates kommen dadurch als Push, ohne festes Intervall, sobald der Server sie hat. Bricht die Stream-Verbindung ab, bevor ein Endstatus (`completed`/`failed`) ankam, fällt die App automatisch auf Polling von `GET /state/<id>` alle 2 Sekunden zurück, bis `status != "running"` ist – z. B. wenn ein Proxy zwischen App und `cl server` lang laufende Verbindungen kappt. Zeigt Status-Pill, Agent/Command-Text, die Laufzeit (`updatedAt - createdAt`, live aktuell solange der Command läuft, da `updatedAt` bei jedem Output-Chunk mitwandert), den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Neben dem „Output"-Titel kopiert ein Icon-Button den kompletten Output in die Zwischenablage (`LocalClipboardManager`), bestätigt per Toast „Output kopiert". Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. Fortschrittsanzeige und Installieren/Teilen-Dialog für APKs, siehe „Downloads").
 
 ## Verlauf
 
@@ -88,13 +88,13 @@ Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, e
 
 Erreichbar über den „Feedback"-Eintrag im Projekt-Hub – **serverweit**, nicht auf das aktuelle Projekt beschränkt (`GET /feedback`, `cl server`s Feedback-Kasten sammelt Text von beliebigen, unauthentifizierten Absendern im Netz).
 
-Liste aller Feedback-Einträge, neueste zuerst. Pro Eintrag:
+Liste aller Feedback-Einträge, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) verknüpft, wird dieser unter dem Text angezeigt. Pro Eintrag:
 
-- **Bearbeiten:** Inline-Textfeld ersetzt den Text, „Speichern" (`PATCH /feedback/<id>`).
+- **Bearbeiten:** Mehrzeiliges Textfeld (Textarea) ersetzt den Text – Feedback darf beliebig lang sein –, „Speichern" (`PATCH /feedback/<id>`).
 - **Löschen:** Bestätigungsdialog, danach `DELETE /feedback/<id>`.
 - **In Ticket umwandeln:** Öffnet einen Dialog mit Projekt-Auswahl (Dropdown aus `manifest.paths`). Nach Bestätigung wird der Feedback-Text unverändert per `POST /tickets/<pathName>` als neues Ticket angelegt und der Feedback-Eintrag anschließend gelöscht (`DELETE /feedback/<id>`).
 
-Feedback kann aus der App heraus **nicht angelegt** werden – `POST /feedback` ist für externe Absender gedacht.
+Feedback kann aus der App heraus **nicht angelegt** werden – `POST /feedback` ist für externe Absender gedacht (allen voran `app-getter`, siehe dessen `FEATURES.md`, das automatisch einen Abschnitt mitschickt).
 
 ## Sammlung
 

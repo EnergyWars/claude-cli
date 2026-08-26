@@ -426,8 +426,22 @@ class ClServerApiTest {
 
         assertEquals(1, result.feedback.size)
         assertEquals("Bitte Dark Mode.", result.feedback.first().text)
+        assertEquals(null, result.feedback.first().section)
         val recorded = server.takeRequest()
         assertEquals("/feedback", recorded.target)
+    }
+
+    @Test
+    fun `getFeedback exposes the section an entry was sent from`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","createdAt":"c","updatedAt":"c"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getFeedback()
+
+        assertEquals("periodical-debug", result.feedback.first().section)
     }
 
     @Test

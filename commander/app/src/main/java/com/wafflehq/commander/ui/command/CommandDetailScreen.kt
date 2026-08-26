@@ -32,6 +32,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.CommandState
+import com.wafflehq.commander.data.download.isApkFileName
+import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
@@ -66,11 +68,29 @@ fun CommandDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.command_detail_output_copied)
 
-    LaunchedEffect(uiState.downloadedFile) {
-        uiState.downloadedFile?.let { file ->
-            context.startActivity(viewModel.openOrInstallIntent(file))
-            viewModel.consumeDownloadedFile()
+    val downloadedFile = uiState.downloadedFile
+    LaunchedEffect(downloadedFile) {
+        downloadedFile?.let { file ->
+            if (!isApkFileName(file.name)) {
+                context.startActivity(viewModel.openOrInstallIntent(file))
+                viewModel.consumeDownloadedFile()
+            }
         }
+    }
+
+    if (downloadedFile != null && isApkFileName(downloadedFile.name)) {
+        ApkActionDialog(
+            fileName = downloadedFile.name,
+            onInstall = {
+                context.startActivity(viewModel.installIntent(downloadedFile))
+                viewModel.consumeDownloadedFile()
+            },
+            onShare = {
+                context.startActivity(viewModel.shareApkIntent(downloadedFile))
+                viewModel.consumeDownloadedFile()
+            },
+            onDismiss = { viewModel.consumeDownloadedFile() },
+        )
     }
 
     SettingsScaffold(

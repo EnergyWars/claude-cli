@@ -107,4 +107,8 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun openOrInstallIntent(file: File): Intent = downloader.openOrInstallIntent(file)
+
+    fun installIntent(file: File): Intent = downloader.installIntent(file)
+
+    fun shareApkIntent(file: File): Intent = downloader.shareApkIntent(file)
 }

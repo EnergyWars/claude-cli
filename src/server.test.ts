@@ -955,9 +955,21 @@ test('POST /feedback: kein Auth noetig, legt einen Eintrag an', async () => {
     body: JSON.stringify({ text: 'Bitte Dark Mode.' }),
   });
   assert.equal(res.status, 201);
-  const body = (await res.json()) as { id: number; text: string };
+  const body = (await res.json()) as { id: number; text: string; section: string | null };
   assert.equal(body.text, 'Bitte Dark Mode.');
+  assert.equal(body.section, null);
   assert.equal(typeof body.id, 'number');
+});
+
+test('POST /feedback: speichert den optionalen Abschnitt', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'App stuerzt ab.', section: 'periodical-debug' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { section: string | null };
+  assert.equal(body.section, 'periodical-debug');
 });
 
 test('POST /feedback: 400 bei leerem Text', async () => {
@@ -965,6 +977,15 @@ test('POST /feedback: 400 bei leerem Text', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: '  ' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /feedback: 400 wenn "section" kein String ist', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Text', section: 42 }),
   });
   assert.equal(res.status, 400);
 });
