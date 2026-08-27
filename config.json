@@ -12,6 +12,12 @@
       "model": "sonnet"
     },
     {
+      "name": "remote",
+      "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben.",
+      "contexts": ["main", "dev/code", "dev/deny-gradle", "dev/remote"],
+      "model": "sonnet"
+    },
+    {
       "name": "ut",
       "description": "Wie dev, darf aber zusätzlich Gradle-Befehle ausführen.",
       "contexts": ["main", "dev/code", "dev/allow-gradle"],
