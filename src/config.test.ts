@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import {
   applyPathsOverride,
+  ensureConfigBootstrapped,
   listAgents,
   listHostedNames,
   listHostedSummaries,
@@ -17,13 +18,16 @@ import {
   parseConfig,
   parsePathsOverride,
   resolveAgent,
+  resolveAgentFrom,
   resolveContext,
+  resolveEffectiveConfig,
   resolveHostedEntry,
   resolvePath,
   resolvePathCommand,
   resolveTask,
   type Config,
 } from './config.js';
+import { getConfigPointer, openDatabase, setConfigPointer } from './db.js';
 import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
 import { createEmptyFixtureRoot, createFixtureRoot } from './test-support/fixture-config.js';
 
@@ -44,7 +48,7 @@ function validRawConfig(): unknown {
     ],
     ticketAgent: { model: 'haiku', task: 'Erstelle ein Ticket aus dem Text.' },
     contentPath: '/tmp/content',
-    collection: [{ sourcePath: '/tmp/source.apk', targetName: 'test' }],
+    collection: [{ sourcePath: '/tmp/source.apk', targetName: 'test', path: 'myapp' }],
   };
 }
 
@@ -258,7 +262,19 @@ test('parseConfig: wirft wenn ein Collection-Eintrag "sourcePath" fehlt', () => 
 
 test('parseConfig: wirft wenn ein Collection-Eintrag "targetName" leer ist', () => {
   const raw = validRawConfig() as { collection: Record<string, unknown>[] };
-  raw.collection[0] = { sourcePath: '/tmp/source.apk', targetName: '  ' };
+  raw.collection[0] = { sourcePath: '/tmp/source.apk', targetName: '  ', path: 'myapp' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Collection-Eintrag "path" fehlt', () => {
+  const raw = validRawConfig() as { collection: Record<string, unknown>[] };
+  raw.collection[0] = { sourcePath: '/tmp/source.apk', targetName: 'test' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Collection-Eintrag "path" leer ist', () => {
+  const raw = validRawConfig() as { collection: Record<string, unknown>[] };
+  raw.collection[0] = { sourcePath: '/tmp/source.apk', targetName: 'test', path: '  ' };
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -655,4 +671,104 @@ test('listTasks: jeder Task als "cl task <name>" mit description', () => {
     { command: 'cl task a', description: 'A-Desc' },
     { command: 'cl task b', description: 'B-Desc' },
   ]);
+});
+
+test('resolveAgentFrom: liefert main ohne Namen, Agent per Namen, wirft bei unbekanntem Namen', () => {
+  const config: Config = {
+    main: { description: 'Main-Desc', contexts: [], model: 'sonnet' },
+    agents: [{ name: 'dev', description: 'Dev-Desc', contexts: [], model: 'sonnet' }],
+    databaseDirectory: '/tmp/db',
+    paths: [],
+    tasks: [],
+    ticketAgent: { model: 'haiku', task: 'x' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+  assert.equal(resolveAgentFrom(config, undefined).description, 'Main-Desc');
+  assert.equal(resolveAgentFrom(config, 'dev').description, 'Dev-Desc');
+  assert.throws(
+    () => resolveAgentFrom(config, 'doesnotexist'),
+    /wurde in config\.json nicht gefunden/,
+  );
+});
+
+test('ensureConfigBootstrapped + resolveEffectiveConfig: importiert lokale config.json als Version 1 und setzt den Zeiger darauf', () => {
+  const fixture = createFixtureRoot({
+    main: { description: 'Fixture-Main' },
+    agents: [{ name: 'dev', description: 'Fixture-Dev' }],
+  });
+  const dbDir = mkdtempSync(join(tmpdir(), 'cl-config-db-'));
+  const previous = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const db = openDatabase(dbDir);
+  try {
+    assert.equal(getConfigPointer(db), undefined);
+
+    ensureConfigBootstrapped(db);
+
+    const pointer = getConfigPointer(db);
+    assert.equal(pointer?.versionId, 1);
+
+    const effective = resolveEffectiveConfig(db);
+    assert.equal(effective.main.description, 'Fixture-Main');
+    assert.equal(effective.agents[0]?.name, 'dev');
+
+    ensureConfigBootstrapped(db);
+    assert.equal(getConfigPointer(db)?.versionId, 1);
+  } finally {
+    db.close();
+    if (previous === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previous;
+    }
+    fixture.cleanup();
+    rmSync(dbDir, { recursive: true, force: true });
+  }
+});
+
+test('ensureConfigBootstrapped: ohne lokale config.json wird die embedded Config als Version 1 uebernommen', () => {
+  const fixture = createEmptyFixtureRoot();
+  const dbDir = mkdtempSync(join(tmpdir(), 'cl-config-db-'));
+  const previous = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const db = openDatabase(dbDir);
+  try {
+    ensureConfigBootstrapped(db);
+    const effective = resolveEffectiveConfig(db);
+    assert.deepEqual(effective, parseConfig(EMBEDDED_CONFIG));
+  } finally {
+    db.close();
+    if (previous === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previous;
+    }
+    fixture.cleanup();
+    rmSync(dbDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveEffectiveConfig: Zeiger auf null liefert die fest reinkompilierte Version', () => {
+  const dbDir = mkdtempSync(join(tmpdir(), 'cl-config-db-'));
+  const db = openDatabase(dbDir);
+  try {
+    setConfigPointer(db, null);
+    assert.deepEqual(resolveEffectiveConfig(db), parseConfig(EMBEDDED_CONFIG));
+  } finally {
+    db.close();
+    rmSync(dbDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveEffectiveConfig: wirft, wenn der Zeiger auf eine nicht existierende Version zeigt', () => {
+  const dbDir = mkdtempSync(join(tmpdir(), 'cl-config-db-'));
+  const db = openDatabase(dbDir);
+  try {
+    setConfigPointer(db, 999);
+    assert.throws(() => resolveEffectiveConfig(db), /Config-Version 999 wurde in der Datenbank nicht gefunden/);
+  } finally {
+    db.close();
+    rmSync(dbDir, { recursive: true, force: true });
+  }
 });

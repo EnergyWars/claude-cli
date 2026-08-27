@@ -1,5 +1,6 @@
 package com.wafflehq.commander.ui.feedback
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
@@ -27,7 +28,10 @@ data class FeedbackUiState(
 @HiltViewModel
 class FeedbackListViewModel @Inject constructor(
     private val api: ClServerApi,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    val pathName: String = checkNotNull(savedStateHandle["pathName"])
 
     private val _uiState = MutableStateFlow(FeedbackUiState())
     val uiState: StateFlow<FeedbackUiState> = _uiState.asStateFlow()
@@ -40,7 +44,7 @@ class FeedbackListViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             try {
-                val feedback = api.getFeedback().feedback
+                val feedback = api.getFeedback(pathName).feedback
                 _uiState.update { it.copy(feedback = feedback, loading = false) }
             } catch (error: ApiException) {
                 _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
@@ -94,7 +98,10 @@ class FeedbackListViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val names = api.getManifest().paths.map { it.name }
-                _uiState.update { it.copy(convertingEntry = entry, projectNames = names, convertProjectIndex = 0) }
+                val preselectedIndex = names.indexOf(pathName).coerceAtLeast(0)
+                _uiState.update {
+                    it.copy(convertingEntry = entry, projectNames = names, convertProjectIndex = preselectedIndex)
+                }
             } catch (error: ApiException) {
                 _uiState.update { it.copy(error = error.message ?: "Unbekannter Fehler.") }
             }

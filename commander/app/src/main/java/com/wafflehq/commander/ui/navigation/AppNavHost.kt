@@ -37,6 +37,7 @@ import com.wafflehq.commander.ui.settings.SettingsScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextEditScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextsScreen
 import com.wafflehq.commander.ui.setup.SetupScreen
+import com.wafflehq.commander.ui.stats.StatsScreen
 import com.wafflehq.commander.ui.theme.AppTheme
 import com.wafflehq.commander.ui.tickets.TicketDetailScreen
 import com.wafflehq.commander.ui.tickets.TicketListScreen
@@ -54,8 +55,9 @@ object Routes {
     const val TICKETS = "tickets/{pathName}"
     const val TICKET_DETAIL = "tickets/{pathName}/{id}"
     const val HISTORY = "history/{pathName}"
-    const val FEEDBACK = "feedback"
-    const val COLLECT = "collect"
+    const val STATS = "stats/{pathName}"
+    const val FEEDBACK = "feedback/{pathName}"
+    const val COLLECT = "collect/{pathName}"
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings_display"
     const val SETTINGS_CONTEXTS = "settings_contexts"
@@ -83,6 +85,12 @@ object Routes {
     fun ticketDetail(pathName: String, id: Int): String = "tickets/${Uri.encode(pathName)}/$id"
 
     fun history(pathName: String): String = "history/${Uri.encode(pathName)}"
+
+    fun stats(pathName: String): String = "stats/${Uri.encode(pathName)}"
+
+    fun feedback(pathName: String): String = "feedback/${Uri.encode(pathName)}"
+
+    fun collect(pathName: String): String = "collect/${Uri.encode(pathName)}"
 
     fun settingsContextEdit(id: Long): String = "settings_contexts/edit/$id"
 }
@@ -163,8 +171,9 @@ fun AppNavHost() {
                 onOpenAgents = { pathName -> navController.navigate(Routes.agents(pathName)) },
                 onOpenTickets = { pathName -> navController.navigate(Routes.tickets(pathName)) },
                 onOpenHistory = { pathName -> navController.navigate(Routes.history(pathName)) },
-                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
-                onOpenCollect = { navController.navigate(Routes.COLLECT) },
+                onOpenFeedback = { pathName -> navController.navigate(Routes.feedback(pathName)) },
+                onOpenCollect = { pathName -> navController.navigate(Routes.collect(pathName)) },
+                onOpenStats = { pathName -> navController.navigate(Routes.stats(pathName)) },
                 onOpenSettings = openSettings,
             )
         }
@@ -251,10 +260,22 @@ fun AppNavHost() {
                 },
             )
         }
-        composable(Routes.FEEDBACK) {
+        composable(
+            route = Routes.STATS,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
+            StatsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = Routes.FEEDBACK,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
             FeedbackListScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.COLLECT) {
+        composable(
+            route = Routes.COLLECT,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
             CollectScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {

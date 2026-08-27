@@ -179,19 +179,35 @@ class ClServerApi @Inject constructor(
             .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .get()
             .build()
-        streamingClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw errorFrom(response)
-            val source = response.body?.source() ?: throw ApiException(response.code, "Leere Antwort.")
-            while (true) {
-                val line = source.readUtf8Line() ?: break
-                if (line.startsWith(SSE_DATA_PREFIX)) {
-                    emit(json.decodeFromString<CommandState>(line.removePrefix(SSE_DATA_PREFIX)))
+        try {
+            streamingClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw errorFrom(response)
+                val source = response.body?.source() ?: throw ApiException(response.code, "Leere Antwort.")
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.startsWith(SSE_DATA_PREFIX)) {
+                        emit(json.decodeFromString<CommandState>(line.removePrefix(SSE_DATA_PREFIX)))
+                    }
                 }
             }
+        } catch (error: java.io.IOException) {
+            throw ApiException(null, error.message ?: "Netzwerkfehler.", error)
         }
     }.flowOn(Dispatchers.IO)
 
     suspend fun getCommands(pathName: String): CommandList = authedGet("commands", pathName)
+
+    suspend fun getStats(pathName: String, hours: Int? = null): ProjectStats {
+        val session = requireSession()
+        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
+            .addPathSegment("stats").addPathSegment(pathName)
+        if (hours != null) urlBuilder.addQueryParameter("hours", hours.toString())
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
+            .get()
+        return execute(request)
+    }
 
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
@@ -250,10 +266,9 @@ class ClServerApi @Inject constructor(
 
     suspend fun getTicket(pathName: String, id: Int): Ticket = authedGet("tickets", pathName, id.toString())
 
-    suspend fun collect(targetName: String? = null): CollectSummary =
-        authedPost(json.encodeToString(CollectRequest(targetName)), "collect")
+    suspend fun collect(pathName: String): CollectSummary = authedPost("", "collect", pathName)
 
-    suspend fun getFeedback(): FeedbackList = authedGet("feedback")
+    suspend fun getFeedback(pathName: String): FeedbackList = authedGet("feedback", pathName)
 
     suspend fun updateFeedback(id: Int, text: String): FeedbackEntry =
         authedPatch(json.encodeToString(FeedbackPatchRequest(text)), "feedback", id.toString())

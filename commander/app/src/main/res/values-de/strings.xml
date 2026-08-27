@@ -33,6 +33,7 @@
     <string name="project_home_history">Verlauf</string>
     <string name="project_home_feedback">Feedback</string>
     <string name="project_home_collect">Sammlung</string>
+    <string name="project_home_stats">Statistik</string>
 
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
@@ -45,6 +46,13 @@
     <string name="history_empty">Noch keine Befehle gesendet.</string>
     <string name="history_row_meta">%1$s · %2$s</string>
     <string name="history_retry_action">Erneut versuchen</string>
+
+    <string name="stats_title">Statistik</string>
+    <string name="stats_running_agents">Laufende Agents</string>
+    <string name="stats_agents_in_window">Agents (letzte %1$s Std.)</string>
+    <string name="stats_last_debug_build">Letzter Debug-Build</string>
+    <string name="stats_last_release_build">Letzter Release-Build</string>
+    <string name="stats_no_build_yet">Kein Build vorhanden</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>
@@ -73,6 +81,7 @@
     <string name="command_detail_output_copied">Output kopiert</string>
     <string name="command_detail_output_empty">Noch keine Ausgabe.</string>
     <string name="command_detail_exit_code">Exit-Code: %1$d</string>
+    <string name="command_detail_started_at">Gestartet: %1$s</string>
     <string name="command_detail_duration">Dauer: %1$s</string>
     <string name="command_detail_downloads_title">Downloads</string>
 
@@ -129,9 +138,7 @@
     <string name="context_edit_delete">Kontext löschen</string>
 
     <string name="collect_title">Sammlung</string>
-    <string name="collect_all_button">Alles sammeln</string>
-    <string name="collect_target_label">Zielname</string>
-    <string name="collect_target_button">Nur diesen sammeln</string>
+    <string name="collect_button">Sammeln</string>
     <string name="collect_result_ok">Gespeichert als %1$s</string>
 
     <string name="feedback_title">Feedback</string>

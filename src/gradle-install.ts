@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { buildClaudeArgs } from './launch.js';
@@ -36,7 +36,7 @@ export function parseAdbDevices(output: string): string[] {
     .map((line) => line.split('\t')[0] ?? line);
 }
 
-export function findApk(cwd: string, buildType: GradleBuildType): string {
+function listApks(cwd: string, buildType: GradleBuildType): string[] {
   const targetSuffix = join('build', 'outputs', 'apk', buildType);
   const matches: string[] = [];
 
@@ -65,12 +65,29 @@ export function findApk(cwd: string, buildType: GradleBuildType): string {
   }
 
   walk(cwd);
+  return matches;
+}
 
-  const [first] = matches;
+export function findApk(cwd: string, buildType: GradleBuildType): string {
+  const [first] = listApks(cwd, buildType);
   if (first === undefined) {
+    const targetSuffix = join('build', 'outputs', 'apk', buildType);
     throw new Error(`Keine APK gefunden unter **/${targetSuffix}/*.apk in ${cwd}.`);
   }
   return first;
+}
+
+/** ISO-Zeitstempel der zuletzt geaenderten APK unter `**\/build/outputs/apk/<buildType>/*.apk`, `null` ohne Treffer. */
+export function findLatestBuildTimestamp(cwd: string, buildType: GradleBuildType): string | null {
+  const matches = listApks(cwd, buildType);
+  let latestMtimeMs: number | null = null;
+  for (const match of matches) {
+    const { mtimeMs } = statSync(match);
+    if (latestMtimeMs === null || mtimeMs > latestMtimeMs) {
+      latestMtimeMs = mtimeMs;
+    }
+  }
+  return latestMtimeMs === null ? null : new Date(latestMtimeMs).toISOString();
 }
 
 interface GradleBuildResult {

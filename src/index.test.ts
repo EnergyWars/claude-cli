@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -676,7 +676,7 @@ test('cl collect (ohne Argument): sammelt alle Eintraege, gibt JSON-Zusammenfass
   const contentPath = join(rootDir, 'content');
   const collectFixture = createFixtureRoot({
     contentPath,
-    collection: [{ sourcePath, targetName: 'test' }],
+    collection: [{ sourcePath, targetName: 'test', path: 'proj' }],
   });
   try {
     const result = await runCli(['collect'], {
@@ -685,9 +685,7 @@ test('cl collect (ohne Argument): sammelt alle Eintraege, gibt JSON-Zusammenfass
     assert.equal(result.exitCode, 0);
     const summary = JSON.parse(result.stdout) as CollectSummary;
     assert.deepEqual(summary.errors, []);
-    assert.deepEqual(summary.results, [
-      { targetName: 'test', fileName: 'test.apk', status: 'ok' },
-    ]);
+    assert.deepEqual(summary.results, [{ targetName: 'test', fileName: 'test.apk', status: 'ok' }]);
     assert.equal(readFileSync(join(contentPath, 'test.apk'), 'utf8'), 'FAKE-APK');
   } finally {
     collectFixture.cleanup();
@@ -705,8 +703,8 @@ test('cl collect <targetName>: sammelt nur den passenden Eintrag', async () => {
   const collectFixture = createFixtureRoot({
     contentPath,
     collection: [
-      { sourcePath: sourceA, targetName: 'a' },
-      { sourcePath: sourceB, targetName: 'b' },
+      { sourcePath: sourceA, targetName: 'a', path: 'proj' },
+      { sourcePath: sourceB, targetName: 'b', path: 'proj' },
     ],
   });
   try {
@@ -731,6 +729,117 @@ test('cl collect <targetName>: unbekannter targetName bricht mit Fehler und Exit
     assert.notEqual(result.exitCode, 0);
   } finally {
     collectFixture.cleanup();
+  }
+});
+
+interface CliProjectStats {
+  path: string;
+  runningAgents: number;
+  agentsInWindow: number;
+  windowHours: number;
+  lastDebugBuildAt: string | null;
+  lastReleaseBuildAt: string | null;
+}
+
+test('cl stats <path>: 0 Agents und null-Zeitstempel ohne vorherigen Build', async () => {
+  const statsFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['stats', 'default'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const stats = JSON.parse(result.stdout) as CliProjectStats;
+    assert.equal(stats.path, 'default');
+    assert.equal(stats.runningAgents, 0);
+    assert.equal(stats.agentsInWindow, 0);
+    assert.equal(stats.windowHours, 24);
+    assert.equal(stats.lastDebugBuildAt, null);
+    assert.equal(stats.lastReleaseBuildAt, null);
+  } finally {
+    statsFixture.cleanup();
+  }
+});
+
+test('cl stats <path>: findet den Zeitstempel der zuletzt gebauten Debug-APK', async () => {
+  const statsFixture = createFixtureRoot();
+  try {
+    const debugApkDir = join(statsFixture.rootDir, 'build', 'outputs', 'apk', 'debug');
+    mkdirSync(debugApkDir, { recursive: true });
+    const apkPath = join(debugApkDir, 'app-debug.apk');
+    writeFileSync(apkPath, 'FAKE');
+    const mtime = new Date('2026-03-01T09:00:00.000Z');
+    utimesSync(apkPath, mtime, mtime);
+
+    const result = await runCli(['stats', 'default'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const stats = JSON.parse(result.stdout) as CliProjectStats;
+    assert.equal(stats.lastDebugBuildAt, mtime.toISOString());
+    assert.equal(stats.lastReleaseBuildAt, null);
+  } finally {
+    statsFixture.cleanup();
+  }
+});
+
+test('cl stats --hours <n>: uebernimmt das Zeitfenster in die Ausgabe', async () => {
+  const statsFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['stats', 'default', '--hours', '2'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const stats = JSON.parse(result.stdout) as CliProjectStats;
+    assert.equal(stats.windowHours, 2);
+  } finally {
+    statsFixture.cleanup();
+  }
+});
+
+test('cl stats --hours abc: ungueltiges Zeitfenster bricht mit Fehler und Exit != 0 ab', async () => {
+  const statsFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['stats', 'default', '--hours', 'abc'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    statsFixture.cleanup();
+  }
+});
+
+test('cl stats doesnotexist: unbekannter Pfad bricht mit Fehler und Exit != 0 ab', async () => {
+  const statsFixture = createFixtureRoot();
+  try {
+    const result = await runCli(['stats', 'doesnotexist'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /doesnotexist/);
+  } finally {
+    statsFixture.cleanup();
+  }
+});
+
+test('cl stats (ohne Pfad): listet alle Projekte aus config.json auf', async () => {
+  const statsFixture = createFixtureRoot({
+    paths: [
+      { name: 'proj-a', path: join(tmpdir(), 'cl-stats-does-not-exist-a') },
+      { name: 'proj-b', path: join(tmpdir(), 'cl-stats-does-not-exist-b') },
+    ],
+  });
+  try {
+    const result = await runCli(['stats'], {
+      env: { CL_ROOT_DIR: statsFixture.rootDir, PATH: pathWithMock(mock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const stats = JSON.parse(result.stdout) as CliProjectStats[];
+    assert.deepEqual(
+      stats.map((entry) => entry.path),
+      ['proj-a', 'proj-b'],
+    );
+  } finally {
+    statsFixture.cleanup();
   }
 });
 

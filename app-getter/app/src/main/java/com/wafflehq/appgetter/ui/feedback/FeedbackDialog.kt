@@ -23,8 +23,6 @@ fun FeedbackDialog(
     section: String,
     text: String,
     onTextChange: (String) -> Unit,
-    context: String,
-    onContextChange: (String) -> Unit,
     onSend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -43,13 +41,6 @@ fun FeedbackDialog(
                     label = stringResource(R.string.feedback_text_label),
                     role = AppRole.Neutral,
                     minLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                AppTextField(
-                    value = context,
-                    onValueChange = onContextChange,
-                    label = stringResource(R.string.feedback_context_label),
-                    role = AppRole.Neutral,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

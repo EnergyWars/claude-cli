@@ -10,7 +10,6 @@ import {
   type AgentSummary,
   type Config,
   type PathEntry,
-  applyPathsOverride,
   listAgents,
   listPathNames,
   listTasks,
@@ -21,6 +20,9 @@ import {
   MODEL_COMMANDS,
 } from './config.js';
 import {
+  countAgentsSince,
+  countRunningAgents,
+  DEFAULT_STATS_WINDOW_HOURS,
   deleteTicket,
   deleteTotpSecret,
   getTicket,
@@ -34,7 +36,7 @@ import {
   type TicketRow,
   type TicketStatus,
 } from './db.js';
-import { buildAndInstall } from './gradle-install.js';
+import { buildAndInstall, findLatestBuildTimestamp } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { startServer } from './server.js';
 import { runTicketAgent } from './ticket.js';
@@ -224,7 +226,7 @@ program
       return;
     }
     try {
-      startServer(applyPathsOverride(config, loadPathsOverride(options.pathsFile)), port);
+      startServer(config, port, loadPathsOverride(options.pathsFile));
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -544,6 +546,73 @@ program
     console.log(JSON.stringify(summary, null, 2));
     if (summary.errors.length > 0) {
       process.exitCode = 1;
+    }
+  });
+
+interface ProjectStats {
+  path: string;
+  runningAgents: number;
+  agentsInWindow: number;
+  windowHours: number;
+  lastDebugBuildAt: string | null;
+  lastReleaseBuildAt: string | null;
+}
+
+function computeProjectStats(
+  db: DatabaseSync,
+  pathEntry: PathEntry,
+  windowHours: number,
+): ProjectStats {
+  const sinceIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  return {
+    path: pathEntry.name,
+    runningAgents: countRunningAgents(db, pathEntry.path),
+    agentsInWindow: countAgentsSince(db, pathEntry.path, sinceIso),
+    windowHours,
+    lastDebugBuildAt: findLatestBuildTimestamp(pathEntry.path, 'debug'),
+    lastReleaseBuildAt: findLatestBuildTimestamp(pathEntry.path, 'release'),
+  };
+}
+
+program
+  .command('stats')
+  .description(
+    'Zeigt pro Projekt (config.json paths[].name), wie viele Agents gerade laufen bzw. in den letzten N Stunden gelaufen sind, sowie die Zeitstempel der letzten Debug-/Release-APK. Ohne Pfad werden alle Projekte aufgelistet.',
+  )
+  .argument('[path]', TICKET_PATH_ARGUMENT_DESCRIPTION)
+  .option(
+    '--hours <hours>',
+    'Zeitfenster in Stunden fuer "agentsInWindow".',
+    String(DEFAULT_STATS_WINDOW_HOURS),
+  )
+  .addHelpText('after', () => `\n${formatTicketPathsHelp()}\n`)
+  .action((pathName: string | undefined, options: { hours: string }) => {
+    const windowHours = Number(options.hours);
+    if (!Number.isFinite(windowHours) || windowHours <= 0) {
+      console.error(`Ungueltiges Zeitfenster: "${options.hours}"`);
+      process.exitCode = 1;
+      return;
+    }
+    const config = loadConfig();
+    const db = openDatabase(config.databaseDirectory);
+    try {
+      if (pathName === undefined) {
+        console.log(
+          JSON.stringify(
+            config.paths.map((entry) => computeProjectStats(db, entry, windowHours)),
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      const pathEntry = resolveTicketPathOrExit(config, pathName);
+      if (!pathEntry) {
+        return;
+      }
+      console.log(JSON.stringify(computeProjectStats(db, pathEntry, windowHours), null, 2));
+    } finally {
+      db.close();
     }
   });
 

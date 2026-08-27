@@ -44,6 +44,15 @@ data class CommandState(
 data class CommandList(val commands: List<CommandState>)
 
 @Serializable
+data class ProjectStats(
+    val runningAgents: Int,
+    val agentsInWindow: Int,
+    val windowHours: Double,
+    val lastDebugBuildAt: String? = null,
+    val lastReleaseBuildAt: String? = null,
+)
+
+@Serializable
 data class PathList(val paths: List<String>)
 
 @Serializable
@@ -118,9 +127,6 @@ data class CollectedFile(val name: String, val timestamp: String)
 data class CollectionList(val files: List<CollectedFile>)
 
 @Serializable
-data class CollectRequest(val targetName: String? = null)
-
-@Serializable
 data class CollectResultEntry(val targetName: String, val fileName: String, val status: String)
 
 @Serializable
@@ -135,6 +141,7 @@ data class FeedbackEntry(
     val text: String,
     val section: String? = null,
     val context: String? = null,
+    val path: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )

@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
+import { getConfigPointer, getConfigVersion, insertConfigVersion, setConfigPointer } from './db.js';
 import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
 
 export interface AgentDefinition {
@@ -57,6 +59,8 @@ export interface TicketAgentConfig {
 export interface CollectionEntry {
   sourcePath: string;
   targetName: string;
+  /** Name eines Eintrags aus config.json "paths" - rein informativ/gruppierend, keine Dateisystem-Verknuepfung. */
+  path: string;
 }
 
 export interface Config {
@@ -86,6 +90,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   'instr',
   'ticket',
   'collect',
+  'stats',
 ]);
 
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -220,7 +225,9 @@ function isCollectionEntry(value: unknown): value is CollectionEntry {
     typeof record.sourcePath === 'string' &&
     record.sourcePath.trim() !== '' &&
     typeof record.targetName === 'string' &&
-    record.targetName.trim() !== ''
+    record.targetName.trim() !== '' &&
+    typeof record.path === 'string' &&
+    record.path.trim() !== ''
   );
 }
 
@@ -259,7 +266,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName }) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -271,8 +278,7 @@ export function loadConfig(): Config {
   return parseConfig(local === undefined ? EMBEDDED_CONFIG : (JSON.parse(local) as unknown));
 }
 
-export function resolveAgent(name: string | undefined): AgentDefinition {
-  const config = loadConfig();
+export function resolveAgentFrom(config: Config, name: string | undefined): AgentDefinition {
   if (name === undefined) {
     return config.main;
   }
@@ -281,6 +287,10 @@ export function resolveAgent(name: string | undefined): AgentDefinition {
     throw new Error(`Agent "${name}" wurde in config.json nicht gefunden.`);
   }
   return agent;
+}
+
+export function resolveAgent(name: string | undefined): AgentDefinition {
+  return resolveAgentFrom(loadConfig(), name);
 }
 
 export interface AgentSummary {
@@ -410,4 +420,34 @@ export function resolveTask(config: Config, name: string): TaskConfig {
     throw new Error(`Task "${name}" wurde in config.json nicht gefunden.`);
   }
   return task;
+}
+
+/**
+ * Sorgt beim allerersten Serverstart dafuer, dass die bis dahin geltende Config (lokale Datei
+ * oder embedded) als Version 1 in der DB landet und der Pointer darauf zeigt. Danach ist die DB
+ * alleinige Quelle - ein spaeterer Aufruf mit bereits gesetztem Pointer ist ein No-op.
+ */
+export function ensureConfigBootstrapped(db: DatabaseSync): void {
+  if (getConfigPointer(db) !== undefined) {
+    return;
+  }
+  const bootstrap = loadConfig();
+  const version = insertConfigVersion(db, JSON.stringify(bootstrap));
+  setConfigPointer(db, version.id);
+}
+
+/**
+ * Liefert die aktuell aktive Config gemaess DB-Pointer. `versionId === null` bedeutet: die fest
+ * reinkompilierte Version (EMBEDDED_CONFIG) ist explizit aktiv.
+ */
+export function resolveEffectiveConfig(db: DatabaseSync): Config {
+  const versionId = getConfigPointer(db)?.versionId ?? null;
+  if (versionId === null) {
+    return parseConfig(EMBEDDED_CONFIG);
+  }
+  const version = getConfigVersion(db, versionId);
+  if (version === undefined) {
+    throw new Error(`Config-Version ${String(versionId)} wurde in der Datenbank nicht gefunden.`);
+  }
+  return parseConfig(JSON.parse(version.content) as unknown);
 }

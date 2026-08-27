@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   buildAndInstall,
   findApk,
+  findLatestBuildTimestamp,
   formatInstallSummary,
   parseAdbDevices,
 } from './gradle-install.js';
@@ -90,6 +91,51 @@ test('findApk: wirft wenn keine APK gefunden wird', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'cl-find-apk-missing-'));
   try {
     assert.throws(() => findApk(cwd, 'release'));
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('findLatestBuildTimestamp: liefert den ISO-Zeitstempel der APK', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-latest-apk-'));
+  try {
+    const apkDir = join(cwd, 'app', 'build', 'outputs', 'apk', 'debug');
+    mkdirSync(apkDir, { recursive: true });
+    const apkPath = join(apkDir, 'app-debug.apk');
+    writeFileSync(apkPath, 'FAKE');
+    const mtime = new Date('2026-01-15T10:00:00.000Z');
+    utimesSync(apkPath, mtime, mtime);
+    assert.equal(findLatestBuildTimestamp(cwd, 'debug'), mtime.toISOString());
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('findLatestBuildTimestamp: liefert den Zeitstempel der zuletzt geaenderten APK bei mehreren Treffern', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-latest-apk-multi-'));
+  try {
+    const olderDir = join(cwd, 'module-a', 'build', 'outputs', 'apk', 'debug');
+    const newerDir = join(cwd, 'module-b', 'build', 'outputs', 'apk', 'debug');
+    mkdirSync(olderDir, { recursive: true });
+    mkdirSync(newerDir, { recursive: true });
+    const olderApk = join(olderDir, 'a-debug.apk');
+    const newerApk = join(newerDir, 'b-debug.apk');
+    writeFileSync(olderApk, 'FAKE');
+    writeFileSync(newerApk, 'FAKE');
+    const olderMtime = new Date('2026-01-10T10:00:00.000Z');
+    const newerMtime = new Date('2026-01-20T10:00:00.000Z');
+    utimesSync(olderApk, olderMtime, olderMtime);
+    utimesSync(newerApk, newerMtime, newerMtime);
+    assert.equal(findLatestBuildTimestamp(cwd, 'debug'), newerMtime.toISOString());
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('findLatestBuildTimestamp: null ohne gefundene APK', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-latest-apk-missing-'));
+  try {
+    assert.equal(findLatestBuildTimestamp(cwd, 'release'), null);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

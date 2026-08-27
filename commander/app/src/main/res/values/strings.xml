@@ -33,6 +33,7 @@
     <string name="project_home_history">History</string>
     <string name="project_home_feedback">Feedback</string>
     <string name="project_home_collect">Collect</string>
+    <string name="project_home_stats">Statistics</string>
 
     <string name="commands_title">Commands</string>
     <string name="commands_empty">No commands.</string>
@@ -45,6 +46,13 @@
     <string name="history_empty">No commands sent yet.</string>
     <string name="history_row_meta">%1$s · %2$s</string>
     <string name="history_retry_action">Retry</string>
+
+    <string name="stats_title">Statistics</string>
+    <string name="stats_running_agents">Running agents</string>
+    <string name="stats_agents_in_window">Agents (last %1$s h)</string>
+    <string name="stats_last_debug_build">Last debug build</string>
+    <string name="stats_last_release_build">Last release build</string>
+    <string name="stats_no_build_yet">No build yet</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">No files.</string>
@@ -73,6 +81,7 @@
     <string name="command_detail_output_copied">Output copied</string>
     <string name="command_detail_output_empty">No output yet.</string>
     <string name="command_detail_exit_code">Exit code: %1$d</string>
+    <string name="command_detail_started_at">Started: %1$s</string>
     <string name="command_detail_duration">Duration: %1$s</string>
     <string name="command_detail_downloads_title">Downloads</string>
 
@@ -129,9 +138,7 @@
     <string name="context_edit_delete">Delete context</string>
 
     <string name="collect_title">Collect</string>
-    <string name="collect_all_button">Collect all</string>
-    <string name="collect_target_label">Target name</string>
-    <string name="collect_target_button">Collect this one</string>
+    <string name="collect_button">Collect</string>
     <string name="collect_result_ok">Saved as %1$s</string>
 
     <string name="feedback_title">Feedback</string>

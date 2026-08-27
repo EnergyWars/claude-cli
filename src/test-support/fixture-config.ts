@@ -47,6 +47,7 @@ export interface FixtureTicketAgent {
 export interface FixtureCollectionEntry {
   sourcePath: string;
   targetName: string;
+  path: string;
 }
 
 export interface FixtureConfigOptions {

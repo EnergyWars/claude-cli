@@ -24,9 +24,7 @@ function ensureColumns(
   columns: { name: string; definition: string }[],
 ): void {
   const existing = new Set(
-    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
-      (row) => row.name,
-    ),
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name),
   );
   for (const column of columns) {
     if (!existing.has(column.name)) {
@@ -62,9 +60,7 @@ export function openDatabase(directory: string): DatabaseSync {
       updated_at TEXT NOT NULL
     )
   `);
-  ensureColumns(db, 't_commands', [
-    { name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" },
-  ]);
+  ensureColumns(db, 't_commands', [{ name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" }]);
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_totp (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -114,7 +110,24 @@ export function openDatabase(directory: string): DatabaseSync {
   ensureColumns(db, 't_feedback', [
     { name: 'section', definition: 'section TEXT' },
     { name: 'context', definition: 'context TEXT' },
+    { name: 'path', definition: 'path TEXT' },
   ]);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_feedback_path ON t_feedback (path)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_config_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_config_pointer (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version_id INTEGER,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (version_id) REFERENCES t_config_versions(id)
+    )
+  `);
   return db;
 }
 
@@ -126,9 +139,7 @@ export function openDatabase(directory: string): DatabaseSync {
  */
 function migrateLegacyTicketColumns(db: DatabaseSync): void {
   const columns = new Set(
-    (db.prepare('PRAGMA table_info(t_tickets)').all() as { name: string }[]).map(
-      (row) => row.name,
-    ),
+    (db.prepare('PRAGMA table_info(t_tickets)').all() as { name: string }[]).map((row) => row.name),
   );
   if (columns.has('title') && columns.has('description') && columns.has('task')) {
     db.exec(`
@@ -213,6 +224,30 @@ export function listCommands(db: DatabaseSync, path: string): CommandRow[] {
     .prepare('SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC')
     .all(path);
   return rows.map((row) => toCommandRow(row));
+}
+
+export const DEFAULT_STATS_WINDOW_HOURS = 24;
+
+const AGENT_COMMANDS_ONLY_CLAUSE = "agent NOT LIKE 'path-command:%'";
+
+/** Reine Agent-Laeufe (ohne Pfad-Commands) mit Status "running" fuer diesen Pfad. */
+export function countRunningAgents(db: DatabaseSync, path: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM t_commands WHERE path = ? AND status = 'running' AND ${AGENT_COMMANDS_ONLY_CLAUSE}`,
+    )
+    .get(path);
+  return Number(row?.count ?? 0);
+}
+
+/** Reine Agent-Laeufe (ohne Pfad-Commands), die seit `sinceIso` gestartet wurden, fuer diesen Pfad. */
+export function countAgentsSince(db: DatabaseSync, path: string, sinceIso: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM t_commands WHERE path = ? AND created_at >= ? AND ${AGENT_COMMANDS_ONLY_CLAUSE}`,
+    )
+    .get(path, sinceIso);
+  return Number(row?.count ?? 0);
 }
 
 export interface TotpRow {
@@ -435,6 +470,7 @@ export interface FeedbackRow {
   text: string;
   section: string | null;
   context: string | null;
+  path: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -445,6 +481,7 @@ function toFeedbackRow(row: Record<string, SQLOutputValue>): FeedbackRow {
     text: String(row.text),
     section: row.section === null || row.section === undefined ? null : String(row.section),
     context: row.context === null || row.context === undefined ? null : String(row.context),
+    path: row.path === null || row.path === undefined ? null : String(row.path),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -455,11 +492,14 @@ export function insertFeedback(
   text: string,
   section: string | null = null,
   context: string | null = null,
+  path: string | null = null,
 ): FeedbackRow {
   const now = new Date().toISOString();
   const result = db
-    .prepare('INSERT INTO t_feedback (text, section, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-    .run(text, section, context, now, now);
+    .prepare(
+      'INSERT INTO t_feedback (text, section, context, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(text, section, context, path, now, now);
   const feedback = getFeedback(db, Number(result.lastInsertRowid));
   if (!feedback) {
     throw new Error('Feedback konnte nach dem Anlegen nicht gelesen werden.');
@@ -472,13 +512,20 @@ export function getFeedback(db: DatabaseSync, id: number): FeedbackRow | undefin
   return row === undefined ? undefined : toFeedbackRow(row);
 }
 
-/** Neueste zuerst. */
-export function listFeedback(db: DatabaseSync): FeedbackRow[] {
-  const rows = db.prepare('SELECT * FROM t_feedback ORDER BY id DESC').all();
+/** Neueste zuerst; ohne pathName alle Eintraege, mit pathName nur die diesem Pfad zugeordneten. */
+export function listFeedback(db: DatabaseSync, pathName?: string): FeedbackRow[] {
+  const rows =
+    pathName === undefined
+      ? db.prepare('SELECT * FROM t_feedback ORDER BY id DESC').all()
+      : db.prepare('SELECT * FROM t_feedback WHERE path = ? ORDER BY id DESC').all(pathName);
   return rows.map((row) => toFeedbackRow(row));
 }
 
-export function updateFeedback(db: DatabaseSync, id: number, text: string): FeedbackRow | undefined {
+export function updateFeedback(
+  db: DatabaseSync,
+  id: number,
+  text: string,
+): FeedbackRow | undefined {
   const existing = getFeedback(db, id);
   if (!existing) {
     return undefined;
@@ -494,4 +541,69 @@ export function updateFeedback(db: DatabaseSync, id: number, text: string): Feed
 export function deleteFeedback(db: DatabaseSync, id: number): boolean {
   const result = db.prepare('DELETE FROM t_feedback WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export interface ConfigVersionRow {
+  id: number;
+  content: string;
+  createdAt: string;
+}
+
+export interface ConfigVersionSummary {
+  id: number;
+  createdAt: string;
+}
+
+function toConfigVersionRow(row: Record<string, SQLOutputValue>): ConfigVersionRow {
+  return {
+    id: Number(row.id),
+    content: String(row.content),
+    createdAt: String(row.created_at),
+  };
+}
+
+export function insertConfigVersion(db: DatabaseSync, content: string): ConfigVersionRow {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare('INSERT INTO t_config_versions (content, created_at) VALUES (?, ?)')
+    .run(content, now);
+  const version = getConfigVersion(db, Number(result.lastInsertRowid));
+  if (!version) {
+    throw new Error('Config-Version konnte nach dem Anlegen nicht gelesen werden.');
+  }
+  return version;
+}
+
+export function getConfigVersion(db: DatabaseSync, id: number): ConfigVersionRow | undefined {
+  const row = db.prepare('SELECT * FROM t_config_versions WHERE id = ?').get(id);
+  return row === undefined ? undefined : toConfigVersionRow(row);
+}
+
+/** Neueste zuerst. */
+export function listConfigVersions(db: DatabaseSync): ConfigVersionSummary[] {
+  const rows = db.prepare('SELECT id, created_at FROM t_config_versions ORDER BY id DESC').all();
+  return rows.map((row) => ({ id: Number(row.id), createdAt: String(row.created_at) }));
+}
+
+export interface ConfigPointerRow {
+  versionId: number | null;
+  updatedAt: string;
+}
+
+export function getConfigPointer(db: DatabaseSync): ConfigPointerRow | undefined {
+  const row = db.prepare('SELECT version_id, updated_at FROM t_config_pointer WHERE id = 1').get();
+  if (row === undefined) {
+    return undefined;
+  }
+  return {
+    versionId: row.version_id === null ? null : Number(row.version_id),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export function setConfigPointer(db: DatabaseSync, versionId: number | null): void {
+  db.prepare(
+    `INSERT INTO t_config_pointer (id, version_id, updated_at) VALUES (1, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET version_id = excluded.version_id, updated_at = excluded.updated_at`,
+  ).run(versionId, new Date().toISOString());
 }

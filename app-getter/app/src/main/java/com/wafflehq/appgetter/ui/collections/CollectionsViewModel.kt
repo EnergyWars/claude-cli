@@ -9,6 +9,7 @@ import com.wafflehq.appgetter.data.discovery.NetworkDiscovery
 import com.wafflehq.appgetter.data.install.ApkInstaller
 import com.wafflehq.appgetter.data.install.DownloadStatus
 import com.wafflehq.appgetter.data.settings.DownloadHistoryRepository
+import com.wafflehq.appgetter.data.settings.PendingInstall
 import com.wafflehq.appgetter.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -68,6 +69,7 @@ class CollectionsViewModel @Inject constructor(
             try {
                 val files = api.getCollections(host, override.port).files
                 _uiState.update { it.copy(state = CollectionsState.Found(host, override.port, files)) }
+                restorePendingInstall(files)
             } catch (error: ApiException) {
                 _uiState.update {
                     it.copy(state = CollectionsState.NotFound, error = error.message ?: "Unbekannter Fehler.")
@@ -76,14 +78,37 @@ class CollectionsViewModel @Inject constructor(
         }
     }
 
+    private suspend fun restorePendingInstall(files: List<CollectedFile>) {
+        val cached = cachedFileFor(files) ?: return
+        _uiState.update { it.copy(installFile = cached) }
+    }
+
+    private suspend fun cachedFileFor(files: List<CollectedFile>): File? {
+        val pending = downloadHistoryRepository.pendingInstalls.first()
+        val match = files.firstNotNullOfOrNull { file -> pending.matching(file) } ?: return null
+        val cached = File(match.filePath)
+        if (cached.exists() && cached.length() > 0L) return cached
+        downloadHistoryRepository.clearPendingInstall(match.fileName)
+        return null
+    }
+
+    private fun List<PendingInstall>.matching(file: CollectedFile): PendingInstall? =
+        find { it.fileName == file.name && it.timestamp == file.timestamp }
+
     fun downloadAndInstall(file: CollectedFile) {
         if (_uiState.value.downloadingFileName != null) return
         val found = _uiState.value.state as? CollectionsState.Found ?: return
         viewModelScope.launch {
+            val cached = cachedFileFor(listOf(file))
+            if (cached != null) {
+                _uiState.update { it.copy(installFile = cached, error = null) }
+                return@launch
+            }
             _uiState.update { it.copy(downloadingFileName = file.name, error = null) }
             try {
                 val downloaded = installer.downloadFile(found.host, found.port, file.name)
                 downloadHistoryRepository.recordDownload(file.name, file.timestamp)
+                downloadHistoryRepository.recordPendingInstall(file.name, file.timestamp, downloaded.absolutePath)
                 _uiState.update { it.copy(installFile = downloaded) }
             } catch (error: ApiException) {
                 installer.clearDownloadStatus()
@@ -101,5 +126,10 @@ class CollectionsViewModel @Inject constructor(
     fun consumeInstallFile() {
         installer.clearDownloadStatus()
         _uiState.update { it.copy(installFile = null, downloadingFileName = null) }
+    }
+
+    fun resolveInstallFile(file: File) {
+        viewModelScope.launch { downloadHistoryRepository.clearPendingInstall(file.name) }
+        consumeInstallFile()
     }
 }

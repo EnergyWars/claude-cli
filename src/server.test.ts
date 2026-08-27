@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -59,7 +59,9 @@ before(async () => {
       { name: 'other', path: hostedDir },
     ],
     contentPath: join(hostedDir, 'content'),
-    collection: [{ sourcePath: join(hostedDir, 'notes.txt'), targetName: 'notes-collected' }],
+    collection: [
+      { sourcePath: join(hostedDir, 'notes.txt'), targetName: 'notes-collected', path: 'default' },
+    ],
   });
   mock = createMockClaude({ outputChunks: ['erste Zeile\n', 'zweite Zeile\n'], chunkDelayMs: 30 });
 
@@ -288,6 +290,105 @@ test('GET /commands/doesnotexist: 404 bei unbekanntem Pfad', async () => {
 
 test('GET /commands/default: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/commands/default`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /stats/default: Default-Zeitfenster ist 24h, lastDebugBuildAt/lastReleaseBuildAt sind zunaechst null', async () => {
+  const res = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    windowHours: number;
+    lastDebugBuildAt: string | null;
+    lastReleaseBuildAt: string | null;
+  };
+  assert.equal(body.windowHours, 24);
+  assert.equal(body.lastDebugBuildAt, null);
+  assert.equal(body.lastReleaseBuildAt, null);
+});
+
+test('GET /stats/default: lastDebugBuildAt ist der Zeitstempel der APK, ueber alle Pfad-Namen mit gleichem Verzeichnis geteilt', async () => {
+  const debugApkDir = join(hostedDir, 'build', 'outputs', 'apk', 'debug');
+  mkdirSync(debugApkDir, { recursive: true });
+  const debugApkPath = join(debugApkDir, 'app-debug.apk');
+  writeFileSync(debugApkPath, 'FAKE');
+  const debugMtime = new Date('2026-02-01T08:00:00.000Z');
+  utimesSync(debugApkPath, debugMtime, debugMtime);
+
+  const defaultRes = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  const defaultBody = (await defaultRes.json()) as {
+    lastDebugBuildAt: string | null;
+    lastReleaseBuildAt: string | null;
+  };
+  assert.equal(defaultBody.lastDebugBuildAt, debugMtime.toISOString());
+  assert.equal(defaultBody.lastReleaseBuildAt, null);
+
+  const otherRes = await fetch(`${baseUrl()}/stats/other`, { headers: authHeaders() });
+  const otherBody = (await otherRes.json()) as { lastDebugBuildAt: string | null };
+  assert.equal(otherBody.lastDebugBuildAt, debugMtime.toISOString());
+});
+
+test('GET /stats/default: zaehlt laufende/kuerzlich gelaufene Agents, ohne Pfad-Commands', async () => {
+  const beforeRes = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  const before = (await beforeRes.json()) as { runningAgents: number; agentsInWindow: number };
+
+  const pathCommandRes = await fetch(`${baseUrl()}/paths/default/commands/pwd`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  await pathCommandRes.json();
+
+  const afterPathCommandRes = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  const afterPathCommand = (await afterPathCommandRes.json()) as { agentsInWindow: number };
+  assert.equal(afterPathCommand.agentsInWindow, before.agentsInWindow);
+
+  const postRes = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'stats-agent-lauf', path: 'default' }),
+  });
+  await postRes.json();
+
+  const runningRes = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  const running = (await runningRes.json()) as { runningAgents: number; agentsInWindow: number };
+  assert.equal(running.runningAgents, before.runningAgents + 1);
+  assert.equal(running.agentsInWindow, before.agentsInWindow + 1);
+
+  await sleep(300);
+
+  const completedRes = await fetch(`${baseUrl()}/stats/default`, { headers: authHeaders() });
+  const completed = (await completedRes.json()) as {
+    runningAgents: number;
+    agentsInWindow: number;
+  };
+  assert.equal(completed.runningAgents, before.runningAgents);
+  assert.equal(completed.agentsInWindow, before.agentsInWindow + 1);
+});
+
+test('GET /stats/default?hours=0.001: schmales Zeitfenster liefert 0 fuer laengst abgeschlossene Laeufe', async () => {
+  const res = await fetch(`${baseUrl()}/stats/default?hours=0.0000001`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { agentsInWindow: number; windowHours: number };
+  assert.equal(body.agentsInWindow, 0);
+  assert.equal(body.windowHours, 0.0000001);
+});
+
+test('GET /stats/default?hours=abc: 400 bei ungueltigem Zeitfenster', async () => {
+  const res = await fetch(`${baseUrl()}/stats/default?hours=abc`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /stats/default?hours=-1: 400 bei nicht-positivem Zeitfenster', async () => {
+  const res = await fetch(`${baseUrl()}/stats/default?hours=-1`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /stats/doesnotexist: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/stats/doesnotexist`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /stats/default: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/stats/default`);
   assert.equal(res.status, 401);
 });
 
@@ -948,6 +1049,39 @@ test('GET /collections/get/:name: 404 bei unbekanntem Namen', async () => {
   assert.equal(res.status, 404);
 });
 
+test('POST /collect/:pathName: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/collect/default`, { method: 'POST' });
+  assert.equal(res.status, 401);
+});
+
+test('POST /collect/:pathName: sammelt nur die Eintraege dieses Pfads', async () => {
+  const res = await fetch(`${baseUrl()}/collect/default`, { method: 'POST', headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    results: { targetName: string; fileName: string }[];
+    errors: unknown[];
+  };
+  assert.deepEqual(body.errors, []);
+  assert.deepEqual(body.results, [
+    { targetName: 'notes-collected', fileName: 'notes-collected.txt', status: 'ok' },
+  ]);
+});
+
+test('POST /collect/:pathName: leeres Ergebnis fuer Pfad ohne Collection-Eintraege', async () => {
+  const res = await fetch(`${baseUrl()}/collect/other`, { method: 'POST', headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { results: unknown[]; errors: unknown[] };
+  assert.deepEqual(body, { results: [], errors: [] });
+});
+
+test('POST /collect/:pathName: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/collect/doesnotexist`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
 test('POST /feedback: kein Auth noetig, legt einen Eintrag an', async () => {
   const res = await fetch(`${baseUrl()}/feedback`, {
     method: 'POST',
@@ -955,7 +1089,12 @@ test('POST /feedback: kein Auth noetig, legt einen Eintrag an', async () => {
     body: JSON.stringify({ text: 'Bitte Dark Mode.' }),
   });
   assert.equal(res.status, 201);
-  const body = (await res.json()) as { id: number; text: string; section: string | null; context: string | null };
+  const body = (await res.json()) as {
+    id: number;
+    text: string;
+    section: string | null;
+    context: string | null;
+  };
   assert.equal(body.text, 'Bitte Dark Mode.');
   assert.equal(body.section, null);
   assert.equal(body.context, null);
@@ -977,7 +1116,10 @@ test('POST /feedback: speichert den optionalen Kontext', async () => {
   const res = await fetch(`${baseUrl()}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: 'App stuerzt ab.', context: 'periodical-debug.apk (2026-08-26T10:00:00.000Z)' }),
+    body: JSON.stringify({
+      text: 'App stuerzt ab.',
+      context: 'periodical-debug.apk (2026-08-26T10:00:00.000Z)',
+    }),
   });
   assert.equal(res.status, 201);
   const body = (await res.json()) as { context: string | null };
@@ -1022,6 +1164,39 @@ test('POST /feedback: 400 wenn "section" kein String ist', async () => {
   assert.equal(res.status, 400);
 });
 
+test('POST /feedback: section, die zu einem Collection-Eintrag passt, setzt den zugehoerigen Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'App stuerzt ab.', section: 'notes-collected.txt' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { path: string | null };
+  assert.equal(body.path, 'default');
+});
+
+test('POST /feedback: section ohne passenden Collection-Eintrag laesst den Pfad leer', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'App stuerzt ab.', section: 'unbekannte-section' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { path: string | null };
+  assert.equal(body.path, null);
+});
+
+test('POST /feedback: ohne section bleibt der Pfad leer', async () => {
+  const res = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Text' }),
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as { path: string | null };
+  assert.equal(body.path, null);
+});
+
 async function createFeedback(text = 'Feedback-Text'): Promise<{ id: number; text: string }> {
   const res = await fetch(`${baseUrl()}/feedback`, {
     method: 'POST',
@@ -1042,6 +1217,33 @@ test('GET /feedback: listet Eintraege, authentifiziert', async () => {
   assert.equal(res.status, 200);
   const body = (await res.json()) as { feedback: { id: number }[] };
   assert.ok(body.feedback.some((entry) => entry.id === created.id));
+});
+
+test('GET /feedback/:pathName: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/feedback/default`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /feedback/:pathName: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/feedback/doesnotexist`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /feedback/:pathName: listet nur Eintraege dieses Pfads', async () => {
+  const withPathRes = await fetch(`${baseUrl()}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Betrifft default.', section: 'notes-collected.txt' }),
+  });
+  const withPath = (await withPathRes.json()) as { id: number };
+  const withoutPath = await createFeedback('Ohne Pfad-Zuordnung.');
+
+  const res = await fetch(`${baseUrl()}/feedback/default`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { feedback: { id: number }[] };
+  const ids = body.feedback.map((entry) => entry.id);
+  assert.ok(ids.includes(withPath.id));
+  assert.ok(!ids.includes(withoutPath.id));
 });
 
 test('PATCH /feedback/:id: aktualisiert den Text', async () => {
@@ -1097,4 +1299,163 @@ test('DELETE /feedback/:id: 404 bei unbekannter ID', async () => {
     headers: authHeaders(),
   });
   assert.equal(res.status, 404);
+});
+
+test('GET /config: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/config`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /config: liefert die aktuell aktive Config (aus der lokalen config.json bootstrapped)', async () => {
+  const res = await fetch(`${baseUrl()}/config`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { main: { description: string } };
+  assert.equal(body.main.description, 'Main');
+});
+
+test('GET /config/pointer: zeigt initial auf die aus der lokalen Datei importierte Version 1', async () => {
+  const res = await fetch(`${baseUrl()}/config/pointer`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { versionId: number | null };
+  assert.equal(body.versionId, 1);
+});
+
+test('GET /config/versions: listet mindestens die Bootstrap-Version 1', async () => {
+  const res = await fetch(`${baseUrl()}/config/versions`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { versions: { id: number; createdAt: string }[] };
+  assert.ok(body.versions.some((version) => version.id === 1));
+});
+
+test('GET /config/versions/:id: liefert den vollen Config-Inhalt dieser Version', async () => {
+  const res = await fetch(`${baseUrl()}/config/versions/1`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { id: number; config: { main: { description: string } } };
+  assert.equal(body.id, 1);
+  assert.equal(body.config.main.description, 'Main');
+});
+
+test('GET /config/versions/:id: 404 bei unbekannter Version', async () => {
+  const res = await fetch(`${baseUrl()}/config/versions/999999`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('PUT /config: 400 bei ungueltiger Config', async () => {
+  const res = await fetch(`${baseUrl()}/config`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ nope: true }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('PUT /config: neue Version wird gespeichert und ist sofort (ohne Neustart) aktiv', async () => {
+  const currentRes = await fetch(`${baseUrl()}/config`, { headers: authHeaders() });
+  const current = (await currentRes.json()) as Record<string, unknown> & {
+    main: { description: string };
+  };
+
+  const putRes = await fetch(`${baseUrl()}/config`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ...current, main: { ...current.main, description: 'Geaendert' } }),
+  });
+  assert.equal(putRes.status, 200);
+  const putBody = (await putRes.json()) as { versionId: number; warning?: string };
+  assert.equal(putBody.warning, undefined);
+  const newVersionId = putBody.versionId;
+  assert.ok(newVersionId > 1);
+
+  try {
+    const configRes = await fetch(`${baseUrl()}/config`, { headers: authHeaders() });
+    const configBody = (await configRes.json()) as { main: { description: string } };
+    assert.equal(configBody.main.description, 'Geaendert');
+
+    const manifestRes = await fetch(`${baseUrl()}/manifest`, { headers: authHeaders() });
+    const manifestBody = (await manifestRes.json()) as { agents: { description: string }[] };
+    assert.equal(manifestBody.agents[0]?.description, 'Geaendert');
+
+    const pointerRes = await fetch(`${baseUrl()}/config/pointer`, { headers: authHeaders() });
+    const pointerBody = (await pointerRes.json()) as { versionId: number | null };
+    assert.equal(pointerBody.versionId, newVersionId);
+  } finally {
+    await fetch(`${baseUrl()}/config/pointer`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ versionId: 1 }),
+    });
+  }
+});
+
+test('PUT /config: Wechsel von databaseDirectory liefert eine Warnung (Reload greift erst nach Neustart)', async () => {
+  const currentRes = await fetch(`${baseUrl()}/config`, { headers: authHeaders() });
+  const current = (await currentRes.json()) as Record<string, unknown> & {
+    databaseDirectory: string;
+  };
+
+  const putRes = await fetch(`${baseUrl()}/config`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ...current, databaseDirectory: `${current.databaseDirectory}-andere` }),
+  });
+  assert.equal(putRes.status, 200);
+  const putBody = (await putRes.json()) as { warning?: string };
+  assert.match(putBody.warning ?? '', /Server-Neustart/);
+
+  await fetch(`${baseUrl()}/config/pointer`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ versionId: 1 }),
+  });
+});
+
+test('PUT /config/pointer: {embedded:true} aktiviert die fest reinkompilierte Version, Rollback per versionId', async () => {
+  try {
+    const embeddedRes = await fetch(`${baseUrl()}/config/pointer`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ embedded: true }),
+    });
+    assert.equal(embeddedRes.status, 200);
+    const embeddedBody = (await embeddedRes.json()) as { versionId: number | null };
+    assert.equal(embeddedBody.versionId, null);
+
+    const pointerRes = await fetch(`${baseUrl()}/config/pointer`, { headers: authHeaders() });
+    assert.equal(((await pointerRes.json()) as { versionId: number | null }).versionId, null);
+  } finally {
+    const rollbackRes = await fetch(`${baseUrl()}/config/pointer`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ versionId: 1 }),
+    });
+    assert.equal(rollbackRes.status, 200);
+  }
+
+  const pointerRes = await fetch(`${baseUrl()}/config/pointer`, { headers: authHeaders() });
+  assert.equal(((await pointerRes.json()) as { versionId: number | null }).versionId, 1);
+});
+
+test('PUT /config/pointer: 404 bei unbekannter Version, 400 bei ungueltigem Body', async () => {
+  const notFoundRes = await fetch(`${baseUrl()}/config/pointer`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ versionId: 999999 }),
+  });
+  assert.equal(notFoundRes.status, 404);
+
+  const badRes = await fetch(`${baseUrl()}/config/pointer`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ nope: true }),
+  });
+  assert.equal(badRes.status, 400);
+});
+
+test('PUT /config/pointer: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/config/pointer`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ versionId: 1 }),
+  });
+  assert.equal(res.status, 401);
 });

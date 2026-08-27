@@ -37,6 +37,5 @@
     <string name="feedback_open">Feedback geben</string>
     <string name="feedback_dialog_title">Feedback zu „%1$s“</string>
     <string name="feedback_text_label">Dein Feedback</string>
-    <string name="feedback_context_label">Kontext</string>
     <string name="feedback_submit">Senden</string>
 </resources>

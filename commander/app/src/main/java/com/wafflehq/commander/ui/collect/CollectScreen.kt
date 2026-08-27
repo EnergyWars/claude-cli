@@ -18,7 +18,6 @@ import com.wafflehq.commander.data.api.CollectErrorEntry
 import com.wafflehq.commander.data.api.CollectResultEntry
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
-import com.wafflehq.commander.ui.components.AppTextField
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
@@ -45,24 +44,10 @@ fun CollectScreen(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
             AppButton(
-                text = stringResource(R.string.collect_all_button),
+                text = stringResource(R.string.collect_button),
                 role = AppRole.Primary,
-                onClick = viewModel::collectAll,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            AppTextField(
-                value = state.targetName,
-                onValueChange = viewModel::onTargetNameChange,
-                label = stringResource(R.string.collect_target_label),
-                role = AppRole.Neutral,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppButton(
-                text = stringResource(R.string.collect_target_button),
-                role = AppRole.Secondary,
-                onClick = viewModel::collectOne,
-                enabled = state.targetName.isNotBlank(),
+                onClick = viewModel::collect,
+                enabled = !state.loading,
                 modifier = Modifier.fillMaxWidth(),
             )
 

@@ -101,7 +101,8 @@
   "collection": [
     {
       "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
-      "targetName": "periodical-debug"
+      "targetName": "periodical-debug",
+      "path": "periodical-work"
     }
   ]
 }

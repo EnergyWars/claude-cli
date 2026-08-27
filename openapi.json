@@ -296,6 +296,55 @@
         }
       }
     },
+    "/stats/{pathName}": {
+      "get": {
+        "summary": "Laufende/kuerzlich gelaufene Agents sowie Zeitstempel der letzten Debug-/Release-APK eines Pfads",
+        "description": "runningAgents/agentsInWindow zaehlen ausschliesslich echte Agent-Laeufe (POST / bzw. POST /{agent}) dieses Pfads, keine Pfad-Commands. lastDebugBuildAt/lastReleaseBuildAt sind der Dateisystem-Zeitstempel (mtime) der zuletzt geaenderten APK unter **/build/outputs/apk/<debug|release>/*.apk im Dateisystem-Verzeichnis des Pfads (null ohne Treffer) - unabhaengig davon, ob der Build ueber \"cl inst\"/\"cl instr\" oder anderweitig entstanden ist.",
+        "operationId": "getStats",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "description": "Zeitfenster in Stunden fuer agentsInWindow. Default 24, muss eine positive Zahl sein.",
+            "schema": { "type": "number", "exclusiveMinimum": 0, "default": 24 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Statistik dieses Pfads.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProjectStats" } }
+            }
+          },
+          "400": {
+            "description": "Query-Parameter \"hours\" ist keine positive Zahl.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/commands": {
       "get": {
         "summary": "Listet die konfigurierten Commands eines Pfads",
@@ -867,6 +916,42 @@
         }
       }
     },
+    "/collect/{pathName}": {
+      "post": {
+        "summary": "Sammelt nur die einem Pfad zugeordneten Collection-Eintraege",
+        "description": "Sammelt alle config.json collection-Eintraege, deren \"path\" zu pathName passt (Fehler pro Eintrag werden gesammelt statt abzubrechen). Gedacht fuer einen einzelnen \"Sammeln\"-Button pro Projekt/Pfad. Ohne zugeordnete Eintraege ist das Ergebnis leer (kein Fehler).",
+        "operationId": "collectForPath",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ergebnis des Sammelvorgangs.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CollectSummary" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "pathName ist in config.json paths nicht vorhanden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/collections": {
       "get": {
         "summary": "Listet alle gesammelten Dateien",
@@ -969,6 +1054,42 @@
         }
       }
     },
+    "/feedback/{pathName}": {
+      "get": {
+        "summary": "Listet Feedback-Eintraege eines Pfads",
+        "description": "Neueste zuerst. Zeigt nur Eintraege, deren \"path\" (aus der section->collection-Zuordnung beim Anlegen, siehe POST /feedback) zu pathName passt.",
+        "operationId": "listFeedbackForPath",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Feedback-Eintraege dieses Pfads.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/FeedbackList" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "pathName ist in config.json paths nicht vorhanden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/feedback/{id}": {
       "patch": {
         "summary": "Bearbeitet einen Feedback-Eintrag",
@@ -1028,6 +1149,181 @@
           },
           "404": {
             "description": "Kein Feedback-Eintrag mit dieser ID.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/config": {
+      "get": {
+        "summary": "Liefert die aktuell aktive config.json",
+        "description": "Die effektiv geladene Config gemaess Datenbank-Zeiger (t_config_pointer): entweder eine per PUT /config gespeicherte Version oder, falls der Zeiger explizit auf 'embedded' steht, die fest reinkompilierte Version.",
+        "operationId": "getConfig",
+        "responses": {
+          "200": {
+            "description": "Aktuell aktive Config.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfigDocument" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Speichert eine neue Config-Version und aktiviert sie sofort",
+        "description": "Body ist die vollstaendige neue config.json (gleiche Form wie GET /config liefert). Wird validiert (gleiche Regeln wie die lokale config.json), als neue Version in der Datenbank historisiert und der Zeiger sofort darauf gesetzt. Wirkt im laufenden Server ohne Neustart - ausser bei einer Aenderung von databaseDirectory, die erst nach einem Server-Neustart aktiv wird (Antwort enthaelt dann ein warning-Feld).",
+        "operationId": "putConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ConfigDocument" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Neue Version wurde gespeichert und ist aktiv.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfigPutResponse" } }
+            }
+          },
+          "400": {
+            "description": "Body ist kein gueltiges JSON oder entspricht nicht dem Config-Schema.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/config/versions": {
+      "get": {
+        "summary": "Listet alle historisierten Config-Versionen (neueste zuerst)",
+        "operationId": "getConfigVersions",
+        "responses": {
+          "200": {
+            "description": "Liste aller gespeicherten Versionen ohne Inhalt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfigVersionList" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/config/versions/{id}": {
+      "get": {
+        "summary": "Liefert eine einzelne historisierte Config-Version inkl. vollem Inhalt",
+        "operationId": "getConfigVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" },
+            "description": "ID der Version aus GET /config/versions."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Die Config-Version.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConfigVersionDetail" }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungueltige Version-ID.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Config-Version mit dieser ID.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/config/pointer": {
+      "get": {
+        "summary": "Liefert, welche Version aktuell aktiv ist",
+        "description": "versionId ist null, wenn die fest reinkompilierte Version aktiv ist.",
+        "operationId": "getConfigPointer",
+        "responses": {
+          "200": {
+            "description": "Aktueller Zeiger.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfigPointer" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Setzt den Zeiger auf eine bestehende Version (Rollback) oder auf die fest reinkompilierte Version",
+        "description": "Body entweder { \"versionId\": number } (Rollback auf eine bestehende, historisierte Version) oder { \"embedded\": true } (aktiviert die fest reinkompilierte Version). Wirkt im laufenden Server sofort ohne Neustart, mit der gleichen databaseDirectory-Ausnahme wie PUT /config.",
+        "operationId": "putConfigPointer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConfigPointerRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zeiger wurde aktualisiert und ist aktiv.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ConfigPutResponse" } }
+            }
+          },
+          "400": {
+            "description": "Body ist weder { \"versionId\": number } noch { \"embedded\": true }.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Config-Version mit dieser versionId.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -1117,6 +1413,43 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Nur die Namen (paths[].name) aus config.json, nicht die Dateisystem-Pfade."
+          }
+        }
+      },
+      "ProjectStats": {
+        "type": "object",
+        "required": [
+          "runningAgents",
+          "agentsInWindow",
+          "windowHours",
+          "lastDebugBuildAt",
+          "lastReleaseBuildAt"
+        ],
+        "properties": {
+          "runningAgents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Anzahl aktuell laufender Agent-Laeufe (status \"running\") dieses Pfads, ohne Pfad-Commands."
+          },
+          "agentsInWindow": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Anzahl der Agent-Laeufe dieses Pfads, die innerhalb der letzten windowHours Stunden gestartet wurden, ohne Pfad-Commands."
+          },
+          "windowHours": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Das fuer agentsInWindow verwendete Zeitfenster in Stunden (Query-Parameter ?hours=, Default 24)."
+          },
+          "lastDebugBuildAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "ISO-Zeitstempel (mtime) der zuletzt geaenderten Debug-APK unter **/build/outputs/apk/debug/*.apk im Dateisystem-Verzeichnis des Pfads, null ohne Treffer."
+          },
+          "lastReleaseBuildAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "ISO-Zeitstempel (mtime) der zuletzt geaenderten Release-APK unter **/build/outputs/apk/release/*.apk im Dateisystem-Verzeichnis des Pfads, null ohne Treffer."
           }
         }
       },
@@ -1451,7 +1784,7 @@
       },
       "Feedback": {
         "type": "object",
-        "required": ["id", "text", "section", "context", "createdAt", "updatedAt"],
+        "required": ["id", "text", "section", "context", "path", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "integer" },
           "text": { "type": "string" },
@@ -1464,6 +1797,11 @@
             "type": "string",
             "nullable": true,
             "description": "Optionaler Freitext-Kontext zum Feedback (z. B. APK-Name und Zeitstempel der bewerteten Datei). null wenn keiner angegeben wurde."
+          },
+          "path": {
+            "type": "string",
+            "nullable": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name), automatisch aus \"section\" ueber den passenden Collection-Eintrag (collection[].path) abgeleitet. null, wenn keine section angegeben wurde oder sie zu keinem Collection-Eintrag passt."
           },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }

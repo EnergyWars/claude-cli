@@ -126,25 +126,34 @@ class FeedbackViewModelTest {
     }
 
     @Test
-    fun `send includes the edited context and drops a blank one`() = runTest(dispatcher) {
+    fun `send includes the prefilled context unchanged since it cannot be edited`() = runTest(dispatcher) {
         val api = mockk<AppGetterApi> {
             coEvery { sendFeedback(any(), any(), any(), any(), any()) } returns
-                FeedbackEntry(1, "Tolle App", "periodical-debug", "Kontext", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+                FeedbackEntry(1, "Tolle App", "periodical-debug", "Vorbelegt", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
         }
         val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
 
-        viewModel.open("periodical-debug", "Vorbelegt")
-        viewModel.onContextChange("  Kontext  ")
+        viewModel.open("periodical-debug", "  Vorbelegt  ")
         viewModel.onTextChange("Tolle App")
         viewModel.send()
         dispatcher.scheduler.runCurrent()
-        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", "Kontext") }
 
-        viewModel.open("periodical-debug", "Vorbelegt")
-        viewModel.onContextChange("   ")
+        io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", "Vorbelegt") }
+    }
+
+    @Test
+    fun `send drops a blank context`() = runTest(dispatcher) {
+        val api = mockk<AppGetterApi> {
+            coEvery { sendFeedback(any(), any(), any(), any(), any()) } returns
+                FeedbackEntry(1, "Tolle App", "periodical-debug", null, "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:00.000Z")
+        }
+        val viewModel = FeedbackViewModel(settingsRepository(), mockk(), api)
+
+        viewModel.open("periodical-debug")
         viewModel.onTextChange("Tolle App")
         viewModel.send()
         dispatcher.scheduler.runCurrent()
+
         io.mockk.coVerify { api.sendFeedback("192.168.1.5", 8787, "Tolle App", "periodical-debug", null) }
     }
 

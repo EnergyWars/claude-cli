@@ -1,6 +1,10 @@
 package com.wafflehq.commander.data.discovery
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.wafflehq.commander.data.api.ClServerApi
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import javax.inject.Inject
@@ -48,6 +52,7 @@ fun subnetHosts(localIpv4: String): List<String> {
 @Singleton
 class NetworkDiscovery @Inject constructor(
     private val api: ClServerApi,
+    @ApplicationContext private val context: Context,
 ) {
     /** Scans every address in the device's local /24 subnet for a `cl server` on [port], returns the first hit. */
     suspend fun discoverHost(port: Int): String? {
@@ -55,7 +60,32 @@ class NetworkDiscovery @Inject constructor(
         return raceFirstMatch(subnetHosts(localIp)) { host -> api.probeStatus(host, port) }
     }
 
-    private fun localIpv4Address(): String? =
+    /**
+     * The device's IPv4 address on its Wi-Fi network, if any is connected. Cellular data or a VPN
+     * can also be "up" at the same time (or even be the active/default network when Wi-Fi has no
+     * internet access) but neither shares the LAN the `cl server` runs on, so the Wi-Fi transport
+     * is looked up explicitly instead of trusting whichever interface the OS returns first.
+     */
+    internal fun localIpv4Address(): String? =
+        wifiIpv4Address() ?: firstNonLoopbackIpv4Address()
+
+    internal fun wifiIpv4Address(): String? {
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        return connectivityManager.allNetworks
+            .filter { network ->
+                connectivityManager.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+            .firstNotNullOfOrNull { network ->
+                connectivityManager.getLinkProperties(network)?.linkAddresses
+                    ?.map { it.address }
+                    ?.filterIsInstance<Inet4Address>()
+                    ?.firstOrNull { !it.isLoopbackAddress }
+                    ?.hostAddress
+            }
+    }
+
+    internal fun firstNonLoopbackIpv4Address(): String? =
         NetworkInterface.getNetworkInterfaces()?.asSequence()
             ?.filter { it.isUp && !it.isLoopback }
             ?.flatMap { it.inetAddresses.asSequence() }

@@ -21,7 +21,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
@@ -40,12 +43,15 @@ import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.downloads.DownloadProgressIndicator
 import com.wafflehq.commander.ui.history.formatDuration
+import com.wafflehq.commander.ui.history.formatTimestamp
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 import com.wafflehq.commander.ui.theme.GeistMono
+import java.time.Instant
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val STATUS_COMPLETED = "completed"
@@ -188,6 +194,15 @@ fun CommandDetailScreen(
 
 @Composable
 private fun CommandSummary(state: CommandState) {
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(state.status) {
+        while (state.status == COMMAND_STATUS_RUNNING) {
+            now = Instant.now()
+            delay(1_000)
+        }
+    }
+    val durationEnd = if (state.status == COMMAND_STATUS_RUNNING) now.toString() else state.updatedAt
+
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
@@ -198,9 +213,14 @@ private fun CommandSummary(state: CommandState) {
         }
         Text(state.command, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurfaceVariant)
         Text(
+            text = stringResource(R.string.command_detail_started_at, formatTimestamp(state.createdAt)),
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTheme.colors.onSurfaceVariant,
+        )
+        Text(
             text = stringResource(
                 R.string.command_detail_duration,
-                formatDuration(state.createdAt, state.updatedAt),
+                formatDuration(state.createdAt, durationEnd),
             ),
             style = MaterialTheme.typography.bodySmall,
             color = AppTheme.colors.onSurfaceVariant,

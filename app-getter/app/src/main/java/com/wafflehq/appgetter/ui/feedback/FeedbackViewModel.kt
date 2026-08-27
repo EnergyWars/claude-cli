@@ -44,10 +44,6 @@ class FeedbackViewModel @Inject constructor(
         _uiState.update { it.copy(text = value) }
     }
 
-    fun onContextChange(value: String) {
-        _uiState.update { it.copy(context = value) }
-    }
-
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }

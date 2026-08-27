@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.SocketEffect
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -267,6 +268,39 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getStats without hours requests the plain path and parses the response`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"runningAgents":2,"agentsInWindow":5,"windowHours":24,"lastDebugBuildAt":"2026-02-01T08:00:00.000Z","lastReleaseBuildAt":null}""",
+            ),
+        )
+
+        val result = apiWithConnection().getStats("myapp")
+
+        assertEquals(2, result.runningAgents)
+        assertEquals(5, result.agentsInWindow)
+        assertEquals(24.0, result.windowHours, 0.0)
+        assertEquals("2026-02-01T08:00:00.000Z", result.lastDebugBuildAt)
+        assertNull(result.lastReleaseBuildAt)
+        val recorded = server.takeRequest()
+        assertEquals("/stats/myapp", recorded.target)
+    }
+
+    @Test
+    fun `getStats with hours appends the hours query parameter`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"runningAgents":0,"agentsInWindow":0,"windowHours":6,"lastDebugBuildAt":null,"lastReleaseBuildAt":null}""",
+            ),
+        )
+
+        apiWithConnection().getStats("myapp", hours = 6)
+
+        val recorded = server.takeRequest()
+        assertEquals("/stats/myapp?hours=6", recorded.target)
+    }
+
+    @Test
     fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
         server.enqueue(
             MockResponse(
@@ -390,45 +424,31 @@ class ClServerApiTest {
     }
 
     @Test
-    fun `collect posts an empty body without a targetName`() = runBlocking {
+    fun `collect posts to the path-scoped endpoint`() = runBlocking {
         server.enqueue(MockResponse(body = """{"results":[],"errors":[]}"""))
 
-        val result = apiWithConnection().collect()
+        val result = apiWithConnection().collect("myapp")
 
         assertTrue(result.results.isEmpty())
         assertTrue(result.errors.isEmpty())
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
-        assertEquals("/collect", recorded.target)
-        assertFalse(recorded.body?.utf8().orEmpty().contains("targetName"))
+        assertEquals("/collect/myapp", recorded.target)
     }
 
     @Test
-    fun `collect sends the targetName when given`() = runBlocking {
-        server.enqueue(
-            MockResponse(body = """{"results":[{"targetName":"test","fileName":"test.apk","status":"ok"}],"errors":[]}"""),
-        )
-
-        val result = apiWithConnection().collect("test")
-
-        assertEquals(1, result.results.size)
-        val recorded = server.takeRequest()
-        assertTrue(recorded.body?.utf8().orEmpty().contains("\"targetName\":\"test\""))
-    }
-
-    @Test
-    fun `getFeedback lists feedback entries`() = runBlocking {
+    fun `getFeedback lists feedback entries for a path`() = runBlocking {
         server.enqueue(
             MockResponse(body = """{"feedback":[{"id":1,"text":"Bitte Dark Mode.","createdAt":"c","updatedAt":"c"}]}"""),
         )
 
-        val result = apiWithConnection().getFeedback()
+        val result = apiWithConnection().getFeedback("myapp")
 
         assertEquals(1, result.feedback.size)
         assertEquals("Bitte Dark Mode.", result.feedback.first().text)
         assertEquals(null, result.feedback.first().section)
         val recorded = server.takeRequest()
-        assertEquals("/feedback", recorded.target)
+        assertEquals("/feedback/myapp", recorded.target)
     }
 
     @Test
@@ -439,22 +459,23 @@ class ClServerApiTest {
             ),
         )
 
-        val result = apiWithConnection().getFeedback()
+        val result = apiWithConnection().getFeedback("myapp")
 
         assertEquals("periodical-debug", result.feedback.first().section)
     }
 
     @Test
-    fun `getFeedback exposes the context of an entry`() = runBlocking {
+    fun `getFeedback exposes the context and path of an entry`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","context":"periodical-debug.apk (2026-08-26T10:00:00.000Z)","createdAt":"c","updatedAt":"c"}]}""",
+                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","context":"periodical-debug.apk (2026-08-26T10:00:00.000Z)","path":"myapp","createdAt":"c","updatedAt":"c"}]}""",
             ),
         )
 
-        val result = apiWithConnection().getFeedback()
+        val result = apiWithConnection().getFeedback("myapp")
 
         assertEquals("periodical-debug.apk (2026-08-26T10:00:00.000Z)", result.feedback.first().context)
+        assertEquals("myapp", result.feedback.first().path)
     }
 
     @Test
@@ -555,6 +576,22 @@ class ClServerApiTest {
             fail("expected ApiException")
         } catch (error: ApiException) {
             assertEquals(404, error.httpCode)
+        }
+    }
+
+    @Test
+    fun `streamState wraps a mid-stream socket close as ApiException instead of a raw IOException`() = runBlocking {
+        server.enqueue(
+            MockResponse.Builder()
+                .onResponseStart(SocketEffect.CloseSocket())
+                .build(),
+        )
+
+        try {
+            apiWithConnection().streamState("1").toList()
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals(null, error.httpCode)
         }
     }
 

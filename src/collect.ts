@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 
-import type { CollectionEntry, Config } from './config.js';
+import { resolvePathEntry, type CollectionEntry, type Config } from './config.js';
 
 export interface CollectResult {
   targetName: string;
@@ -28,9 +28,14 @@ export function ensureContentDir(contentPath: string): void {
   mkdirSync(contentPath, { recursive: true });
 }
 
-function targetFileName(entry: CollectionEntry): string {
+export function targetFileName(entry: CollectionEntry): string {
   const ext = extname(entry.sourcePath);
   return ext !== '' && !entry.targetName.endsWith(ext) ? `${entry.targetName}${ext}` : entry.targetName;
+}
+
+/** Liefert den "path" des Collection-Eintrags, dessen resultierender Dateiname (siehe targetFileName) zu fileName passt. */
+export function resolveCollectionPathForFileName(config: Config, fileName: string): string | undefined {
+  return config.collection.find((entry) => targetFileName(entry) === fileName)?.path;
 }
 
 function collectEntry(entry: CollectionEntry, contentPath: string): CollectResult {
@@ -73,6 +78,25 @@ export function collectOne(config: Config, targetName: string): CollectSummary {
       errors: [{ targetName, error: error instanceof Error ? error.message : String(error) }],
     };
   }
+}
+
+/** Sammelt nur die Eintraege, deren "path" zu pathName passt. Wirft bei unbekanntem pathName. */
+export function collectForPath(config: Config, pathName: string): CollectSummary {
+  resolvePathEntry(config, pathName);
+  ensureContentDir(config.contentPath);
+  const results: CollectResult[] = [];
+  const errors: CollectError[] = [];
+  for (const entry of config.collection.filter((candidate) => candidate.path === pathName)) {
+    try {
+      results.push(collectEntry(entry, config.contentPath));
+    } catch (error) {
+      errors.push({
+        targetName: entry.targetName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { results, errors };
 }
 
 /** Neueste zuerst (mtime). */

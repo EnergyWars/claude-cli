@@ -7,9 +7,11 @@ import { test } from 'node:test';
 import type { Config } from './config.js';
 import {
   collectAll,
+  collectForPath,
   collectOne,
   listCollectedFiles,
   resolveCollectedFilePath,
+  resolveCollectionPathForFileName,
 } from './collect.js';
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
@@ -41,7 +43,7 @@ test('collectAll: kopiert alle Eintraege, haengt Extension der Quelle an', () =>
     writeFileSync(join(dir, 'app.apk'), 'FAKE-APK');
     const config = baseConfig({
       contentPath,
-      collection: [{ sourcePath: join(dir, 'app.apk'), targetName: 'test' }],
+      collection: [{ sourcePath: join(dir, 'app.apk'), targetName: 'test', path: 'proj' }],
     });
 
     const summary = collectAll(config);
@@ -58,7 +60,7 @@ test('collectAll: haengt keine doppelte Extension an, falls targetName sie schon
     writeFileSync(join(dir, 'app.apk'), 'FAKE-APK');
     const config = baseConfig({
       contentPath,
-      collection: [{ sourcePath: join(dir, 'app.apk'), targetName: 'test.apk' }],
+      collection: [{ sourcePath: join(dir, 'app.apk'), targetName: 'test.apk', path: 'proj' }],
     });
 
     const summary = collectAll(config);
@@ -76,8 +78,8 @@ test('collectAll: fehlende Quelldatei landet in errors, andere Eintraege laufen 
     const config = baseConfig({
       contentPath,
       collection: [
-        { sourcePath: join(dir, 'missing.apk'), targetName: 'missing' },
-        { sourcePath: join(dir, 'app.apk'), targetName: 'ok' },
+        { sourcePath: join(dir, 'missing.apk'), targetName: 'missing', path: 'proj' },
+        { sourcePath: join(dir, 'app.apk'), targetName: 'ok', path: 'proj' },
       ],
     });
 
@@ -101,8 +103,8 @@ test('collectOne: kopiert nur den passenden Eintrag', () => {
     const config = baseConfig({
       contentPath,
       collection: [
-        { sourcePath: join(dir, 'a.apk'), targetName: 'a' },
-        { sourcePath: join(dir, 'b.apk'), targetName: 'b' },
+        { sourcePath: join(dir, 'a.apk'), targetName: 'a', path: 'proj-a' },
+        { sourcePath: join(dir, 'b.apk'), targetName: 'b', path: 'proj-b' },
       ],
     });
 
@@ -125,8 +127,8 @@ test('listCollectedFiles: neueste zuerst, nur Dateien', () => {
     const config = baseConfig({
       contentPath,
       collection: [
-        { sourcePath: join(dir, 'missing1.apk'), targetName: 'a' },
-        { sourcePath: join(dir, 'missing2.apk'), targetName: 'b' },
+        { sourcePath: join(dir, 'missing1.apk'), targetName: 'a', path: 'proj' },
+        { sourcePath: join(dir, 'missing2.apk'), targetName: 'b', path: 'proj' },
       ],
     });
     // ensures the directory exists even without any successful collect
@@ -156,4 +158,63 @@ test('resolveCollectedFilePath: wirft bei Pfad-Traversal', () => {
   withTempDir('cl-collect-', (dir) => {
     assert.throws(() => resolveCollectedFilePath(dir, '../escaped'), /Ungueltiger Dateiname/);
   });
+});
+
+test('collectForPath: sammelt nur Eintraege des angegebenen Pfads', () => {
+  withTempDir('cl-collect-', (dir) => {
+    const contentPath = join(dir, 'content');
+    writeFileSync(join(dir, 'a.apk'), 'A');
+    writeFileSync(join(dir, 'b.apk'), 'B');
+    const config = baseConfig({
+      paths: [
+        { name: 'proj-a', path: dir },
+        { name: 'proj-b', path: dir },
+      ],
+      contentPath,
+      collection: [
+        { sourcePath: join(dir, 'a.apk'), targetName: 'a', path: 'proj-a' },
+        { sourcePath: join(dir, 'b.apk'), targetName: 'b', path: 'proj-b' },
+      ],
+    });
+
+    const summary = collectForPath(config, 'proj-a');
+
+    assert.deepEqual(summary.results, [{ targetName: 'a', fileName: 'a.apk', status: 'ok' }]);
+    assert.equal(existsSync(join(contentPath, 'b.apk')), false);
+  });
+});
+
+test('collectForPath: leeres Ergebnis, falls kein Eintrag diesem Pfad zugeordnet ist', () => {
+  withTempDir('cl-collect-', (dir) => {
+    const config = baseConfig({
+      paths: [{ name: 'proj-a', path: dir }],
+      contentPath: join(dir, 'content'),
+      collection: [],
+    });
+
+    const summary = collectForPath(config, 'proj-a');
+
+    assert.deepEqual(summary, { results: [], errors: [] });
+  });
+});
+
+test('collectForPath: wirft bei unbekanntem Pfad', () => {
+  const config = baseConfig({ paths: [{ name: 'proj-a', path: '/tmp' }] });
+  assert.throws(() => collectForPath(config, 'doesnotexist'), /wurde in config\.json nicht gefunden/);
+});
+
+test('resolveCollectionPathForFileName: findet den Pfad ueber den resultierenden Dateinamen', () => {
+  const config = baseConfig({
+    collection: [{ sourcePath: '/tmp/app.apk', targetName: 'periodical-debug', path: 'periodical-work' }],
+  });
+
+  assert.equal(
+    resolveCollectionPathForFileName(config, 'periodical-debug.apk'),
+    'periodical-work',
+  );
+});
+
+test('resolveCollectionPathForFileName: undefined bei unbekanntem Dateinamen', () => {
+  const config = baseConfig();
+  assert.equal(resolveCollectionPathForFileName(config, 'doesnotexist.apk'), undefined);
 });

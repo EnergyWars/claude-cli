@@ -8,35 +8,46 @@ import QRCode from 'qrcode';
 
 import {
   collectAll,
+  collectForPath,
   collectOne,
   listCollectedFiles,
   resolveCollectedFilePath,
+  resolveCollectionPathForFileName,
 } from './collect.js';
 import {
   completeCommand,
   confirmTotpSecret,
+  countAgentsSince,
+  countRunningAgents,
+  DEFAULT_STATS_WINDOW_HOURS,
   deleteFeedback,
   deleteTicket,
   getCommand,
+  getConfigPointer,
+  getConfigVersion,
   getFeedback,
   getTicket,
   getTotpSecret,
   insertCommand,
+  insertConfigVersion,
   insertFeedback,
   insertGeneratingTicket,
   isTicketStatus,
   listAllTickets,
   listCommands,
+  listConfigVersions,
   listFeedback,
   listTickets,
   logAccess,
   openDatabase,
+  setConfigPointer,
   setPendingTotpSecret,
   TICKET_STATUSES,
   updateCommandOutput,
   updateFeedback,
   updateTicket,
   type CommandRow,
+  type ConfigVersionSummary,
   type TicketRow,
   type TicketStatus,
   type TicketUpdate,
@@ -47,17 +58,23 @@ import {
   type HostedEntry,
   type PathCommandEntry,
   type PathEntry,
+  applyPathsOverride,
+  ensureConfigBootstrapped,
   listAgents,
   listHostedNames,
   listHostedSummaries,
   listPathCommands,
   listPathNames,
-  resolveAgent,
+  parseConfig,
+  resolveAgentFrom,
+  resolveEffectiveConfig,
   resolveHostedEntry,
   resolvePath,
   resolvePathCommand,
   resolvePathEntry,
 } from './config.js';
+import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
+import { findLatestBuildTimestamp } from './gradle-install.js';
 import { signJwt, verifyJwt } from './jwt.js';
 import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
@@ -621,6 +638,41 @@ function handleGetCommands(
   sendJson(res, 200, { commands: listCommands(db, pathEntry.path) });
 }
 
+function handleGetStats(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  hoursParam: string | null,
+): void {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let windowHours = DEFAULT_STATS_WINDOW_HOURS;
+  if (hoursParam !== null) {
+    const parsed = Number(hoursParam);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      sendJson(res, 400, { error: 'Query-Parameter "hours" muss eine positive Zahl sein.' });
+      return;
+    }
+    windowHours = parsed;
+  }
+
+  const sinceIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  sendJson(res, 200, {
+    runningAgents: countRunningAgents(db, pathEntry.path),
+    agentsInWindow: countAgentsSince(db, pathEntry.path, sinceIso),
+    windowHours,
+    lastDebugBuildAt: findLatestBuildTimestamp(pathEntry.path, 'debug'),
+    lastReleaseBuildAt: findLatestBuildTimestamp(pathEntry.path, 'release'),
+  });
+}
+
 function handleGetManifest(config: Config, res: ServerResponse): void {
   sendJson(res, 200, {
     agents: listAgents(config),
@@ -630,6 +682,156 @@ function handleGetManifest(config: Config, res: ServerResponse): void {
       hosted: listHostedSummaries(config, name),
     })),
   });
+}
+
+interface ConfigState {
+  current: Config;
+}
+
+/**
+ * Aktualisiert die effektive Config im laufenden Server sofort, sodass ab dem naechsten Request
+ * ueberall gelesen wird (Agents, Paths, Tasks, ticketAgent, contentPath, collection, Permissions).
+ * Ausnahme: databaseDirectory - die offene SQLite-Verbindung wird nicht neu geoeffnet, dafuer ist
+ * ein Neustart noetig (sonst wuerde die Versionshistorie unter sich selbst wegwechseln).
+ */
+function applyConfigReload(configState: ConfigState, newConfig: Config): { warning?: string } {
+  const previousDatabaseDirectory = configState.current.databaseDirectory;
+  configState.current = newConfig;
+  if (newConfig.databaseDirectory !== previousDatabaseDirectory) {
+    return {
+      warning:
+        'databaseDirectory wurde geaendert - fuer den Wechsel der Datenbank ist ein Server-Neustart noetig, die aktuelle Verbindung bleibt bis dahin bestehen.',
+    };
+  }
+  return {};
+}
+
+function handleGetConfig(config: Config, res: ServerResponse): void {
+  sendJson(res, 200, config);
+}
+
+function parsePutConfigBody(raw: unknown): Config {
+  return parseConfig(raw);
+}
+
+function handlePutConfig(
+  db: DatabaseSync,
+  configState: ConfigState,
+  res: ServerResponse,
+  bodyText: string,
+): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let newConfig: Config;
+  try {
+    newConfig = parsePutConfigBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const version = insertConfigVersion(db, JSON.stringify(newConfig));
+  setConfigPointer(db, version.id);
+  const { warning } = applyConfigReload(configState, newConfig);
+  sendJson(res, 200, {
+    versionId: version.id,
+    createdAt: version.createdAt,
+    config: newConfig,
+    warning,
+  });
+}
+
+function handleGetConfigVersions(db: DatabaseSync, res: ServerResponse): void {
+  const versions: ConfigVersionSummary[] = listConfigVersions(db);
+  sendJson(res, 200, { versions });
+}
+
+function handleGetConfigVersion(db: DatabaseSync, res: ServerResponse, idParam: string): void {
+  const id = Number(idParam);
+  if (!Number.isInteger(id)) {
+    sendJson(res, 400, { error: 'Ungueltige Version-ID.' });
+    return;
+  }
+  const version = getConfigVersion(db, id);
+  if (!version) {
+    sendJson(res, 404, { error: `Config-Version ${idParam} wurde nicht gefunden.` });
+    return;
+  }
+  sendJson(res, 200, {
+    id: version.id,
+    createdAt: version.createdAt,
+    config: JSON.parse(version.content) as unknown,
+  });
+}
+
+function handleGetConfigPointer(db: DatabaseSync, res: ServerResponse): void {
+  const pointer = getConfigPointer(db);
+  sendJson(res, 200, { versionId: pointer?.versionId ?? null });
+}
+
+interface ConfigPointerBody {
+  versionId: number | null;
+}
+
+function parseConfigPointerBody(raw: unknown): ConfigPointerBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Ungueltiger Body: erwarte { "versionId": number } oder { "embedded": true }.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.embedded === true) {
+    return { versionId: null };
+  }
+  if (typeof record.versionId === 'number' && Number.isInteger(record.versionId)) {
+    return { versionId: record.versionId };
+  }
+  throw new Error('Ungueltiger Body: erwarte { "versionId": number } oder { "embedded": true }.');
+}
+
+function handlePutConfigPointer(
+  db: DatabaseSync,
+  configState: ConfigState,
+  res: ServerResponse,
+  bodyText: string,
+): void {
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: ConfigPointerBody;
+  try {
+    body = parseConfigPointerBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let newConfig: Config;
+  if (body.versionId === null) {
+    newConfig = parseConfig(EMBEDDED_CONFIG);
+  } else {
+    const version = getConfigVersion(db, body.versionId);
+    if (!version) {
+      sendJson(res, 404, {
+        error: `Config-Version ${String(body.versionId)} wurde nicht gefunden.`,
+      });
+      return;
+    }
+    newConfig = parseConfig(JSON.parse(version.content) as unknown);
+  }
+
+  setConfigPointer(db, body.versionId);
+  const { warning } = applyConfigReload(configState, newConfig);
+  sendJson(res, 200, { versionId: body.versionId, config: newConfig, warning });
 }
 
 function handleGetPathCommands(config: Config, res: ServerResponse, pathName: string): void {
@@ -819,11 +1021,39 @@ function handlePostCollect(config: Config, res: ServerResponse, bodyText: string
   }
 }
 
+function handlePostCollectForPath(config: Config, res: ServerResponse, pathName: string): void {
+  try {
+    sendJson(res, 200, collectForPath(config, pathName));
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 function handleGetFeedback(db: DatabaseSync, res: ServerResponse): void {
   sendJson(res, 200, { feedback: listFeedback(db) });
 }
 
-function handlePostFeedback(db: DatabaseSync, res: ServerResponse, bodyText: string): void {
+function handleGetFeedbackForPath(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+): void {
+  try {
+    resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  sendJson(res, 200, { feedback: listFeedback(db, pathName) });
+}
+
+function handlePostFeedback(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  bodyText: string,
+): void {
   let parsedBody: unknown;
   try {
     parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
@@ -840,7 +1070,8 @@ function handlePostFeedback(db: DatabaseSync, res: ServerResponse, bodyText: str
     return;
   }
 
-  sendJson(res, 201, insertFeedback(db, body.text, body.section, body.context));
+  const path = body.section === null ? null : (resolveCollectionPathForFileName(config, body.section) ?? null);
+  sendJson(res, 201, insertFeedback(db, body.text, body.section, body.context, path));
 }
 
 function handlePatchFeedback(
@@ -1091,7 +1322,7 @@ function handlePostCommand(
 
   let agent: AgentDefinition;
   try {
-    agent = resolveAgent(agentName);
+    agent = resolveAgentFrom(config, agentName);
   } catch (error) {
     sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
     return;
@@ -1143,10 +1374,11 @@ function handlePostCommand(
 
 async function handleRequest(
   db: DatabaseSync,
-  config: Config,
+  configState: ConfigState,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  const config = configState.current;
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', 'http://localhost');
   const segments = url.pathname.split('/').filter((segment) => segment.length > 0);
@@ -1193,7 +1425,7 @@ async function handleRequest(
       handleGetCollectionFile(config, res, segments[2] ?? '');
     } else if (method === 'POST' && segments.length === 1 && segments[0] === 'feedback') {
       bodyText = await readRequestBody(req);
-      handlePostFeedback(db, res, bodyText);
+      handlePostFeedback(db, config, res, bodyText);
     } else if (!authorizeRequest(db, req)) {
       sendJson(res, 401, {
         error: 'JWT fehlt oder ist ungueltig/abgelaufen (Header "Authorization: Bearer <token>").',
@@ -1211,8 +1443,44 @@ async function handleRequest(
       handleGetPaths(config, res);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'manifest') {
       handleGetManifest(config, res);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'config') {
+      handleGetConfig(config, res);
+    } else if (method === 'PUT' && segments.length === 1 && segments[0] === 'config') {
+      bodyText = await readRequestBody(req);
+      handlePutConfig(db, configState, res, bodyText);
+    } else if (
+      method === 'GET' &&
+      segments.length === 2 &&
+      segments[0] === 'config' &&
+      segments[1] === 'versions'
+    ) {
+      handleGetConfigVersions(db, res);
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'config' &&
+      segments[1] === 'versions'
+    ) {
+      handleGetConfigVersion(db, res, segments[2] ?? '');
+    } else if (
+      method === 'GET' &&
+      segments.length === 2 &&
+      segments[0] === 'config' &&
+      segments[1] === 'pointer'
+    ) {
+      handleGetConfigPointer(db, res);
+    } else if (
+      method === 'PUT' &&
+      segments.length === 2 &&
+      segments[0] === 'config' &&
+      segments[1] === 'pointer'
+    ) {
+      bodyText = await readRequestBody(req);
+      handlePutConfigPointer(db, configState, res, bodyText);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
       handleGetCommands(db, config, res, segments[1] ?? '');
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'stats') {
+      handleGetStats(db, config, res, segments[1] ?? '', url.searchParams.get('hours'));
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -1239,7 +1507,14 @@ async function handleRequest(
       handleGetTickets(db, config, res, segments[1] ?? '', url.searchParams.get('status'));
     } else if (method === 'POST' && segments.length === 2 && segments[0] === 'tickets') {
       bodyText = await readRequestBody(req);
-      handlePostTicket(db, config, res, segments[1] ?? '', bodyText, req.socket.remoteAddress ?? null);
+      handlePostTicket(
+        db,
+        config,
+        res,
+        segments[1] ?? '',
+        bodyText,
+        req.socket.remoteAddress ?? null,
+      );
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'tickets') {
       handleGetTicket(db, config, res, segments[1] ?? '', segments[2] ?? '');
     } else if (method === 'PATCH' && segments.length === 3 && segments[0] === 'tickets') {
@@ -1250,8 +1525,12 @@ async function handleRequest(
     } else if (method === 'POST' && segments.length === 1 && segments[0] === 'collect') {
       bodyText = await readRequestBody(req);
       handlePostCollect(config, res, bodyText);
+    } else if (method === 'POST' && segments.length === 2 && segments[0] === 'collect') {
+      handlePostCollectForPath(config, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'feedback') {
       handleGetFeedback(db, res);
+    } else if (method === 'GET' && segments.length === 2 && segments[0] === 'feedback') {
+      handleGetFeedbackForPath(db, config, res, segments[1] ?? '');
     } else if (method === 'PATCH' && segments.length === 2 && segments[0] === 'feedback') {
       bodyText = await readRequestBody(req);
       handlePatchFeedback(db, res, segments[1] ?? '', bodyText);
@@ -1308,7 +1587,20 @@ function printEndpoints(config: Config, port: number): void {
   );
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
+  console.log(`  GET  ${base}/config`);
+  console.log(
+    `  PUT  ${base}/config                 (neue Version speichern, Zeiger setzen, sofort aktiv)`,
+  );
+  console.log(`  GET  ${base}/config/versions`);
+  console.log(`  GET  ${base}/config/versions/:id`);
+  console.log(`  GET  ${base}/config/pointer         (null = fest reinkompilierte Version aktiv)`);
+  console.log(
+    `  PUT  ${base}/config/pointer         ({ "versionId": number } oder { "embedded": true })`,
+  );
   console.log(`  GET  ${base}/commands/:pathName`);
+  console.log(
+    `  GET  ${base}/stats/:pathName        (optionaler Query-Parameter ?hours=, Default 24)`,
+  );
   console.log(`  GET  ${base}/paths/:pathName/commands`);
   for (const pathEntry of config.paths) {
     for (const command of pathEntry.commands ?? []) {
@@ -1325,10 +1617,12 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  PATCH ${base}/tickets/:pathName/:id`);
   console.log(`  DELETE ${base}/tickets/:pathName/:id`);
   console.log(`  POST ${base}/collect`);
+  console.log(`  POST ${base}/collect/:pathName      (sammelt nur die Eintraege dieses Pfads)`);
   console.log(`  GET  ${base}/collections            (kein Auth noetig)`);
   console.log(`  GET  ${base}/collections/get/:name  (kein Auth noetig)`);
   console.log(`  POST ${base}/feedback               (kein Auth noetig)`);
   console.log(`  GET  ${base}/feedback`);
+  console.log(`  GET  ${base}/feedback/:pathName`);
   console.log(`  PATCH ${base}/feedback/:id`);
   console.log(`  DELETE ${base}/feedback/:id`);
 }
@@ -1339,11 +1633,21 @@ export interface RunningServer {
   close: () => Promise<void>;
 }
 
-export function startServer(config: Config, port: number): RunningServer {
+export function startServer(
+  config: Config,
+  port: number,
+  pathsOverride?: PathEntry[],
+): RunningServer {
   const db = openDatabase(config.databaseDirectory);
+  ensureConfigBootstrapped(db);
+  let effectiveConfig = resolveEffectiveConfig(db);
+  if (pathsOverride) {
+    effectiveConfig = applyPathsOverride(effectiveConfig, pathsOverride);
+  }
+  const configState: ConfigState = { current: effectiveConfig };
 
   const server = createServer((req, res) => {
-    handleRequest(db, config, req, res).catch((error: unknown) => {
+    handleRequest(db, configState, req, res).catch((error: unknown) => {
       console.error(error instanceof Error ? error.message : error);
     });
   });
@@ -1357,7 +1661,7 @@ export function startServer(config: Config, port: number): RunningServer {
         actualPort = address.port;
       }
       console.log(`cl server laeuft auf http://localhost:${actualPort.toString()}`);
-      printEndpoints(config, actualPort);
+      printEndpoints(configState.current, actualPort);
       resolve();
     });
   });

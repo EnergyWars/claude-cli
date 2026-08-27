@@ -8,6 +8,8 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   completeCommand,
   confirmTotpSecret,
+  countAgentsSince,
+  countRunningAgents,
   deleteFeedback,
   deleteTicket,
   deleteTotpSecret,
@@ -143,7 +145,13 @@ test('openDatabase: ergaenzt fehlende Spalte "section" in einer alten t_feedback
       assert.ok(legacy);
       assert.equal(legacy.section, null);
       assert.equal(legacy.context, null);
-      const created = insertFeedback(migratedDb, 'Neues Feedback.', 'periodical-debug', 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+      assert.equal(legacy.path, null);
+      const created = insertFeedback(
+        migratedDb,
+        'Neues Feedback.',
+        'periodical-debug',
+        'periodical-debug.apk (2026-08-26T10:00:00.000Z)',
+      );
       assert.equal(created.section, 'periodical-debug');
       assert.equal(created.context, 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
     } finally {
@@ -222,6 +230,87 @@ test('listCommands: liefert nur Commands des angegebenen Pfads, neueste zuerst',
 
 test('listCommands: leeres Array fuer Pfad ohne Commands', () => {
   assert.deepEqual(listCommands(db, '/no-such-path'), []);
+});
+
+test('countRunningAgents: zaehlt nur Agent-Laeufe mit status "running" dieses Pfads', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-stats-running-'));
+  const statsDb = openDatabase(dir);
+  try {
+    insertCommand(statsDb, {
+      id: 'stats-running-1',
+      agent: 'main',
+      model: 'sonnet',
+      command: 'a',
+      path: '/stats-project',
+    });
+    insertCommand(statsDb, {
+      id: 'stats-running-2',
+      agent: 'dev',
+      model: 'sonnet',
+      command: 'b',
+      path: '/stats-project',
+    });
+    completeCommand(statsDb, 'stats-running-2', 'completed', 0, 'fertig');
+    insertCommand(statsDb, {
+      id: 'stats-running-other-path',
+      agent: 'main',
+      model: 'sonnet',
+      command: 'c',
+      path: '/other-project',
+    });
+    insertCommand(statsDb, {
+      id: 'stats-running-path-command',
+      agent: 'path-command:stats-project:clean',
+      model: '-',
+      command: './gradlew clean',
+      path: '/stats-project',
+    });
+
+    assert.equal(countRunningAgents(statsDb, '/stats-project'), 1);
+    assert.equal(countRunningAgents(statsDb, '/other-project'), 1);
+    assert.equal(countRunningAgents(statsDb, '/unknown-project'), 0);
+  } finally {
+    statsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('countAgentsSince: zaehlt nur Agent-Laeufe dieses Pfads seit dem Zeitpunkt, ohne Pfad-Commands', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-stats-since-'));
+  const statsDb = openDatabase(dir);
+  try {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+
+    insertCommand(statsDb, {
+      id: 'stats-since-recent',
+      agent: 'main',
+      model: 'sonnet',
+      command: 'a',
+      path: '/stats-project',
+    });
+    insertCommand(statsDb, {
+      id: 'stats-since-path-command',
+      agent: 'path-command:stats-project:clean',
+      model: '-',
+      command: './gradlew clean',
+      path: '/stats-project',
+    });
+    insertCommand(statsDb, {
+      id: 'stats-since-other-path',
+      agent: 'main',
+      model: 'sonnet',
+      command: 'c',
+      path: '/other-project',
+    });
+
+    assert.equal(countAgentsSince(statsDb, '/stats-project', past), 1);
+    assert.equal(countAgentsSince(statsDb, '/stats-project', future), 0);
+    assert.equal(countAgentsSince(statsDb, '/other-project', past), 1);
+  } finally {
+    statsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('updateCommandOutput: aktualisiert output, laesst status unveraendert', () => {
@@ -621,9 +710,11 @@ test('openDatabase: migriert alte title/description/task-Spalten und Status "clo
         updated_at TEXT NOT NULL
       )
     `);
-    legacyDb.prepare(
-      'INSERT INTO t_tickets (path_name, title, description, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run('legacy-proj', 'Alter Titel', 'Alte Beschreibung', 'Alte Aufgabe', 'closed', 'c', 'u');
+    legacyDb
+      .prepare(
+        'INSERT INTO t_tickets (path_name, title, description, task, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run('legacy-proj', 'Alter Titel', 'Alte Beschreibung', 'Alte Aufgabe', 'closed', 'c', 'u');
     legacyDb.close();
 
     const migratedDb = openDatabase(dir);
@@ -678,8 +769,25 @@ test('insertFeedback: speichert den optionalen Abschnitt', () => {
 });
 
 test('insertFeedback: speichert den optionalen Kontext', () => {
-  const feedback = insertFeedback(db, 'App stuerzt ab.', 'periodical-debug', 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+  const feedback = insertFeedback(
+    db,
+    'App stuerzt ab.',
+    'periodical-debug',
+    'periodical-debug.apk (2026-08-26T10:00:00.000Z)',
+  );
   assert.equal(feedback.context, 'periodical-debug.apk (2026-08-26T10:00:00.000Z)');
+  assert.deepEqual(getFeedback(db, feedback.id), feedback);
+});
+
+test('insertFeedback: speichert den optionalen Pfad', () => {
+  const feedback = insertFeedback(
+    db,
+    'App stuerzt ab.',
+    'periodical-debug',
+    'periodical-debug.apk (2026-08-26T10:00:00.000Z)',
+    'periodical-work',
+  );
+  assert.equal(feedback.path, 'periodical-work');
   assert.deepEqual(getFeedback(db, feedback.id), feedback);
 });
 
@@ -703,6 +811,19 @@ test('listFeedback: neueste zuerst', () => {
   const firstIndex = all.findIndex((entry) => entry.id === first.id);
   const secondIndex = all.findIndex((entry) => entry.id === second.id);
   assert.ok(secondIndex < firstIndex);
+});
+
+test('listFeedback: pathName filtert auf zugehoerige Eintraege', () => {
+  const withPath = insertFeedback(db, 'Betrifft Projekt A.', null, null, 'proj-a');
+  const otherPath = insertFeedback(db, 'Betrifft Projekt B.', null, null, 'proj-b');
+  const withoutPath = insertFeedback(db, 'Ohne Zuordnung.');
+
+  const filtered = listFeedback(db, 'proj-a');
+
+  const ids = filtered.map((entry) => entry.id);
+  assert.ok(ids.includes(withPath.id));
+  assert.ok(!ids.includes(otherPath.id));
+  assert.ok(!ids.includes(withoutPath.id));
 });
 
 test('updateFeedback: aendert den Text und updatedAt', () => {

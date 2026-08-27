@@ -132,8 +132,6 @@ fun CollectionsScreen(
             section = openSection,
             text = feedbackState.text,
             onTextChange = feedbackViewModel::onTextChange,
-            context = feedbackState.context,
-            onContextChange = feedbackViewModel::onContextChange,
             onSend = feedbackViewModel::send,
             onDismiss = feedbackViewModel::dismiss,
         )
@@ -145,11 +143,11 @@ fun CollectionsScreen(
             fileName = installFile.name,
             onInstall = {
                 context.startActivity(viewModel.installIntent(installFile))
-                viewModel.consumeInstallFile()
+                viewModel.resolveInstallFile(installFile)
             },
             onShare = {
                 context.startActivity(viewModel.shareIntent(installFile))
-                viewModel.consumeInstallFile()
+                viewModel.resolveInstallFile(installFile)
             },
             onDismiss = { viewModel.consumeInstallFile() },
         )

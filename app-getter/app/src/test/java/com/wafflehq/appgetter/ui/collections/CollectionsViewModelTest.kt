@@ -9,6 +9,7 @@ import com.wafflehq.appgetter.data.install.ApkInstaller
 import com.wafflehq.appgetter.data.install.DownloadPhase
 import com.wafflehq.appgetter.data.install.DownloadStatus
 import com.wafflehq.appgetter.data.settings.DownloadHistoryRepository
+import com.wafflehq.appgetter.data.settings.PendingInstall
 import com.wafflehq.appgetter.data.settings.ServerOverride
 import com.wafflehq.appgetter.data.settings.SettingsRepository
 import io.mockk.Runs
@@ -57,7 +58,10 @@ class CollectionsViewModelTest {
         },
         downloadHistoryRepository: DownloadHistoryRepository = mockk {
             every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(emptyList())
             coEvery { recordDownload(any(), any()) } just Runs
+            coEvery { recordPendingInstall(any(), any(), any()) } just Runs
+            coEvery { clearPendingInstall(any()) } just Runs
         },
     ): CollectionsViewModel {
         val settingsRepository = mockk<SettingsRepository> {
@@ -87,7 +91,10 @@ class CollectionsViewModelTest {
         }
         val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
             every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(emptyList())
             coEvery { recordDownload(any(), any()) } just Runs
+            coEvery { recordPendingInstall(any(), any(), any()) } just Runs
+            coEvery { clearPendingInstall(any()) } just Runs
         }
         val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
 
@@ -99,10 +106,12 @@ class CollectionsViewModelTest {
         assertEquals(downloaded, viewModel.uiState.value.installFile)
         assertEquals("test.apk", viewModel.uiState.value.downloadingFileName)
         coVerify { downloadHistoryRepository.recordDownload("test.apk", file.timestamp) }
+        coVerify { downloadHistoryRepository.recordPendingInstall("test.apk", file.timestamp, downloaded.absolutePath) }
 
         viewModel.consumeInstallFile()
         assertNull(viewModel.uiState.value.downloadingFileName)
         assertNull(viewModel.uiState.value.installFile)
+        coVerify(exactly = 0) { downloadHistoryRepository.clearPendingInstall(any()) }
     }
 
     @Test
@@ -161,9 +170,90 @@ class CollectionsViewModelTest {
         val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
         val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
             every { downloadedTimestamps } returns flowOf(mapOf("test.apk" to file.timestamp))
+            every { pendingInstalls } returns flowOf(emptyList())
         }
         val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
 
         assertEquals(mapOf("test.apk" to file.timestamp), viewModel.downloadedTimestamps.value)
+    }
+
+    @Test
+    fun `a pending install matching the current file is restored as installFile after scan`() = runTest(dispatcher) {
+        val cached = File.createTempFile("appgetter-test", ".apk")
+        val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(mapOf("test.apk" to file.timestamp))
+            every { pendingInstalls } returns flowOf(listOf(PendingInstall("test.apk", file.timestamp, cached.absolutePath)))
+            coEvery { clearPendingInstall(any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        assertEquals(cached, viewModel.uiState.value.installFile)
+        coVerify(exactly = 0) { downloadHistoryRepository.clearPendingInstall(any()) }
+    }
+
+    @Test
+    fun `a pending install whose file no longer exists is cleared and ignored`() = runTest(dispatcher) {
+        val missing = File("/tmp/appgetter-test-missing-${file.hashCode()}.apk")
+        val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(listOf(PendingInstall("test.apk", file.timestamp, missing.absolutePath)))
+            coEvery { clearPendingInstall(any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        assertNull(viewModel.uiState.value.installFile)
+        coVerify { downloadHistoryRepository.clearPendingInstall("test.apk") }
+    }
+
+    @Test
+    fun `tapping install again reuses a cached pending install without redownloading`() = runTest(dispatcher) {
+        val cached = File.createTempFile("appgetter-test", ".apk")
+        val installer = mockk<ApkInstaller> {
+            every { downloadStatus } returns MutableStateFlow(null)
+            coEvery { downloadFile(any(), any(), any()) } throws AssertionError("should not redownload a cached file")
+        }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(mapOf("test.apk" to file.timestamp))
+            every { pendingInstalls } returns flowOf(listOf(PendingInstall("test.apk", file.timestamp, cached.absolutePath)))
+            coEvery { clearPendingInstall(any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+        viewModel.consumeInstallFile()
+
+        viewModel.downloadAndInstall(file)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(cached, viewModel.uiState.value.installFile)
+        assertNull(viewModel.uiState.value.downloadingFileName)
+    }
+
+    @Test
+    fun `resolveInstallFile clears the pending install and the dialog state`() = runTest(dispatcher) {
+        val downloaded = File.createTempFile("appgetter-test", ".apk")
+        val installer = mockk<ApkInstaller> {
+            every { downloadStatus } returns MutableStateFlow(null)
+            every { clearDownloadStatus() } just Runs
+            coEvery { downloadFile("host", 8787, "test.apk") } returns downloaded
+        }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(emptyList())
+            coEvery { recordDownload(any(), any()) } just Runs
+            coEvery { recordPendingInstall(any(), any(), any()) } just Runs
+            coEvery { clearPendingInstall(any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        viewModel.downloadAndInstall(file)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(downloaded, viewModel.uiState.value.installFile)
+
+        viewModel.resolveInstallFile(downloaded)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.installFile)
+        coVerify { downloadHistoryRepository.clearPendingInstall("test.apk") }
     }
 }

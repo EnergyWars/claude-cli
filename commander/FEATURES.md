@@ -6,7 +6,7 @@ Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für
 
 ### Automatische Server-Suche (Auto-Discovery)
 
-Button „Automatisch suchen": ermittelt die eigene lokale IPv4-Adresse, scannt parallel das `/24`-Subnetz nach `GET /status` und übernimmt die erste antwortende Adresse ins Host-Feld. Der Nutzer muss danach weiterhin selbst „Verbinden" tippen.
+Button „Automatisch suchen": ermittelt die eigene IPv4-Adresse im verbundenen Wi-Fi-Netzwerk (auch wenn gleichzeitig Mobilfunk oder ein VPN aktiv ist), scannt parallel das `/24`-Subnetz nach `GET /status` und übernimmt die erste antwortende Adresse ins Host-Feld. Der Nutzer muss danach weiterhin selbst „Verbinden" tippen. Ist kein Wi-Fi verbunden, liefert die Suche „Kein Server im lokalen Netz gefunden." – die IP kann dann weiterhin manuell eingetragen werden.
 
 ## Login
 
@@ -25,17 +25,18 @@ Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App 
 
 ## Projekt-Hub
 
-Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter sieben Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen sechs Einträge bleiben schlichte Listenzeilen:
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter acht Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen sieben Einträge bleiben schlichte Listenzeilen:
 
 - **Entwicklung** (hervorgehoben) – alle konfigurierten Agenten des aktuellen Projekts.
 - **Befehle** – alle Commands des aktuellen Projekts.
 - **Downloads** – alle downloadbaren Dateien des aktuellen Projekts.
 - **Tickets** – die Ticket-Liste dieses Projekts.
 - **Verlauf** – der komplette Command-Verlauf dieses Projekts (siehe unten).
-- **Feedback** – serverweite Feedback-Liste, nicht auf das aktuelle Projekt beschränkt (siehe unten).
-- **Sammlung** – löst `cl server`s Collection-Feature aus, ebenfalls serverweit (siehe unten).
+- **Feedback** – Feedback-Liste nur des aktuellen Projekts (siehe unten).
+- **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
+- **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
 
-Die letzten beiden Einträge sind bewusst serverweit statt pro Projekt, da `contentPath`/`collection` und die Feedback-Tabelle in `config.json` bzw. der Datenbank global (nicht pro Pfad) definiert sind. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
+Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
 ## Befehle
 
@@ -64,7 +65,7 @@ Unter Einstellungen → Kontexte lassen sich beliebig viele Name+Wert-Presets an
 
 ## Command-Status (live)
 
-Abonniert `GET /state/<id>/stream` (Server-Sent Events): Output-Updates kommen dadurch als Push, ohne festes Intervall, sobald der Server sie hat. Bricht die Stream-Verbindung ab, bevor ein Endstatus (`completed`/`failed`) ankam, fällt die App automatisch auf Polling von `GET /state/<id>` alle 2 Sekunden zurück, bis `status != "running"` ist – z. B. wenn ein Proxy zwischen App und `cl server` lang laufende Verbindungen kappt. Zeigt Status-Pill, Agent/Command-Text, die Laufzeit (`updatedAt - createdAt`, live aktuell solange der Command läuft, da `updatedAt` bei jedem Output-Chunk mitwandert), den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Neben dem „Output"-Titel kopiert ein Icon-Button den kompletten Output in die Zwischenablage (`LocalClipboardManager`), bestätigt per Toast „Output kopiert". Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. Fortschrittsanzeige und Installieren/Teilen-Dialog für APKs, siehe „Downloads").
+Abonniert `GET /state/<id>/stream` (Server-Sent Events): Output-Updates kommen dadurch als Push, ohne festes Intervall, sobald der Server sie hat. Bricht die Stream-Verbindung ab, bevor ein Endstatus (`completed`/`failed`) ankam, fällt die App automatisch auf Polling von `GET /state/<id>` alle 2 Sekunden zurück, bis `status != "running"` ist – z. B. wenn ein Proxy zwischen App und `cl server` lang laufende Verbindungen kappt. Zeigt Status-Pill, Agent/Command-Text, den Startzeitpunkt (`createdAt`, Geräte-Zeitzone) sowie die Laufzeit – solange der Command läuft, tickt sie lokal sekündlich hoch (`createdAt` bis aktuelle Gerätezeit), unabhängig davon, ob gerade neuer Output/`updatedAt` vom Server kommt; nach Abschluss friert sie auf `updatedAt - createdAt` ein –, den bisherigen Output live (monospace) und den Exit-Code nach Abschluss. Neben dem „Output"-Titel kopiert ein Icon-Button den kompletten Output in die Zwischenablage (`LocalClipboardManager`), bestätigt per Toast „Output kopiert". Wurde die Seite mit einem Projektnamen geöffnet und hat dieses Projekt `hosted`-Datei-Einträge, erscheinen nach erfolgreichem Abschluss zusätzlich Schnellzugriff-Download-Buttons (inkl. Fortschrittsanzeige und Installieren/Teilen-Dialog für APKs, siehe „Downloads").
 
 ## Verlauf
 
@@ -86,19 +87,30 @@ Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, e
 
 ## Feedback
 
-Erreichbar über den „Feedback"-Eintrag im Projekt-Hub – **serverweit**, nicht auf das aktuelle Projekt beschränkt (`GET /feedback`, `cl server`s Feedback-Kasten sammelt Text von beliebigen, unauthentifizierten Absendern im Netz).
+Erreichbar über den „Feedback"-Eintrag im Projekt-Hub – zeigt nur das Feedback des aktuellen Projekts (`GET /feedback/<pathName>`). Welchem Projekt ein Feedback-Eintrag zugeordnet ist, entscheidet der Server automatisch anhand seines `section`-Werts (siehe `../FEATURES.md`, Feedback-System) – die App selbst schickt beim Laden nur den aktuellen Projektnamen mit.
 
-Liste aller Feedback-Einträge, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) und/oder einem Kontext (Freitext, z. B. APK-Name und Zeitstempel) verknüpft, werden diese unter dem Text angezeigt. Pro Eintrag:
+Liste der Feedback-Einträge dieses Projekts, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) und/oder einem Kontext (Freitext, z. B. APK-Name und Zeitstempel) verknüpft, werden diese unter dem Text angezeigt. Pro Eintrag:
 
 - **Bearbeiten:** Mehrzeiliges Textfeld (Textarea) ersetzt den Text – Feedback darf beliebig lang sein –, „Speichern" (`PATCH /feedback/<id>`).
 - **Löschen:** Bestätigungsdialog, danach `DELETE /feedback/<id>`.
-- **In Ticket umwandeln:** Öffnet einen Dialog mit Projekt-Auswahl (Dropdown aus `manifest.paths`). Nach Bestätigung wird der Feedback-Text unverändert per `POST /tickets/<pathName>` als neues Ticket angelegt und der Feedback-Eintrag anschließend gelöscht (`DELETE /feedback/<id>`).
+- **In Ticket umwandeln:** Öffnet einen Dialog mit Projekt-Auswahl (Dropdown aus `manifest.paths`, vorausgewählt ist das aktuelle Projekt, falls es in der Liste vorkommt). Nach Bestätigung wird der Feedback-Text unverändert per `POST /tickets/<pathName>` als neues Ticket angelegt und der Feedback-Eintrag anschließend gelöscht (`DELETE /feedback/<id>`).
 
 Feedback kann aus der App heraus **nicht angelegt** werden – `POST /feedback` ist für externe Absender gedacht (allen voran `app-getter`, siehe dessen `FEATURES.md`, das automatisch einen Abschnitt mitschickt).
 
 ## Sammlung
 
-Erreichbar über den „Sammlung"-Eintrag im Projekt-Hub – ebenfalls serverweit. Löst `cl server`s Collection-Feature aus (`POST /collect`): ein Button „Alles sammeln" (ohne Body) sowie ein Textfeld + Button „Nur diesen sammeln" für einen einzelnen `targetName`. Das Ergebnis (`CollectSummary`) wird als Erfolgs-/Fehler-Banner pro Eintrag angezeigt.
+Erreichbar über den „Sammlung"-Eintrag im Projekt-Hub. Ein einzelner Button „Sammeln" löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (`POST /collect/<pathName>`) – sammelt also alle `config.json`-`collection`-Einträge, deren `path` zum aktuellen Projekt passt. Das Ergebnis (`CollectSummary`) wird als Erfolgs-/Fehler-Banner pro Eintrag angezeigt.
+
+## Statistik
+
+Erreichbar über den „Statistik"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /stats/<pathName>`). Zeigt vier Kennzahlen als einfache Zeilen (Label + Wert):
+
+- **Laufende Agents:** Anzahl aktuell laufender Agenten-Läufe dieses Projekts (keine Pfad-Commands).
+- **Agents (letzte 24 Std.):** Anzahl der Agenten-Läufe dieses Projekts, die innerhalb der letzten 24 Stunden gestartet wurden (festes Zeitfenster, keine Auswahl-UI).
+- **Letzter Debug-Build:** Zeitpunkt der zuletzt geänderten Debug-APK im Projektverzeichnis (Geräte-Zeitzone, `formatTimestamp`), sonst „Kein Build vorhanden".
+- **Letzter Release-Build:** wie oben, für die Release-APK.
+
+Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
 
 ## Einstellungen
 
