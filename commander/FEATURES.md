@@ -38,6 +38,8 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
+Ganz oben, noch vor dem Projekt-Dropdown, zeigt der Hub ein **Nutzungslimits-Banner** (`GET /usage`, siehe `../FEATURES.md`, Nutzungslimits) – pro Limit eine Zeile mit Label, Prozentwert und Balken (`LinearProgressIndicator`), Farbe je nach Auslastung (< 70 % neutral, 70–89 % Warnung, ≥ 90 % Fehler). Wird alle 60 Sekunden neu geladen, solange der Hub sichtbar ist; ein fehlgeschlagener Abruf wird still ignoriert (zeigt einfach den letzten bekannten Stand weiter, kein Fehler-Banner) – die Nutzungsanzeige ist informativ und soll den Hub nicht blockieren. Ohne Limits (noch nicht geladen oder leere Antwort) bleibt die Zeile einfach weg.
+
 ## Befehle
 
 Liste der `path.commands`-Einträge (Anzeigename + Beschreibung) des aktuellen Projekts. Tippen öffnet einen Bestätigungsdialog („Befehl ausführen?" mit Anzeigename); erst nach Bestätigung wird der Befehl ausgeführt (`POST /paths/<path>/commands/<key>`) und die Status-Detailseite geöffnet. Sonst nichts auf diesem Screen.
