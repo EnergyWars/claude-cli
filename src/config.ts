@@ -91,6 +91,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   'ticket',
   'collect',
   'stats',
+  'usage',
 ]);
 
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');

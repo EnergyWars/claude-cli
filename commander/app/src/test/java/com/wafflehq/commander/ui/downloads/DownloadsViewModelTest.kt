@@ -127,4 +127,37 @@ class DownloadsViewModelTest {
 
         assertEquals(DownloadPhase.VERIFYING, viewModel.downloadStatus.value?.phase)
     }
+
+    @Test
+    fun `deleteDownloadedFile removes the file from disk and clears the dialog state`() = runTest(dispatcher) {
+        val downloaded = File.createTempFile("commander-test", ".apk")
+        val downloader = mockk<HostedFileDownloader> {
+            every { downloadStatus } returns MutableStateFlow(null)
+            every { clearDownloadStatus() } just Runs
+            coEvery { downloadEntry("periodical", "debug-apk") } returns downloaded
+        }
+        val viewModel = viewModel(downloader)
+
+        viewModel.downloadEntry("debug-apk")
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(downloaded, viewModel.uiState.value.downloadedFile)
+
+        viewModel.deleteDownloadedFile()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.downloadedFile)
+        assertNull(viewModel.uiState.value.downloadingName)
+        assertEquals(false, downloaded.exists())
+    }
+
+    @Test
+    fun `deleteDownloadedFile does nothing when there is no downloaded file`() = runTest(dispatcher) {
+        val downloader = mockk<HostedFileDownloader> { every { downloadStatus } returns MutableStateFlow(null) }
+        val viewModel = viewModel(downloader)
+
+        viewModel.deleteDownloadedFile()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.downloadedFile)
+    }
 }

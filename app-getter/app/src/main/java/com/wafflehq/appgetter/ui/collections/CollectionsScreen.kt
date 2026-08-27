@@ -19,6 +19,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +34,7 @@ import com.wafflehq.appgetter.ui.components.ApkActionDialog
 import com.wafflehq.appgetter.ui.components.AppBanner
 import com.wafflehq.appgetter.ui.components.AppButton
 import com.wafflehq.appgetter.ui.components.AppCard
+import com.wafflehq.appgetter.ui.components.AppConfirmDialog
 import com.wafflehq.appgetter.ui.components.AppIconButton
 import com.wafflehq.appgetter.ui.feedback.FeedbackDialog
 import com.wafflehq.appgetter.ui.feedback.FeedbackViewModel
@@ -50,6 +54,7 @@ fun CollectionsScreen(
     val downloadedTimestamps by viewModel.downloadedTimestamps.collectAsStateWithLifecycle()
     val feedbackState by feedbackViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var pendingDeleteInstallFile by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -149,7 +154,22 @@ fun CollectionsScreen(
                 context.startActivity(viewModel.shareIntent(installFile))
                 viewModel.resolveInstallFile(installFile)
             },
+            onCancel = { pendingDeleteInstallFile = true },
             onDismiss = { viewModel.consumeInstallFile() },
+        )
+    }
+
+    if (pendingDeleteInstallFile && installFile != null) {
+        AppConfirmDialog(
+            title = stringResource(R.string.apk_action_delete_confirm_title),
+            body = stringResource(R.string.apk_action_delete_confirm_body, installFile.name),
+            confirmText = stringResource(R.string.apk_action_delete_confirm_confirm),
+            dismissText = stringResource(R.string.label_cancel),
+            onConfirm = {
+                viewModel.deleteInstallFile()
+                pendingDeleteInstallFile = false
+            },
+            onDismiss = { pendingDeleteInstallFile = false },
         )
     }
 }

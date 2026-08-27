@@ -38,6 +38,7 @@ import com.wafflehq.commander.data.api.CommandState
 import com.wafflehq.commander.data.download.isApkFileName
 import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
+import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.SettingsScaffold
@@ -73,6 +74,7 @@ fun CommandDetailScreen(
     val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.command_detail_output_copied)
+    var pendingDeleteDownloadedFile by remember { mutableStateOf(false) }
 
     val downloadedFile = uiState.downloadedFile
     LaunchedEffect(downloadedFile) {
@@ -95,7 +97,22 @@ fun CommandDetailScreen(
                 context.startActivity(viewModel.shareApkIntent(downloadedFile))
                 viewModel.consumeDownloadedFile()
             },
+            onCancel = { pendingDeleteDownloadedFile = true },
             onDismiss = { viewModel.consumeDownloadedFile() },
+        )
+    }
+
+    if (pendingDeleteDownloadedFile && downloadedFile != null) {
+        AppConfirmDialog(
+            title = stringResource(R.string.apk_action_delete_confirm_title),
+            body = stringResource(R.string.apk_action_delete_confirm_body, downloadedFile.name),
+            confirmText = stringResource(R.string.apk_action_delete_confirm_confirm),
+            dismissText = stringResource(R.string.label_cancel),
+            onConfirm = {
+                viewModel.deleteDownloadedFile()
+                pendingDeleteDownloadedFile = false
+            },
+            onDismiss = { pendingDeleteDownloadedFile = false },
         )
     }
 

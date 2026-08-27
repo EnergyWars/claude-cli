@@ -52,6 +52,7 @@ import {
   type TicketStatus,
   type TicketUpdate,
 } from './db.js';
+import { getUsageLimits, type UsageLimit } from './usage.js';
 import {
   type AgentDefinition,
   type Config,
@@ -688,6 +689,24 @@ interface ConfigState {
   current: Config;
 }
 
+const USAGE_CACHE_TTL_MS = 60_000;
+
+interface UsageCacheState {
+  entry?: { limits: UsageLimit[]; fetchedAt: number };
+}
+
+/** Cached, da jede Abfrage einen "claude"-Subprozess spawnt (~1-2s) - vermeidet wiederholte Spawns bei haeufigem Banner-Polling. */
+async function handleGetUsage(cache: UsageCacheState, res: ServerResponse): Promise<void> {
+  const cached = cache.entry;
+  if (cached && Date.now() - cached.fetchedAt < USAGE_CACHE_TTL_MS) {
+    sendJson(res, 200, { limits: cached.limits });
+    return;
+  }
+  const limits = await getUsageLimits();
+  cache.entry = { limits, fetchedAt: Date.now() };
+  sendJson(res, 200, { limits });
+}
+
 /**
  * Aktualisiert die effektive Config im laufenden Server sofort, sodass ab dem naechsten Request
  * ueberall gelesen wird (Agents, Paths, Tasks, ticketAgent, contentPath, collection, Permissions).
@@ -1070,7 +1089,8 @@ function handlePostFeedback(
     return;
   }
 
-  const path = body.section === null ? null : (resolveCollectionPathForFileName(config, body.section) ?? null);
+  const path =
+    body.section === null ? null : (resolveCollectionPathForFileName(config, body.section) ?? null);
   sendJson(res, 201, insertFeedback(db, body.text, body.section, body.context, path));
 }
 
@@ -1375,6 +1395,7 @@ function handlePostCommand(
 async function handleRequest(
   db: DatabaseSync,
   configState: ConfigState,
+  usageCache: UsageCacheState,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -1481,6 +1502,8 @@ async function handleRequest(
       handleGetCommands(db, config, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'stats') {
       handleGetStats(db, config, res, segments[1] ?? '', url.searchParams.get('hours'));
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'usage') {
+      await handleGetUsage(usageCache, res);
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -1601,6 +1624,9 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  GET  ${base}/stats/:pathName        (optionaler Query-Parameter ?hours=, Default 24)`,
   );
+  console.log(
+    `  GET  ${base}/usage                  (Claude-Code-Nutzungslimits, ${(USAGE_CACHE_TTL_MS / 1000).toString()}s gecacht)`,
+  );
   console.log(`  GET  ${base}/paths/:pathName/commands`);
   for (const pathEntry of config.paths) {
     for (const command of pathEntry.commands ?? []) {
@@ -1645,9 +1671,10 @@ export function startServer(
     effectiveConfig = applyPathsOverride(effectiveConfig, pathsOverride);
   }
   const configState: ConfigState = { current: effectiveConfig };
+  const usageCache: UsageCacheState = {};
 
   const server = createServer((req, res) => {
-    handleRequest(db, configState, req, res).catch((error: unknown) => {
+    handleRequest(db, configState, usageCache, req, res).catch((error: unknown) => {
       console.error(error instanceof Error ? error.message : error);
     });
   });

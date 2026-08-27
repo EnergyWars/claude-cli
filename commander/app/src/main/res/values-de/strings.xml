@@ -62,6 +62,9 @@
     <string name="apk_action_title">APK heruntergeladen</string>
     <string name="apk_action_install">Installieren</string>
     <string name="apk_action_share">Teilen</string>
+    <string name="apk_action_delete_confirm_title">Download löschen?</string>
+    <string name="apk_action_delete_confirm_body">„%1$s“ löschen?</string>
+    <string name="apk_action_delete_confirm_confirm">Löschen</string>
     <string name="download_status_opening">Wird geöffnet…</string>
 
     <string name="agents_title">Entwicklung</string>

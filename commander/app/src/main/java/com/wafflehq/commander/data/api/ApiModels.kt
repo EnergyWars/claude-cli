@@ -53,6 +53,16 @@ data class ProjectStats(
 )
 
 @Serializable
+data class UsageLimit(
+    val label: String,
+    val percentUsed: Int,
+    val resetsAt: String,
+)
+
+@Serializable
+data class UsageResponse(val limits: List<UsageLimit>)
+
+@Serializable
 data class PathList(val paths: List<String>)
 
 @Serializable

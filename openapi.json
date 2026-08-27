@@ -345,6 +345,33 @@
         }
       }
     },
+    "/usage": {
+      "get": {
+        "summary": "Aktuelle Claude-Code-Nutzungslimits (Session/Woche/etc.)",
+        "description": "Fuehrt \"claude --print /usage --output-format json\" aus und parsed das Ergebnis in strukturierte Limits (Label, Prozent verbraucht, Reset-Zeitpunkt als Text). Server-seitig 60s gecacht, da jede Abfrage einen \"claude\"-Subprozess spawnt.",
+        "operationId": "getUsage",
+        "responses": {
+          "200": {
+            "description": "Aktuelle Nutzungslimits.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UsageResponse" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "\"claude --print /usage\" ist fehlgeschlagen oder lieferte keine parsebare Antwort.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/commands": {
       "get": {
         "summary": "Listet die konfigurierten Commands eines Pfads",
@@ -1413,6 +1440,35 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Nur die Namen (paths[].name) aus config.json, nicht die Dateisystem-Pfade."
+          }
+        }
+      },
+      "UsageLimit": {
+        "type": "object",
+        "required": ["label", "percentUsed", "resetsAt"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Bezeichnung des Limits, z. B. \"Current session\" oder \"Current week (all models)\"."
+          },
+          "percentUsed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Verbrauchter Anteil dieses Limits in Prozent."
+          },
+          "resetsAt": {
+            "type": "string",
+            "description": "Roher Reset-Zeitpunkt-Text aus \"claude --print /usage\" (z. B. \"Aug 27, 5:40pm (Europe/Berlin)\"), kein ISO-Datum."
+          }
+        }
+      },
+      "UsageResponse": {
+        "type": "object",
+        "required": ["limits"],
+        "properties": {
+          "limits": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UsageLimit" }
           }
         }
       },

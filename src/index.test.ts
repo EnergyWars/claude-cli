@@ -843,6 +843,51 @@ test('cl stats (ohne Pfad): listet alle Projekte aus config.json auf', async () 
   }
 });
 
+function usageJsonOutput(result: string): string {
+  return JSON.stringify({ type: 'result', result });
+}
+
+test('cl usage: gibt die geparsten Nutzungslimits als JSON aus', async () => {
+  const usageFixture = createFixtureRoot();
+  const usageMock = createMockClaude({
+    outputChunks: [
+      usageJsonOutput('Current session: 42% used · resets Aug 27, 5:40pm (Europe/Berlin)'),
+    ],
+    exitCode: 0,
+  });
+  try {
+    const result = await runCli(['usage'], {
+      env: { CL_ROOT_DIR: usageFixture.rootDir, PATH: pathWithMock(usageMock.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    const limits = JSON.parse(result.stdout) as {
+      label: string;
+      percentUsed: number;
+      resetsAt: string;
+    }[];
+    assert.deepEqual(limits, [
+      { label: 'Current session', percentUsed: 42, resetsAt: 'Aug 27, 5:40pm (Europe/Berlin)' },
+    ]);
+  } finally {
+    usageMock.cleanup();
+    usageFixture.cleanup();
+  }
+});
+
+test('cl usage: bricht mit Fehler und Exit != 0 ab, wenn "claude --print /usage" fehlschlaegt', async () => {
+  const usageFixture = createFixtureRoot();
+  const usageMock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
+  try {
+    const result = await runCli(['usage'], {
+      env: { CL_ROOT_DIR: usageFixture.rootDir, PATH: pathWithMock(usageMock.binDir) },
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    usageMock.cleanup();
+    usageFixture.cleanup();
+  }
+});
+
 test('cl task mytask: startet immer interaktiv, startCommand wird als Prompt ohne --print gesendet', async () => {
   const result = await runCli(['task', 'mytask'], { env: baseEnv() });
   assert.equal(result.exitCode, 0);

@@ -106,6 +106,14 @@ class DownloadsViewModel @Inject constructor(
         _uiState.update { it.copy(downloadedFile = null, downloadingName = null) }
     }
 
+    fun deleteDownloadedFile() {
+        val file = _uiState.value.downloadedFile ?: return
+        viewModelScope.launch {
+            file.delete()
+            consumeDownloadedFile()
+        }
+    }
+
     fun openOrInstallIntent(file: File): Intent = downloader.openOrInstallIntent(file)
 
     fun installIntent(file: File): Intent = downloader.installIntent(file)

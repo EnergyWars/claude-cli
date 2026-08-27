@@ -301,6 +301,24 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getUsage requests the plain path and parses the limits`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"limits":[{"label":"Current session","percentUsed":42,"resetsAt":"Aug 27, 5:40pm (Europe/Berlin)"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getUsage()
+
+        assertEquals(1, result.size)
+        assertEquals("Current session", result[0].label)
+        assertEquals(42, result[0].percentUsed)
+        assertEquals("Aug 27, 5:40pm (Europe/Berlin)", result[0].resetsAt)
+        val recorded = server.takeRequest()
+        assertEquals("/usage", recorded.target)
+    }
+
+    @Test
     fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
         server.enqueue(
             MockResponse(

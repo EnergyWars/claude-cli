@@ -132,4 +132,13 @@ class CollectionsViewModel @Inject constructor(
         viewModelScope.launch { downloadHistoryRepository.clearPendingInstall(file.name) }
         consumeInstallFile()
     }
+
+    fun deleteInstallFile() {
+        val file = _uiState.value.installFile ?: return
+        viewModelScope.launch {
+            file.delete()
+            downloadHistoryRepository.clearPendingInstall(file.name)
+            consumeInstallFile()
+        }
+    }
 }

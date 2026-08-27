@@ -20,6 +20,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +36,7 @@ import com.wafflehq.commander.data.download.isApkFileName
 import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
+import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -48,6 +52,7 @@ fun DownloadsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var pendingDeleteDownloadedFile by remember { mutableStateOf(false) }
 
     val downloadedFile = state.downloadedFile
     LaunchedEffect(downloadedFile) {
@@ -70,7 +75,22 @@ fun DownloadsScreen(
                 context.startActivity(viewModel.shareApkIntent(downloadedFile))
                 viewModel.consumeDownloadedFile()
             },
+            onCancel = { pendingDeleteDownloadedFile = true },
             onDismiss = { viewModel.consumeDownloadedFile() },
+        )
+    }
+
+    if (pendingDeleteDownloadedFile && downloadedFile != null) {
+        AppConfirmDialog(
+            title = stringResource(R.string.apk_action_delete_confirm_title),
+            body = stringResource(R.string.apk_action_delete_confirm_body, downloadedFile.name),
+            confirmText = stringResource(R.string.apk_action_delete_confirm_confirm),
+            dismissText = stringResource(R.string.label_cancel),
+            onConfirm = {
+                viewModel.deleteDownloadedFile()
+                pendingDeleteDownloadedFile = false
+            },
+            onDismiss = { pendingDeleteDownloadedFile = false },
         )
     }
 

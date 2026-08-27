@@ -256,4 +256,48 @@ class CollectionsViewModelTest {
         assertNull(viewModel.uiState.value.installFile)
         coVerify { downloadHistoryRepository.clearPendingInstall("test.apk") }
     }
+
+    @Test
+    fun `deleteInstallFile removes the downloaded file, clears the pending install and the dialog state`() = runTest(dispatcher) {
+        val downloaded = File.createTempFile("appgetter-test", ".apk")
+        val installer = mockk<ApkInstaller> {
+            every { downloadStatus } returns MutableStateFlow(null)
+            every { clearDownloadStatus() } just Runs
+            coEvery { downloadFile("host", 8787, "test.apk") } returns downloaded
+        }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(emptyList())
+            coEvery { recordDownload(any(), any()) } just Runs
+            coEvery { recordPendingInstall(any(), any(), any()) } just Runs
+            coEvery { clearPendingInstall(any()) } just Runs
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        viewModel.downloadAndInstall(file)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(downloaded, viewModel.uiState.value.installFile)
+
+        viewModel.deleteInstallFile()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.installFile)
+        assertEquals(false, downloaded.exists())
+        coVerify { downloadHistoryRepository.clearPendingInstall("test.apk") }
+    }
+
+    @Test
+    fun `deleteInstallFile does nothing when there is no downloaded file`() = runTest(dispatcher) {
+        val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
+        val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+            every { downloadedTimestamps } returns flowOf(emptyMap())
+            every { pendingInstalls } returns flowOf(emptyList())
+        }
+        val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
+
+        viewModel.deleteInstallFile()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { downloadHistoryRepository.clearPendingInstall(any()) }
+    }
 }

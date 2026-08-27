@@ -40,6 +40,7 @@ import { buildAndInstall, findLatestBuildTimestamp } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { startServer } from './server.js';
 import { runTicketAgent } from './ticket.js';
+import { getUsageLimits } from './usage.js';
 import { VERSION } from './version.js';
 
 const AGENT_ARGUMENT_DESCRIPTION =
@@ -614,6 +615,16 @@ program
     } finally {
       db.close();
     }
+  });
+
+program
+  .command('usage')
+  .description(
+    'Zeigt die aktuellen Claude-Code-Nutzungslimits (Session/Woche/etc.) inkl. Prozent und Reset-Zeitpunkt.',
+  )
+  .action(async () => {
+    const limits = await getUsageLimits();
+    console.log(JSON.stringify(limits, null, 2));
   });
 
 program

@@ -62,6 +62,9 @@
     <string name="apk_action_title">APK downloaded</string>
     <string name="apk_action_install">Install</string>
     <string name="apk_action_share">Share</string>
+    <string name="apk_action_delete_confirm_title">Delete download?</string>
+    <string name="apk_action_delete_confirm_body">Delete \"%1$s\"?</string>
+    <string name="apk_action_delete_confirm_confirm">Delete</string>
     <string name="download_status_opening">Opening…</string>
 
     <string name="agents_title">Development</string>

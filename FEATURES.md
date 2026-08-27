@@ -346,6 +346,31 @@ Gedacht für eine App (siehe `commander/FEATURES.md`, "Projekt-Statistik"), die 
 
 Implementiert in `src/db.ts` (`countRunningAgents`, `countAgentsSince`, `DEFAULT_STATS_WINDOW_HOURS`), `src/gradle-install.ts` (`findLatestBuildTimestamp`, teilt sich die APK-Suche mit `findApk`), `src/server.ts` (`handleGetStats`) und `src/index.ts` (`stats`-Subcommand, `computeProjectStats`).
 
+## Nutzungslimits (`GET /usage`, `cl usage`)
+
+Liefert die aktuellen Claude-Code-Nutzungslimits (Subscription-Kontingent, nicht projektbezogen) als `{ "limits": [{ "label", "percentUsed", "resetsAt" }, ...] }`:
+
+```json
+{
+  "limits": [
+    { "label": "Current session", "percentUsed": 94, "resetsAt": "Aug 27, 5:40pm (Europe/Berlin)" },
+    { "label": "Current week (all models)", "percentUsed": 67, "resetsAt": "Aug 29, 9pm (Europe/Berlin)" }
+  ]
+}
+```
+
+- `label` – Bezeichnung des Limits, so wie `claude --print /usage` sie liefert (z. B. `"Current session"`, `"Current week (all models)"`, `"Current week (Fable)"`).
+- `percentUsed` – verbrauchter Anteil in Prozent (Ganzzahl).
+- `resetsAt` – roher Reset-Zeitpunkt-Text aus der `claude`-Ausgabe (kein ISO-Datum, kein Jahr enthalten – nicht weiter geparst, da das Format nicht offiziell stabil ist).
+
+**Datenquelle:** `getUsageLimits()` (`src/usage.ts`) führt `claude --print /usage --output-format json` aus (Claude Codes eingebauter `/usage`-Slash-Command, headless), extrahiert per `extractUsageResultText()` das `result`-Feld aus dem JSON-Output (brace-tiefenbasierter Scan wie bei `extractJsonObjects()`, siehe Ticket-System – robust gegen z. B. Node-Warnungen vor dem eigentlichen JSON) und parsed die enthaltenen Zeilen der Form `"<Label>: <N>% used · resets <Text>"` per Regex (`parseUsageResult()`) in strukturierte `UsageLimit[]`.
+
+**`GET /usage`** (authentifiziert wie `GET /stats/<pathName>`) – **serverseitig 60 Sekunden gecacht** (`src/server.ts`, `USAGE_CACHE_TTL_MS`), da jede Abfrage einen `claude`-Subprozess startet (~1-2s) und ohne Cache jedes Banner-Polling eines Clients (siehe `commander/FEATURES.md`) unnötig viele Subprozesse spawnen würde. Der Cache liegt pro `startServer()`-Instanz (nicht global/modulweit), damit Server-Neustarts und Tests ihn nicht ungewollt teilen. `500`, falls `claude --print /usage` fehlschlägt oder keine parsebare Antwort liefert.
+
+**`cl usage`** (CLI-Pendant, `"usage"` ist reservierter Command-Name) – ruft `getUsageLimits()` direkt auf (kein laufender `cl server` nötig) und gibt das Ergebnis als JSON aus.
+
+Implementiert in `src/usage.ts` (`getUsageLimits`, `parseUsageResult`, `extractUsageResultText`), `src/json-utils.ts` (`extractJsonObjects` – aus `src/ticket.ts` extrahiert, da jetzt von beiden Modulen genutzt), `src/server.ts` (`handleGetUsage`, `UsageCacheState`), `src/index.ts` (`usage`-Subcommand), `openapi.json`. Getestet in `src/usage.test.ts` (`parseUsageResult`/`extractUsageResultText` als reine Funktionen, `getUsageLimits` gegen ein Fake-`claude`-Binary), `src/json-utils.test.ts` (`extractJsonObjects`), `src/server.test.ts` (401, erfolgreicher Abruf, Caching-Verhalten ueber einen zweiten, unabhaengigen Serverlauf, 500 bei fehlgeschlagenem `claude`-Aufruf) und `src/index.test.ts` (`cl usage` als CLI-Subprozess).
+
 ## Config-Editierung + Versionshistorie (`/config`, `/config/versions`, `/config/pointer`)
 
 `cl server` erlaubt es, `config.json` remote über die HTTP-API zu editieren, ohne die lokale Datei anzufassen. Jede gespeicherte Version landet vollständig in der SQLite-Datenbank (`databaseDirectory/commands.db`, Tabelle `t_config_versions`); ein Zeiger (`t_config_pointer`) bestimmt, welche Version gerade aktiv ist – entweder eine gespeicherte Version-ID oder explizit `null` für die fest reinkompilierte Version (`EMBEDDED_CONFIG`, gebündelt beim Build). Jede Änderung des Zeigers **reloaded sofort alles ohne Server-Neustart**, da `config` im Server nicht mehr einmalig fixiert ist, sondern bei jedem Request aus dem aktuellen Zeiger-Stand gelesen wird (Agents, Pfade, Commands, `ticketAgent`, `contentPath`, `collection`, Permissions). Einzige Ausnahme: `databaseDirectory` selbst – die offene SQLite-Verbindung wird nicht automatisch neu geöffnet (das würde die Versionshistorie unter sich selbst wegwechseln), dafür ist ein Neustart nötig; die Response enthält dann ein `warning`-Feld.
@@ -502,7 +527,7 @@ Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-, `context`- 
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 398 Tests über 12 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 414 Tests über 14 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-Einträge, optionales `permissions`-Feld bei Agents/Tasks: akzeptiert/verwirft), `listAgents`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt` (reine Funktionen, inkl. `--allowedTools` bei gesetzten/leeren `permissions`) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt, Weitergabe von `permissions` als `--allowedTools`).

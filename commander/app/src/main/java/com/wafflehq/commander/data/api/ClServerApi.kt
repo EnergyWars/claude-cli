@@ -209,6 +209,8 @@ class ClServerApi @Inject constructor(
         return execute(request)
     }
 
+    suspend fun getUsage(): List<UsageLimit> = authedGet<UsageResponse>("usage").limits
+
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
 

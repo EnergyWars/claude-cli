@@ -45,6 +45,7 @@ import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.CardVariant
 import com.wafflehq.commander.ui.components.SettingsListRow
+import com.wafflehq.commander.ui.components.UsageLimitBanner
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
@@ -85,6 +86,8 @@ fun ProjectHomeScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
+            UsageLimitBanner(limits = state.usageLimits)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

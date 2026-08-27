@@ -392,6 +392,105 @@ test('GET /stats/default: 401 ohne Authorization-Header', async () => {
   assert.equal(res.status, 401);
 });
 
+test('GET /usage: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/usage`);
+  assert.equal(res.status, 401);
+});
+
+function usageJsonOutput(result: string): string {
+  return JSON.stringify({ type: 'result', result });
+}
+
+const SAMPLE_USAGE_RESULT = [
+  'Current session: 42% used · resets Aug 27, 5:40pm (Europe/Berlin)',
+  'Current week (all models): 10% used · resets Aug 29, 9pm (Europe/Berlin)',
+].join('\n');
+
+test('GET /usage: liefert die aus "claude --print /usage" geparsten Limits', async () => {
+  const usageMock = createMockClaude({
+    outputChunks: [usageJsonOutput(SAMPLE_USAGE_RESULT)],
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(usageMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(`http://localhost:${server.port.toString()}/usage`, {
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      limits: { label: string; percentUsed: number; resetsAt: string }[];
+    };
+    assert.deepEqual(body.limits, [
+      { label: 'Current session', percentUsed: 42, resetsAt: 'Aug 27, 5:40pm (Europe/Berlin)' },
+      {
+        label: 'Current week (all models)',
+        percentUsed: 10,
+        resetsAt: 'Aug 29, 9pm (Europe/Berlin)',
+      },
+    ]);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    usageMock.cleanup();
+  }
+});
+
+test('GET /usage: gecacht - ein zweiter Aufruf innerhalb der TTL liefert weiterhin den ersten Stand', async () => {
+  const firstMock = createMockClaude({
+    outputChunks: [usageJsonOutput('Current session: 5% used · resets X')],
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(firstMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}/usage`;
+    const firstRes = await fetch(url, { headers: authHeaders() });
+    const firstBody = (await firstRes.json()) as { limits: { percentUsed: number }[] };
+    assert.equal(firstBody.limits[0]?.percentUsed, 5);
+
+    const secondMock = createMockClaude({
+      outputChunks: [usageJsonOutput('Current session: 99% used · resets Y')],
+      exitCode: 0,
+    });
+    process.env.PATH = pathWithMock(secondMock.binDir);
+    try {
+      const secondRes = await fetch(url, { headers: authHeaders() });
+      assert.equal(secondRes.status, 200);
+      const secondBody = (await secondRes.json()) as { limits: { percentUsed: number }[] };
+      assert.equal(secondBody.limits[0]?.percentUsed, 5);
+    } finally {
+      secondMock.cleanup();
+    }
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    firstMock.cleanup();
+  }
+});
+
+test('GET /usage: 500 wenn "claude --print /usage" fehlschlaegt', async () => {
+  const failMock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(failMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(`http://localhost:${server.port.toString()}/usage`, {
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 500);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    failMock.cleanup();
+  }
+});
+
 test('GET /files/default: listet die hosted-Namen des Pfads', async () => {
   const res = await fetch(`${baseUrl()}/files/default`, { headers: authHeaders() });
   assert.equal(res.status, 200);
@@ -1055,7 +1154,10 @@ test('POST /collect/:pathName: 401 ohne Authorization-Header', async () => {
 });
 
 test('POST /collect/:pathName: sammelt nur die Eintraege dieses Pfads', async () => {
-  const res = await fetch(`${baseUrl()}/collect/default`, { method: 'POST', headers: authHeaders() });
+  const res = await fetch(`${baseUrl()}/collect/default`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
     results: { targetName: string; fileName: string }[];

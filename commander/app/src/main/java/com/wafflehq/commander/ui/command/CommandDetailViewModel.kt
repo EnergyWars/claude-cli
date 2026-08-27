@@ -111,6 +111,14 @@ class CommandDetailViewModel @Inject constructor(
         _uiState.update { it.copy(downloadedFile = null, downloadingName = null) }
     }
 
+    fun deleteDownloadedFile() {
+        val file = _uiState.value.downloadedFile ?: return
+        viewModelScope.launch {
+            file.delete()
+            consumeDownloadedFile()
+        }
+    }
+
     fun openOrInstallIntent(file: File) = downloader.openOrInstallIntent(file)
 
     fun installIntent(file: File) = downloader.installIntent(file)
