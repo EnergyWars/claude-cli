@@ -12,10 +12,11 @@
       "model": "sonnet"
     },
     {
-      "name": "wtdev",
-      "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben. Nutzt aber git worktrees",
-      "contexts": ["main", "dev/code", "wtdev/todo"],
-      "model": "sonnet"
+      "name": "ut",
+      "description": "Wie dev, darf aber zusätzlich Gradle-Befehle ausführen.",
+      "contexts": ["main", "dev/code", "dev/allow-gradle"],
+      "model": "sonnet",
+      "permissions": ["Bash(gradle *)", "Bash(./gradlew *)", "Bash(gradlew *)"]
     }
   ],
   "databaseDirectory": "/home/simon/commands",
@@ -29,8 +30,8 @@
       ]
     },
     {
-      "name": "periodical-work",
-      "path": "/home/simon/IdeaProjects/periodical-work",
+      "name": "periodical",
+      "path": "/home/simon/IdeaProjects/periodical",
       "hosted": [
         {
           "name": "debug-apk",
@@ -101,8 +102,8 @@
   "collection": [
     {
       "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
-      "targetName": "periodical-debug",
-      "path": "periodical-work"
+      "targetName": "allinonecalendar",
+      "path": "periodical"
     }
   ]
 }

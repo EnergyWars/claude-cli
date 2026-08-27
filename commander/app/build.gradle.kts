@@ -61,6 +61,10 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
         arg("room.incremental",    "true")

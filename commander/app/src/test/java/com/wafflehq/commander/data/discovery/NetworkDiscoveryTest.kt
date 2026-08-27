@@ -5,10 +5,14 @@ import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
 import android.net.Network
-import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.wafflehq.commander.data.api.ClServerApi
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.spyk
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
@@ -54,34 +58,37 @@ class NetworkDiscoveryTest {
     }
 
     @Test
-    fun `wifiIpv4Address picks the Wi-Fi network's address, ignoring a concurrently active cellular network`() {
-        val cellularNetwork = mockk<Network>()
+    fun `wifiIpv4Address picks the Wi-Fi network's address reported by the network callback`() = runBlocking {
         val wifiNetwork = mockk<Network>()
+        val callbackSlot = slot<ConnectivityManager.NetworkCallback>()
         val connectivityManager = mockk<ConnectivityManager> {
-            every { allNetworks } returns arrayOf(cellularNetwork, wifiNetwork)
-            every { getNetworkCapabilities(cellularNetwork) } returns capabilities(isWifi = false)
-            every { getNetworkCapabilities(wifiNetwork) } returns capabilities(isWifi = true)
-            every { getLinkProperties(wifiNetwork) } returns linkProperties("192.168.1.42")
+            every { registerNetworkCallback(any(), capture(callbackSlot)) } answers {
+                callbackSlot.captured.onLinkPropertiesChanged(wifiNetwork, linkProperties("192.168.1.42"))
+            }
+            every { unregisterNetworkCallback(any<ConnectivityManager.NetworkCallback>()) } just Runs
         }
-        val discovery = NetworkDiscovery(mockk<ClServerApi>(), context(connectivityManager))
+        val discovery = spyk(NetworkDiscovery(mockk<ClServerApi>(), context(connectivityManager))) {
+            every { wifiNetworkRequest() } returns mockk<NetworkRequest>()
+        }
 
         assertEquals("192.168.1.42", discovery.wifiIpv4Address())
     }
 
     @Test
-    fun `wifiIpv4Address returns null when no connected network has the Wi-Fi transport`() {
-        val cellularNetwork = mockk<Network>()
+    fun `wifiIpv4Address returns null when no Wi-Fi network reports its link properties`() = runBlocking {
         val connectivityManager = mockk<ConnectivityManager> {
-            every { allNetworks } returns arrayOf(cellularNetwork)
-            every { getNetworkCapabilities(cellularNetwork) } returns capabilities(isWifi = false)
+            every { registerNetworkCallback(any(), any<ConnectivityManager.NetworkCallback>()) } just Runs
+            every { unregisterNetworkCallback(any<ConnectivityManager.NetworkCallback>()) } just Runs
         }
-        val discovery = NetworkDiscovery(mockk<ClServerApi>(), context(connectivityManager))
+        val discovery = spyk(NetworkDiscovery(mockk<ClServerApi>(), context(connectivityManager))) {
+            every { wifiNetworkRequest() } returns mockk<NetworkRequest>()
+        }
 
         assertNull(discovery.wifiIpv4Address())
     }
 
     @Test
-    fun `localIpv4Address falls back to interface enumeration when no Wi-Fi network is connected`() {
+    fun `localIpv4Address falls back to interface enumeration when no Wi-Fi network is connected`() = runBlocking {
         val discovery = NetworkDiscovery(mockk<ClServerApi>(), context(connectivityManager = null))
 
         assertEquals(discovery.firstNonLoopbackIpv4Address(), discovery.localIpv4Address())
@@ -91,9 +98,6 @@ class NetworkDiscoveryTest {
         mockk<Context> {
             every { getSystemService(ConnectivityManager::class.java) } returns connectivityManager
         }
-
-    private fun capabilities(isWifi: Boolean): NetworkCapabilities =
-        mockk { every { hasTransport(NetworkCapabilities.TRANSPORT_WIFI) } returns isWifi }
 
     private fun linkProperties(ipv4Address: String): LinkProperties =
         mockk { every { linkAddresses } returns listOf(linkAddress(ipv4Address)) }

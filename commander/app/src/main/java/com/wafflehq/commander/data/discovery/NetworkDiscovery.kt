@@ -2,7 +2,10 @@ package com.wafflehq.commander.data.discovery
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.wafflehq.commander.data.api.ClServerApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.Inet4Address
@@ -14,8 +17,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val SCAN_CONCURRENCY = 32
+private const val WIFI_LOOKUP_TIMEOUT_MS = 500L
 
 /** Races [predicate] over [candidates], returning the first match or null once every candidate has been tried. */
 suspend fun <T> raceFirstMatch(
@@ -52,7 +57,7 @@ fun subnetHosts(localIpv4: String): List<String> {
 @Singleton
 class NetworkDiscovery @Inject constructor(
     private val api: ClServerApi,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) {
     /** Scans every address in the device's local /24 subnet for a `cl server` on [port], returns the first hit. */
     suspend fun discoverHost(port: Int): String? {
@@ -66,24 +71,34 @@ class NetworkDiscovery @Inject constructor(
      * internet access) but neither shares the LAN the `cl server` runs on, so the Wi-Fi transport
      * is looked up explicitly instead of trusting whichever interface the OS returns first.
      */
-    internal fun localIpv4Address(): String? =
+    internal suspend fun localIpv4Address(): String? =
         wifiIpv4Address() ?: firstNonLoopbackIpv4Address()
 
-    internal fun wifiIpv4Address(): String? {
+    /**
+     * `ConnectivityManager.allNetworks` is deprecated with no synchronous replacement, so the
+     * currently up Wi-Fi network is looked up via a [ConnectivityManager.NetworkCallback], which
+     * reports the already-connected network's link properties immediately upon registration.
+     */
+    internal suspend fun wifiIpv4Address(): String? {
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java) ?: return null
-        return connectivityManager.allNetworks
-            .filter { network ->
-                connectivityManager.getNetworkCapabilities(network)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        val address = CompletableDeferred<String?>()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                linkProperties.firstNonLoopbackIpv4HostAddress()?.let(address::complete)
             }
-            .firstNotNullOfOrNull { network ->
-                connectivityManager.getLinkProperties(network)?.linkAddresses
-                    ?.map { it.address }
-                    ?.filterIsInstance<Inet4Address>()
-                    ?.firstOrNull { !it.isLoopbackAddress }
-                    ?.hostAddress
-            }
+        }
+        connectivityManager.registerNetworkCallback(wifiNetworkRequest(), callback)
+        return try {
+            withTimeoutOrNull(WIFI_LOOKUP_TIMEOUT_MS) { address.await() }
+        } finally {
+            connectivityManager.unregisterNetworkCallback(callback)
+        }
     }
+
+    internal fun wifiNetworkRequest(): NetworkRequest =
+        NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
 
     internal fun firstNonLoopbackIpv4Address(): String? =
         NetworkInterface.getNetworkInterfaces()?.asSequence()
@@ -93,3 +108,10 @@ class NetworkDiscovery @Inject constructor(
             ?.firstOrNull { !it.isLoopbackAddress }
             ?.hostAddress
 }
+
+private fun LinkProperties.firstNonLoopbackIpv4HostAddress(): String? =
+    linkAddresses
+        .map { it.address }
+        .filterIsInstance<Inet4Address>()
+        .firstOrNull { !it.isLoopbackAddress }
+        ?.hostAddress
