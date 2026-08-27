@@ -18,8 +18,18 @@
 - Keine OWASP-Top-10-Schwachstellen (SQL-Injection, XSS, Command-Injection etc.)
 - Tests müssen immer laufen
 - Die Tests sind die Source of truth. Wenn sie fehlschlagen ist der Code falsch, nicht die tests
-- Verwende niemals alpha oder beta versionen von eiongebundenen Bibliotheken
+- Verwende niemals alpha oder beta versionen von eingebundenen Bibliotheken
 - Keine deprecated Inhalte verwenden
 - Jede Datenbankmigration MUSS vollständig durch Tests abgedeckt sein
 - Du kümmerst dich nur um Tests, die dein eigenes Feature betreffen. alle anderen darfst du nicht ausführen, außer du wirst aufgefordert
-- Du schreibst unit-tests, führst sie aber NIEMALS selber aus. Kein gradle compile, kein gradle debug. Keine Gradle befehle.
+
+## Pfadfinder-Regel
+Auch wenn es nicht dein Feature betrifft, aber wenn du auf eines der folgenden Probleme stößt, behebe es gleich mit:
+- Veraltete Versionen, die eine neuere haben ohne Breaking Changes
+- Sicherheitslücken
+- Bugs
+- Nicht passendes Verhalten der App
+- Verstoß gegen Copyrights
+- Lags
+- Schlechte software-Architektur
+

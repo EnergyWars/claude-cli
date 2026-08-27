@@ -1,0 +1,1 @@
+Du darfst auf keinen Fall gradle Befehle ausführen. Keine Unit-Tests, kein compile, kein build. Du sollst trotzdem alle tests aktuell halten. Validiere dafür extra nochmal, ob alles passt, nur ohne die Tests tatsächlich auszuführen.

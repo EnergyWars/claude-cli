@@ -8,7 +8,7 @@
     {
       "name": "dev",
       "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben.",
-      "contexts": ["main", "dev/code"],
+      "contexts": ["main", "dev/code", "dev/deny-gradle"],
       "model": "sonnet"
     },
     {
@@ -80,6 +80,28 @@
           "command": "git merge master",
           "displayName": "merge-master",
           "description": "Merged den master in diesen branch."
+        }
+      ]
+    },
+    {
+      "name": "commander",
+      "path": "/home/simon/IdeaProjects/claude-cli/commander",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        }
+      ]
+    },
+    {
+      "name": "app-getter",
+      "path": "/home/simon/IdeaProjects/claude-cli/app-getter",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
         }
       ]
     }
