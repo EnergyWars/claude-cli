@@ -67,6 +67,7 @@ fun ProjectHomeScreen(
 ) {
     val selectedProject by viewModel.selectedProjectName.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val usageBannerExpanded by viewModel.usageBannerExpanded.collectAsStateWithLifecycle()
     val projectName = selectedProject
 
     if (projectName == null) {
@@ -86,7 +87,11 @@ fun ProjectHomeScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
-            UsageLimitBanner(limits = state.usageLimits)
+            UsageLimitBanner(
+                limits = state.usageLimits,
+                expanded = usageBannerExpanded,
+                onExpandedChange = viewModel::onUsageBannerExpandedChanged,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

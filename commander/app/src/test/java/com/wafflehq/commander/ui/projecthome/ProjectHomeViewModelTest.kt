@@ -7,6 +7,7 @@ import com.wafflehq.commander.data.api.UsageLimit
 import com.wafflehq.commander.data.settings.SettingsRepository
 import io.mockk.coAnswers
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +25,14 @@ import org.junit.Test
 
 private const val USAGE_POLL_INTERVAL_MS = 60_000L
 
-private fun fakeSettingsRepository(selectedProjectName: String? = "default"): SettingsRepository =
+private fun fakeSettingsRepository(
+    selectedProjectName: String? = "default",
+    usageBannerExpanded: Boolean = true,
+): SettingsRepository =
     mockk<SettingsRepository> {
         every { this@mockk.selectedProjectName } returns flowOf(selectedProjectName)
+        every { this@mockk.usageBannerExpanded } returns flowOf(usageBannerExpanded)
+        coEvery { setUsageBannerExpanded(any()) } returns Unit
     }
 
 private val EMPTY_MANIFEST = Manifest(agents = emptyList(), paths = emptyList())
@@ -90,5 +96,33 @@ class ProjectHomeViewModelTest {
         dispatcher.scheduler.runCurrent()
 
         assertEquals(20, viewModel.uiState.value.usageLimits.first().percentUsed)
+    }
+
+    @Test
+    fun `exposes the persisted usage banner expanded state`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getManifest() } returns EMPTY_MANIFEST
+            coEvery { getUsage() } returns emptyList()
+        }
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(usageBannerExpanded = false))
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(false, viewModel.usageBannerExpanded.value)
+    }
+
+    @Test
+    fun `persists the usage banner expanded state on change`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getManifest() } returns EMPTY_MANIFEST
+            coEvery { getUsage() } returns emptyList()
+        }
+        val settingsRepository = fakeSettingsRepository()
+        val viewModel = ProjectHomeViewModel(api, settingsRepository)
+        dispatcher.scheduler.runCurrent()
+
+        viewModel.onUsageBannerExpandedChanged(false)
+        dispatcher.scheduler.runCurrent()
+
+        coVerify { settingsRepository.setUsageBannerExpanded(false) }
     }
 }

@@ -1,6 +1,7 @@
 package com.wafflehq.commander.data.api
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class HealthResponse(val status: String, val version: String)
@@ -161,6 +162,21 @@ data class FeedbackList(val feedback: List<FeedbackEntry>)
 
 @Serializable
 data class FeedbackPatchRequest(val text: String)
+
+@Serializable
+data class ConfigVersionSummary(val id: Int, val createdAt: String)
+
+@Serializable
+data class ConfigVersionsResponse(val versions: List<ConfigVersionSummary>)
+
+@Serializable
+data class ConfigPutResponse(val versionId: Int, val createdAt: String, val config: JsonElement, val warning: String? = null)
+
+@Serializable
+data class ConfigPointerResponse(val versionId: Int? = null)
+
+@Serializable
+data class ConfigPointerUpdateResponse(val versionId: Int? = null, val config: JsonElement, val warning: String? = null)
 
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }

@@ -1,17 +1,26 @@
 package com.wafflehq.commander.ui.components
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.UsageLimit
 import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
@@ -28,14 +37,44 @@ fun usageRoleFor(percentUsed: Int): AppRole = when {
 }
 
 @Composable
-fun UsageLimitBanner(limits: List<UsageLimit>, modifier: Modifier = Modifier) {
+fun UsageLimitBanner(
+    limits: List<UsageLimit>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     if (limits.isEmpty()) return
     AppCard(modifier = modifier.fillMaxWidth(), role = AppRole.Neutral, variant = CardVariant.Filled) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(AppSpacing.md),
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
+                .padding(AppSpacing.md),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
-            limits.forEach { limit -> UsageLimitRow(limit) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onExpandedChange(!expanded) },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.usage_banner_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTheme.colors.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = stringResource(
+                        if (expanded) R.string.usage_banner_collapse else R.string.usage_banner_expand,
+                    ),
+                    tint = AppTheme.colors.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                limits.forEach { limit -> UsageLimitRow(limit) }
+            }
         }
     }
 }
@@ -61,6 +100,11 @@ private fun UsageLimitRow(limit: UsageLimit) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(AppRadius.pill)),
             color = roleColors.accent,
             trackColor = AppTheme.colors.surfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.usage_banner_resets_at, limit.resetsAt),
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTheme.colors.onSurfaceVariant,
         )
     }
 }

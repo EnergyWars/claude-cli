@@ -38,7 +38,7 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
-Ganz oben, noch vor dem Projekt-Dropdown, zeigt der Hub ein **Nutzungslimits-Banner** (`GET /usage`, siehe `../FEATURES.md`, Nutzungslimits) – pro Limit eine Zeile mit Label, Prozentwert und Balken (`LinearProgressIndicator`), Farbe je nach Auslastung (< 70 % neutral, 70–89 % Warnung, ≥ 90 % Fehler). Wird alle 60 Sekunden neu geladen, solange der Hub sichtbar ist; ein fehlgeschlagener Abruf wird still ignoriert (zeigt einfach den letzten bekannten Stand weiter, kein Fehler-Banner) – die Nutzungsanzeige ist informativ und soll den Hub nicht blockieren. Ohne Limits (noch nicht geladen oder leere Antwort) bleibt die Zeile einfach weg.
+Ganz oben, noch vor dem Projekt-Dropdown, zeigt der Hub ein **Nutzungslimits-Banner** (`GET /usage`, siehe `../FEATURES.md`, Nutzungslimits) – pro Limit eine Zeile mit Label, Prozentwert, Balken (`LinearProgressIndicator`, Farbe je nach Auslastung: < 70 % neutral, 70–89 % Warnung, ≥ 90 % Fehler) und darunter dem Reset-Zeitpunkt (`limit.resetsAt`, unverändert die vom Server gelieferte Textangabe, z. B. „Aug 27, 5:40pm (Europe/Berlin)"). Wird alle 60 Sekunden neu geladen, solange der Hub sichtbar ist; ein fehlgeschlagener Abruf wird still ignoriert (zeigt einfach den letzten bekannten Stand weiter, kein Fehler-Banner) – die Nutzungsanzeige ist informativ und soll den Hub nicht blockieren. Ohne Limits (noch nicht geladen oder leere Antwort) bleibt die Zeile einfach weg. Ein Tap auf den Banner-Header klappt die Limit-Zeilen ein bzw. aus; der Zustand bleibt über App-Neustarts hinweg erhalten.
 
 ## Befehle
 
@@ -116,7 +116,15 @@ Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige w
 
 ## Einstellungen
 
-Theme-Umschalter (System/Hell/Dunkel), Kontexte-Verwaltung (siehe oben), Verbindungsanzeige mit „Verbindung trennen" (löscht Verbindung **und** das gemerkte Projekt, führt zurück zum Setup-Screen).
+Theme-Umschalter (System/Hell/Dunkel), Kontexte-Verwaltung (siehe oben), Server-Konfiguration (siehe unten), Verbindungsanzeige mit „Verbindung trennen" (löscht Verbindung **und** das gemerkte Projekt, führt zurück zum Setup-Screen).
+
+## Server-Konfiguration (Einstellungen)
+
+Unter Einstellungen → Server-Konfiguration lässt sich die auf `cl server` laufende `config.json` remote bearbeiten, ohne Zugriff auf das Server-Dateisystem – nutzt `../FEATURES.md`s `/config`-Endpunkte (siehe dort, Abschnitt „Config-Editierung + Versionshistorie"):
+
+- Ein mehrzeiliges Textfeld zeigt die aktuelle Config als formatiertes JSON (`GET /config`). „Speichern" prüft zuerst lokal, ob der Text gültiges JSON ist (verhindert einen unnötigen Server-Roundtrip bei Tippfehlern), sendet ihn danach per `PUT /config`. Ein ungültiger Inhalt (lokal oder vom Server abgelehnt, z. B. wegen reservierter Agent-Namen) zeigt ein Fehler-Banner, ohne den bisherigen Text zu verwerfen.
+- Änderungen wirken **sofort** auf dem Server, ohne Neustart – ändert sich dabei `databaseDirectory`, zeigt ein zusätzliches Hinweis-Banner, dass dafür ein Server-Neustart nötig ist.
+- „Versionsverlauf" öffnet eine Liste aller gespeicherten Versionen (`GET /config/versions`, neueste zuerst) plus die feste „Eingebettete Version" (die zur Build-Zeit reinkompilierte Version), mit einem Häkchen bei der aktuell aktiven (`GET /config/pointer`, `null` = eingebettete Version). Tippen auf eine andere Version fragt per Dialog nach und aktiviert sie danach sofort (`PUT /config/pointer`) – ein Rollback, ohne die Versionshistorie selbst zu verändern.
 
 ## Netzwerk
 

@@ -35,6 +35,9 @@ class ProjectHomeViewModel @Inject constructor(
     val selectedProjectName: StateFlow<String?> = settingsRepository.selectedProjectName
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val usageBannerExpanded: StateFlow<Boolean> = settingsRepository.usageBannerExpanded
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
     private val _uiState = MutableStateFlow(ProjectHomeUiState())
     val uiState: StateFlow<ProjectHomeUiState> = _uiState.asStateFlow()
 
@@ -71,6 +74,12 @@ class ProjectHomeViewModel @Inject constructor(
     fun onProjectSelected(name: String) {
         viewModelScope.launch {
             settingsRepository.setSelectedProject(name)
+        }
+    }
+
+    fun onUsageBannerExpandedChanged(expanded: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setUsageBannerExpanded(expanded)
         }
     }
 }

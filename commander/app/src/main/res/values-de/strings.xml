@@ -35,6 +35,11 @@
     <string name="project_home_collect">Sammlung</string>
     <string name="project_home_stats">Statistik</string>
 
+    <string name="usage_banner_title">Nutzung</string>
+    <string name="usage_banner_expand">Nutzung anzeigen</string>
+    <string name="usage_banner_collapse">Nutzung ausblenden</string>
+    <string name="usage_banner_resets_at">Setzt zurück %1$s</string>
+
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
     <string name="commands_run_confirm_title">Befehl ausführen?</string>
@@ -139,6 +144,21 @@
     <string name="context_edit_value_label">Wert</string>
     <string name="context_edit_save">Speichern</string>
     <string name="context_edit_delete">Kontext löschen</string>
+
+    <string name="settings_config_title">Server-Konfiguration</string>
+    <string name="settings_config_sub">config.json bearbeiten, Versionsverlauf</string>
+    <string name="settings_config_json_label">config.json</string>
+    <string name="settings_config_save">Speichern</string>
+    <string name="settings_config_saved_title">Gespeichert</string>
+    <string name="settings_config_saved_body">Die neue Version ist sofort aktiv, ohne Server-Neustart.</string>
+    <string name="settings_config_warning_title">Hinweis</string>
+    <string name="settings_config_versions">Versionsverlauf</string>
+    <string name="settings_config_versions_title">Versionsverlauf</string>
+    <string name="settings_config_versions_embedded">Eingebettete Version</string>
+    <string name="settings_config_versions_entry">Version %1$d</string>
+    <string name="settings_config_versions_confirm_title">Version aktivieren?</string>
+    <string name="settings_config_versions_confirm_body">„%1$s" wird sofort als aktive Konfiguration übernommen.</string>
+    <string name="settings_config_versions_confirm_action">Aktivieren</string>
 
     <string name="collect_title">Sammlung</string>
     <string name="collect_button">Sammeln</string>

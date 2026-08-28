@@ -29,6 +29,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDisplay: () -> Unit,
     onOpenContexts: () -> Unit,
+    onOpenConfig: () -> Unit,
     onDisconnected: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -52,6 +53,9 @@ fun SettingsScreen(
                 contextsLabel = stringResource(R.string.settings_contexts_title),
                 contextsSubtitle = stringResource(R.string.settings_contexts_sub),
                 onOpenContexts = onOpenContexts,
+                configLabel = stringResource(R.string.settings_config_title),
+                configSubtitle = stringResource(R.string.settings_config_sub),
+                onOpenConfig = onOpenConfig,
             )
             SettingsGroupDivider()
             SettingsGroup(

@@ -22,6 +22,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -283,6 +284,19 @@ class ClServerApi @Inject constructor(
     suspend fun deleteTicket(pathName: String, id: Int): MessageResponse =
         authedDelete("tickets", pathName, id.toString())
 
+    suspend fun getConfig(): JsonElement = authedGet("config")
+
+    suspend fun putConfig(rawJson: String): ConfigPutResponse = authedPut(rawJson, "config")
+
+    suspend fun getConfigVersions(): ConfigVersionsResponse = authedGet("config", "versions")
+
+    suspend fun getConfigPointer(): ConfigPointerResponse = authedGet("config", "pointer")
+
+    suspend fun setConfigPointer(versionId: Int?): ConfigPointerUpdateResponse {
+        val body = if (versionId == null) "{\"embedded\":true}" else "{\"versionId\":$versionId}"
+        return authedPut(body, "config", "pointer")
+    }
+
     private suspend inline fun <reified T> authedGet(vararg segments: String): T {
         val session = requireSession()
         val request = Request.Builder()
@@ -316,6 +330,18 @@ class ClServerApi @Inject constructor(
             )
             .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
             .patch(body.toRequestBody(JSON_MEDIA_TYPE))
+        return execute(request)
+    }
+
+    private suspend inline fun <reified T> authedPut(body: String, vararg segments: String): T {
+        val session = requireSession()
+        val request = Request.Builder()
+            .url(
+                urlBuilder(session.connection.host, session.connection.port)
+                    .apply { segments.forEach(::addPathSegment) }.build(),
+            )
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
+            .put(body.toRequestBody(JSON_MEDIA_TYPE))
         return execute(request)
     }
 

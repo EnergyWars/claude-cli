@@ -34,6 +34,8 @@ import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
 import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
 import com.wafflehq.commander.ui.settings.SettingsScreen
+import com.wafflehq.commander.ui.settings.config.ConfigScreen
+import com.wafflehq.commander.ui.settings.config.ConfigVersionsScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextEditScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextsScreen
 import com.wafflehq.commander.ui.setup.SetupScreen
@@ -63,6 +65,8 @@ object Routes {
     const val SETTINGS_CONTEXTS = "settings_contexts"
     const val SETTINGS_CONTEXT_NEW = "settings_contexts/edit"
     const val SETTINGS_CONTEXT_EDIT = "settings_contexts/edit/{id}"
+    const val SETTINGS_CONFIG = "settings_config"
+    const val SETTINGS_CONFIG_VERSIONS = "settings_config/versions"
 
     fun commands(pathName: String): String = "commands/${Uri.encode(pathName)}"
 
@@ -283,6 +287,7 @@ fun AppNavHost() {
                 onBack = { navController.popBackStack() },
                 onOpenDisplay = { navController.navigate(Routes.SETTINGS_DISPLAY) },
                 onOpenContexts = { navController.navigate(Routes.SETTINGS_CONTEXTS) },
+                onOpenConfig = { navController.navigate(Routes.SETTINGS_CONFIG) },
                 onDisconnected = { navController.navigate(Routes.SETUP) { popUpTo(0) } },
             )
         }
@@ -304,6 +309,15 @@ fun AppNavHost() {
             arguments = listOf(navArgument("id") { type = NavType.LongType }),
         ) {
             ContextEditScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.SETTINGS_CONFIG) {
+            ConfigScreen(
+                onBack = { navController.popBackStack() },
+                onOpenVersions = { navController.navigate(Routes.SETTINGS_CONFIG_VERSIONS) },
+            )
+        }
+        composable(Routes.SETTINGS_CONFIG_VERSIONS) {
+            ConfigVersionsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

@@ -35,6 +35,11 @@
     <string name="project_home_collect">Collect</string>
     <string name="project_home_stats">Statistics</string>
 
+    <string name="usage_banner_title">Usage</string>
+    <string name="usage_banner_expand">Show usage</string>
+    <string name="usage_banner_collapse">Hide usage</string>
+    <string name="usage_banner_resets_at">Resets %1$s</string>
+
     <string name="commands_title">Commands</string>
     <string name="commands_empty">No commands.</string>
     <string name="commands_run_confirm_title">Run command?</string>
@@ -139,6 +144,21 @@
     <string name="context_edit_value_label">Value</string>
     <string name="context_edit_save">Save</string>
     <string name="context_edit_delete">Delete context</string>
+
+    <string name="settings_config_title">Server configuration</string>
+    <string name="settings_config_sub">Edit config.json, version history</string>
+    <string name="settings_config_json_label">config.json</string>
+    <string name="settings_config_save">Save</string>
+    <string name="settings_config_saved_title">Saved</string>
+    <string name="settings_config_saved_body">The new version is active immediately, no server restart needed.</string>
+    <string name="settings_config_warning_title">Note</string>
+    <string name="settings_config_versions">Version history</string>
+    <string name="settings_config_versions_title">Version history</string>
+    <string name="settings_config_versions_embedded">Embedded version</string>
+    <string name="settings_config_versions_entry">Version %1$d</string>
+    <string name="settings_config_versions_confirm_title">Activate version?</string>
+    <string name="settings_config_versions_confirm_body">"%1$s" will be applied as the active configuration immediately.</string>
+    <string name="settings_config_versions_confirm_action">Activate</string>
 
     <string name="collect_title">Collect</string>
     <string name="collect_button">Collect</string>

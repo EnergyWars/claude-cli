@@ -23,12 +23,17 @@ class TimestampFormatTest {
 
     @Test
     fun `converts a UTC timestamp into the device's local timezone`() {
-        assertEquals("2026-08-25 21:13:12", formatTimestamp("2026-08-25T19:13:12.620Z"))
+        assertEquals("25.08.2026 21:13:12", formatTimestamp("2026-08-25T19:13:12.620Z"))
     }
 
     @Test
-    fun `leaves a timestamp without timezone information unchanged`() {
-        assertEquals("2026-08-25 19:13:12", formatTimestamp("2026-08-25T19:13:12"))
+    fun `formats a timestamp without timezone information in german format`() {
+        assertEquals("25.08.2026 19:13:12", formatTimestamp("2026-08-25T19:13:12"))
+    }
+
+    @Test
+    fun `returns an unparsable timestamp unchanged`() {
+        assertEquals("not-a-timestamp", formatTimestamp("not-a-timestamp"))
     }
 
     @Test
