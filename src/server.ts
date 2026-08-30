@@ -1682,7 +1682,7 @@ function printEndpoints(config: Config, port: number): void {
   );
   console.log(`  GET  ${base}/paths/:pathName/commands`);
   for (const pathEntry of config.paths) {
-    for (const command of pathEntry.commands ?? []) {
+    for (const command of listPathCommands(config, pathEntry.name)) {
       console.log(`  POST ${base}/paths/${pathEntry.name}/commands/${command.key}`);
     }
   }

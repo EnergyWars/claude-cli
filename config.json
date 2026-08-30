@@ -49,44 +49,6 @@
           "path": "app/build/outputs/apk/release/allinonecalendar.apk",
           "type": "file"
         }
-      ],
-      "commands": [
-        {
-          "key": "clean",
-          "command": "./gradlew clean",
-          "displayName": "Clean",
-          "description": "Raeumt alle Build-Artefakte auf."
-        },
-        {
-          "key": "assemble-debug",
-          "command": "./gradlew assembleDebug",
-          "displayName": "Build Debug",
-          "description": "Baut die Debug-APK."
-        },
-        {
-          "key": "assemble-release",
-          "command": "./gradlew assembleRelease",
-          "displayName": "Build Release",
-          "description": "Baut die Release-APK."
-        },
-        {
-          "key": "commit",
-          "command": "git add . && git commit -m 'remote update code commit' && git push",
-          "displayName": "Commit and Push",
-          "description": "Macht ein git commit mit allen changes und pusht."
-        },
-        {
-          "key": "status",
-          "command": "git status",
-          "displayName": "Status",
-          "description": "Zeigt den aktuellen git-Status."
-        },
-        {
-          "key": "update",
-          "command": "git merge master",
-          "displayName": "merge-master",
-          "description": "Merged den master in diesen branch."
-        }
       ]
     },
     {
@@ -100,46 +62,8 @@
         },
         {
           "name": "release-apk",
-          "path": "app/build/outputs/apk/release/allinonecalendar.apk",
+          "path": "app/build/outputs/apk/release/therapyfinder.apk",
           "type": "file"
-        }
-      ],
-      "commands": [
-        {
-          "key": "clean",
-          "command": "./gradlew clean",
-          "displayName": "Clean",
-          "description": "Raeumt alle Build-Artefakte auf."
-        },
-        {
-          "key": "assemble-debug",
-          "command": "./gradlew assembleDebug",
-          "displayName": "Build Debug",
-          "description": "Baut die Debug-APK."
-        },
-        {
-          "key": "assemble-release",
-          "command": "./gradlew assembleRelease",
-          "displayName": "Build Release",
-          "description": "Baut die Release-APK."
-        },
-        {
-          "key": "commit",
-          "command": "git add . && git commit -m 'remote update code commit' && git push",
-          "displayName": "Commit and Push",
-          "description": "Macht ein git commit mit allen changes und pusht."
-        },
-        {
-          "key": "status",
-          "command": "git status",
-          "displayName": "Status",
-          "description": "Zeigt den aktuellen git-Status."
-        },
-        {
-          "key": "update",
-          "command": "git merge master",
-          "displayName": "merge-master",
-          "description": "Merged den master in diesen branch."
         }
       ]
     },
@@ -154,46 +78,8 @@
         },
         {
           "name": "release-apk",
-          "path": "app/build/outputs/apk/release/allinonecalendar.apk",
+          "path": "app/build/outputs/apk/release/carfinder.apk",
           "type": "file"
-        }
-      ],
-      "commands": [
-        {
-          "key": "clean",
-          "command": "./gradlew clean",
-          "displayName": "Clean",
-          "description": "Raeumt alle Build-Artefakte auf."
-        },
-        {
-          "key": "assemble-debug",
-          "command": "./gradlew assembleDebug",
-          "displayName": "Build Debug",
-          "description": "Baut die Debug-APK."
-        },
-        {
-          "key": "assemble-release",
-          "command": "./gradlew assembleRelease",
-          "displayName": "Build Release",
-          "description": "Baut die Release-APK."
-        },
-        {
-          "key": "commit",
-          "command": "git add . && git commit -m 'remote update code commit' && git push",
-          "displayName": "Commit and Push",
-          "description": "Macht ein git commit mit allen changes und pusht."
-        },
-        {
-          "key": "status",
-          "command": "git status",
-          "displayName": "Status",
-          "description": "Zeigt den aktuellen git-Status."
-        },
-        {
-          "key": "update",
-          "command": "git merge master",
-          "displayName": "merge-master",
-          "description": "Merged den master in diesen branch."
         }
       ]
     },
@@ -204,6 +90,11 @@
         {
           "name": "debug-apk",
           "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/commander.apk",
           "type": "file"
         }
       ]
@@ -216,8 +107,51 @@
           "name": "debug-apk",
           "path": "app/build/outputs/apk/debug/app-debug.apk",
           "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/app-getter.apk",
+          "type": "file"
         }
       ]
+    }
+  ],
+  "defaultCommands": [
+    {
+      "key": "clean",
+      "command": "./gradlew clean",
+      "displayName": "Clean",
+      "description": "Raeumt alle Build-Artefakte auf."
+    },
+    {
+      "key": "assemble-debug",
+      "command": "./gradlew assembleDebug",
+      "displayName": "Build Debug",
+      "description": "Baut die Debug-APK."
+    },
+    {
+      "key": "assemble-release",
+      "command": "./gradlew assembleRelease",
+      "displayName": "Build Release",
+      "description": "Baut die Release-APK."
+    },
+    {
+      "key": "commit",
+      "command": "git add . && git commit -m 'remote update code commit' && git push",
+      "displayName": "Commit and Push",
+      "description": "Macht ein git commit mit allen changes und pusht."
+    },
+    {
+      "key": "status",
+      "command": "git status",
+      "displayName": "Status",
+      "description": "Zeigt den aktuellen git-Status."
+    },
+    {
+      "key": "update",
+      "command": "git merge master",
+      "displayName": "merge-master",
+      "description": "Merged den master in diesen branch."
     }
   ],
   "tasks": [

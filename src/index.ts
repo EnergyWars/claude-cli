@@ -11,6 +11,7 @@ import {
   type Config,
   type PathEntry,
   listAgents,
+  listPathCommands,
   listPathNames,
   listTasks,
   loadConfig,
@@ -135,7 +136,7 @@ function formatPathsHelp(): string {
     }
     const blocks = config.paths.map((entry) => {
       const lines = [`  ${entry.name}`];
-      for (const command of entry.commands ?? []) {
+      for (const command of listPathCommands(config, entry.name)) {
         lines.push(
           `    POST /paths/${entry.name}/commands/${command.key}  ${command.displayName}: ${command.description}`,
         );

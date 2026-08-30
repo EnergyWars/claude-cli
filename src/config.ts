@@ -68,6 +68,8 @@ export interface Config {
   agents: AgentConfig[];
   databaseDirectory: string;
   paths: PathEntry[];
+  /** Commands, die zusaetzlich zu den commands eines PathEntry in jedem Pfad ausfuehrbar sind. Ein commands-Eintrag mit gleichem key ueberschreibt den Default fuer diesen Pfad. */
+  defaultCommands?: PathCommandEntry[];
   tasks: TaskConfig[];
   ticketAgent: TicketAgentConfig;
   contentPath: string;
@@ -244,6 +246,9 @@ function isConfig(value: unknown): value is Config {
     typeof record.databaseDirectory === 'string' &&
     Array.isArray(record.paths) &&
     record.paths.every(isPathEntry) &&
+    (record.defaultCommands === undefined ||
+      (Array.isArray(record.defaultCommands) &&
+        record.defaultCommands.every(isPathCommandEntry))) &&
     Array.isArray(record.tasks) &&
     record.tasks.every(isTaskConfig) &&
     isTicketAgentConfig(record.ticketAgent) &&
@@ -267,7 +272,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -361,7 +366,13 @@ export function resolveHostedEntry(
 }
 
 export function listPathCommands(config: Config, pathName: string): PathCommandEntry[] {
-  return resolvePathEntry(config, pathName).commands ?? [];
+  const entry = resolvePathEntry(config, pathName);
+  const ownCommands = entry.commands ?? [];
+  const overrideKeys = new Set(ownCommands.map((command) => command.key));
+  const inheritedDefaults = (config.defaultCommands ?? []).filter(
+    (command) => !overrideKeys.has(command.key),
+  );
+  return [...inheritedDefaults, ...ownCommands];
 }
 
 export function resolvePathCommand(
@@ -369,8 +380,7 @@ export function resolvePathCommand(
   pathName: string,
   key: string,
 ): PathCommandEntry {
-  const entry = resolvePathEntry(config, pathName);
-  const command = (entry.commands ?? []).find((candidate) => candidate.key === key);
+  const command = listPathCommands(config, pathName).find((candidate) => candidate.key === key);
   if (!command) {
     throw new Error(`Command "${key}" wurde in Pfad "${pathName}" nicht gefunden.`);
   }

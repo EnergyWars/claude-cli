@@ -545,6 +545,73 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
   );
 });
 
+test('listPathCommands/resolvePathCommand: defaultCommands gelten in jedem Pfad, eigene commands ueberschreiben per key', () => {
+  const config: Config = {
+    main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/x',
+    paths: [
+      {
+        name: 'myapp',
+        path: '/my/path',
+        commands: [
+          { key: 'clean', command: 'rm -rf out', displayName: 'Clean', description: 'App-eigen' },
+        ],
+      },
+      { name: 'empty', path: '/empty/path' },
+    ],
+    defaultCommands: [
+      { key: 'clean', command: './gradlew clean', displayName: 'Clean', description: 'Default' },
+      { key: 'status', command: 'git status', displayName: 'Status', description: 'Default' },
+    ],
+    tasks: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+
+  assert.deepEqual(listPathCommands(config, 'myapp'), [
+    { key: 'status', command: 'git status', displayName: 'Status', description: 'Default' },
+    { key: 'clean', command: 'rm -rf out', displayName: 'Clean', description: 'App-eigen' },
+  ]);
+  assert.deepEqual(listPathCommands(config, 'empty'), [
+    { key: 'clean', command: './gradlew clean', displayName: 'Clean', description: 'Default' },
+    { key: 'status', command: 'git status', displayName: 'Status', description: 'Default' },
+  ]);
+
+  assert.deepEqual(resolvePathCommand(config, 'myapp', 'clean'), {
+    key: 'clean',
+    command: 'rm -rf out',
+    displayName: 'Clean',
+    description: 'App-eigen',
+  });
+  assert.deepEqual(resolvePathCommand(config, 'empty', 'status'), {
+    key: 'status',
+    command: 'git status',
+    displayName: 'Status',
+    description: 'Default',
+  });
+  assert.throws(
+    () => resolvePathCommand(config, 'empty', 'doesnotexist'),
+    /Command "doesnotexist" wurde in Pfad "empty" nicht gefunden/,
+  );
+});
+
+test('parseConfig: akzeptiert "defaultCommands" auf Root-Ebene', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  raw.defaultCommands = [
+    { key: 'status', command: 'git status', displayName: 'Status', description: 'x' },
+  ];
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.defaultCommands?.length, 1);
+});
+
+test('parseConfig: wirft wenn "defaultCommands" fehlerhaft ist', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  raw.defaultCommands = [{ command: 'git status', displayName: 'Status', description: 'x' }];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
 test('resolveTask: lokal-first ueber CL_ROOT_DIR-Fixture', () => {
   const fixture = createFixtureRoot({
     contexts: { main: '# Fixture Main Content\n' },
@@ -766,7 +833,10 @@ test('resolveEffectiveConfig: wirft, wenn der Zeiger auf eine nicht existierende
   const db = openDatabase(dbDir);
   try {
     setConfigPointer(db, 999);
-    assert.throws(() => resolveEffectiveConfig(db), /Config-Version 999 wurde in der Datenbank nicht gefunden/);
+    assert.throws(
+      () => resolveEffectiveConfig(db),
+      /Config-Version 999 wurde in der Datenbank nicht gefunden/,
+    );
   } finally {
     db.close();
     rmSync(dbDir, { recursive: true, force: true });

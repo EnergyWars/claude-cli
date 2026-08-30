@@ -276,7 +276,7 @@
     "/manifest": {
       "get": {
         "summary": "Liefert alle Agents und Pfade (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
-        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description) und alle Pfade mit deren konfigurierten Commands (paths[].commands) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade). Tasks sind nicht enthalten - sie sind ausschliesslich per CLI ('cl task <name>', immer interaktiv) nutzbar, niemals ueber die API. Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands anzeigen kann.",
+        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description) und alle Pfade mit deren Commands (globale defaultCommands[] zusammengefuehrt mit den pfadeigenen paths[].commands[]) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade). Tasks sind nicht enthalten - sie sind ausschliesslich per CLI ('cl task <name>', immer interaktiv) nutzbar, niemals ueber die API. Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands anzeigen kann.",
         "operationId": "getManifest",
         "responses": {
           "200": {
@@ -387,7 +387,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Alle Commands (paths[].commands[]) dieses Pfads.",
+            "description": "Alle Commands dieses Pfads: globale defaultCommands[] (in jedem Pfad ausfuehrbar) zusammengefuehrt mit den pfadeigenen paths[].commands[] (ueberschreiben einen Default gleichen keys).",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PathCommandList" }
@@ -426,7 +426,7 @@
             "name": "key",
             "in": "path",
             "required": true,
-            "description": "Key eines Commands (paths[].commands[].key) dieses Pfads.",
+            "description": "Key eines Commands (globaler defaultCommands[]-Eintrag oder pfadeigener paths[].commands[]-Eintrag) dieses Pfads.",
             "schema": { "type": "string" }
           }
         ],
@@ -1940,6 +1940,143 @@
           "text": { "type": "string", "minLength": 1 }
         },
         "additionalProperties": false
+      },
+      "ConfigAgentDefinition": {
+        "type": "object",
+        "required": ["description", "contexts", "model"],
+        "properties": {
+          "description": { "type": "string" },
+          "contexts": { "type": "array", "items": { "type": "string" } },
+          "model": { "type": "string" },
+          "permissions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optionale Default-Permissions (settings.json permissions.allow-Syntax), als --allowedTools an claude uebergeben."
+          }
+        }
+      },
+      "ConfigAgent": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConfigAgentDefinition" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string" } }
+          }
+        ]
+      },
+      "ConfigHostedEntry": {
+        "type": "object",
+        "required": ["name", "path", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": {
+            "type": "string",
+            "description": "Relativ zum path des umgebenden PathEntry."
+          },
+          "type": { "type": "string", "enum": ["path", "file"] }
+        }
+      },
+      "ConfigPathEntry": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "hosted": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigHostedEntry" }
+          },
+          "commands": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PathCommandEntry" },
+            "description": "Ueberschreibt einen gleichnamigen defaultCommands-Eintrag fuer diesen Pfad, sonst zusaetzlich zu defaultCommands ausfuehrbar."
+          }
+        }
+      },
+      "ConfigTaskDefinition": {
+        "type": "object",
+        "required": ["description", "contexts", "model", "startCommand"],
+        "properties": {
+          "description": { "type": "string" },
+          "contexts": { "type": "array", "items": { "type": "string" } },
+          "model": { "type": "string" },
+          "startCommand": { "type": "string" },
+          "permissions": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ConfigTask": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConfigTaskDefinition" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string" } }
+          }
+        ]
+      },
+      "ConfigTicketAgent": {
+        "type": "object",
+        "required": ["model", "task"],
+        "properties": {
+          "model": { "type": "string" },
+          "task": {
+            "type": "string",
+            "description": "Frei editierbare Aufgabenbeschreibung fuer den Ticket-Erstellungs-Agent."
+          }
+        }
+      },
+      "ConfigCollectionEntry": {
+        "type": "object",
+        "required": ["sourcePath", "targetName", "path"],
+        "properties": {
+          "sourcePath": { "type": "string" },
+          "targetName": { "type": "string" },
+          "path": {
+            "type": "string",
+            "description": "Name eines Eintrags aus paths[] - rein informativ/gruppierend, keine Dateisystem-Verknuepfung."
+          }
+        }
+      },
+      "ConfigDocument": {
+        "type": "object",
+        "required": [
+          "main",
+          "agents",
+          "databaseDirectory",
+          "paths",
+          "tasks",
+          "ticketAgent",
+          "contentPath",
+          "collection"
+        ],
+        "properties": {
+          "main": { "$ref": "#/components/schemas/ConfigAgentDefinition" },
+          "agents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigAgent" }
+          },
+          "databaseDirectory": { "type": "string" },
+          "paths": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigPathEntry" }
+          },
+          "defaultCommands": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PathCommandEntry" },
+            "description": "Commands, die zusaetzlich zu den commands eines PathEntry in jedem Pfad ausfuehrbar sind. Ein commands-Eintrag mit gleichem key ueberschreibt den Default fuer diesen Pfad."
+          },
+          "tasks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigTask" }
+          },
+          "ticketAgent": { "$ref": "#/components/schemas/ConfigTicketAgent" },
+          "contentPath": { "type": "string" },
+          "collection": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigCollectionEntry" }
+          }
+        }
       }
     },
     "securitySchemes": {

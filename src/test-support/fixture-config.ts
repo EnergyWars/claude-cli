@@ -56,6 +56,7 @@ export interface FixtureConfigOptions {
   databaseDirectory?: string;
   contexts?: Record<string, string>;
   paths?: FixturePathEntry[];
+  defaultCommands?: FixturePathCommandEntry[];
   tasks?: FixtureTask[];
   ticketAgent?: FixtureTicketAgent;
   contentPath?: string;
@@ -85,6 +86,7 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
     })),
     databaseDirectory: options.databaseDirectory ?? join(rootDir, 'db'),
     paths: options.paths ?? [{ name: 'default', path: rootDir }],
+    defaultCommands: options.defaultCommands ?? [],
     tasks: (options.tasks ?? []).map((task) => ({
       description: 'Test-Task',
       contexts: ['main'],

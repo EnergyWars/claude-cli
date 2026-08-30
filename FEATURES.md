@@ -31,7 +31,10 @@ Implementiert in `src/launch.ts` (`launchAgent(name)`), aufgerufen aus dem `comm
 Sowohl Agents (`main`, `agents[]`) als auch Tasks (`tasks[]`) können in `config.json` optional ein `permissions`-Feld tragen – ein Array von Permission-Regeln in der gleichen Syntax wie Claude Codes `settings.json` (`permissions.allow`), z. B.:
 
 ```json
-{ "name": "review-local", "permissions": ["Bash(gradle *)", "Bash(./gradlew *)", "Bash(gradlew *)"] }
+{
+  "name": "review-local",
+  "permissions": ["Bash(gradle *)", "Bash(./gradlew *)", "Bash(gradlew *)"]
+}
 ```
 
 Ist `permissions` gesetzt, wird es beim Start der `claude`-Session als `--allowedTools <regel1> <regel2> ...` an `claude` angehängt (ganz am Ende der Argument-Liste, nach `--print <prompt>` bzw. dem positionalen `interactivePrompt`). `--allowedTools` ist additiv zu den `permissions.allow`/`ask`/`deny`-Regeln, die im Zielprojekt selbst (dessen `.claude/settings.json`) gelten – es ersetzt oder umgeht diese nie, sondern erlaubt zusätzlich genau die angegebenen Muster für diesen einen `claude`-Lauf. Fehlt `permissions` oder ist es ein leeres Array, wird kein `--allowedTools` angehängt (Verhalten unverändert wie zuvor).
@@ -273,9 +276,25 @@ Alle `/auth/*`-Endpunkte prüfen die Herkunft der Anfrage über `req.socket.remo
 
 Implementiert in `src/totp.ts` (Base32-En-/Decoding, `generateSecret`, `generateTotp`, `verifyTotp` mit Zeitfenster-Toleranz, `buildOtpAuthUrl`), `src/jwt.ts` (`signJwt`/`verifyJwt`, HS256 ohne externe Dependency), `src/network.ts` (`isLocalNetworkAddress`), `src/db.ts` (Tabelle `t_totp`, Single-Row via `CHECK (id = 1)`, inkl. `jwtSecret`-Spalte: `getTotpSecret`/`setPendingTotpSecret`/`confirmTotpSecret`/`deleteTotpSecret`) und `src/server.ts` (Routing, `authorizeRequest()`, `issueAuthToken()`, `handleGetAuthStatus()`). CLI-Command `cl totp remove` in `src/index.ts`.
 
-## Pfad-Commands (`paths[].commands`)
+## Pfad-Commands (`paths[].commands`) + globale Default-Commands (`defaultCommands`)
 
-Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `commands`-Array definieren – vordefinierte Shell-Befehle, die über die HTTP-API ausgelöst werden können:
+Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `commands`-Array definieren – vordefinierte Shell-Befehle, die über die HTTP-API ausgelöst werden können. Zusätzlich kann `config.json` auf Root-Ebene ein `defaultCommands`-Array derselben Form definieren – dessen Einträge sind **in jedem Pfad** ausführbar, ohne sie dort einzeln einzutragen; ein `paths[].commands`-Eintrag mit gleichem `key` überschreibt den Default für genau diesen Pfad (alle anderen Defaults bleiben zusätzlich verfügbar):
+
+```json
+{
+  "defaultCommands": [
+    {
+      "key": "clean",
+      "command": "./gradlew clean",
+      "displayName": "Clean",
+      "description": "Raeumt alle Build-Artefakte auf."
+    }
+  ],
+  "paths": [{ "name": "myapp", "path": "/my/path" }]
+}
+```
+
+`myapp` bekommt dadurch `clean` automatisch, ohne es selbst zu definieren.
 
 ```json
 {
@@ -296,11 +315,11 @@ Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `commands`-Array 
 - `command` – der auszuführende Shell-Befehl (`spawn(command, { shell: true, cwd })`), läuft **im Dateisystem-Verzeichnis des Pfad-Eintrags** (`paths[].path`, nicht ein `hosted`-Unterpfad).
 - `displayName`, `description` – Anzeigename/Beschreibung, z. B. für eine spätere UI; werden 1:1 über `GET /paths/<pathName>/commands` mit ausgeliefert.
 
-**`GET /paths/<pathName>/commands`** liefert `{ "commands": [{ "key", "command", "displayName", "description" }, ...] }` (404, falls `pathName` unbekannt).
+**`GET /paths/<pathName>/commands`** liefert `{ "commands": [{ "key", "command", "displayName", "description" }, ...] }` – die gemergte Liste aus `defaultCommands` + `paths[].commands` (404, falls `pathName` unbekannt).
 
-**`POST /paths/<pathName>/commands/<key>`** startet den Command headless im Hintergrund (404, falls `pathName`/`key` unbekannt), analog zu den Agent-Commands: sofortige Antwort `202 { "id": "<uuid>" }`, Live-Output + Status über das bestehende `GET /state/<id>` (gemeinsame `t_commands`-Tabelle; `model` ist bei Pfad-Commands `"-"`, da kein LLM beteiligt ist).
+**`POST /paths/<pathName>/commands/<key>`** startet den Command headless im Hintergrund (404, falls `pathName`/`key` unbekannt, egal ob der `key` aus `defaultCommands` oder `paths[].commands` stammt), analog zu den Agent-Commands: sofortige Antwort `202 { "id": "<uuid>" }`, Live-Output + Status über das bestehende `GET /state/<id>` (gemeinsame `t_commands`-Tabelle; `model` ist bei Pfad-Commands `"-"`, da kein LLM beteiligt ist).
 
-Implementiert in `src/config.ts` (`PathCommandEntry`, `listPathCommands`, `resolvePathCommand`), `src/launch.ts` (`runShellCommand`) und `src/server.ts` (Routing, Wiederverwendung von `t_commands` für Status-Tracking).
+Implementiert in `src/config.ts` (`PathCommandEntry`, `listPathCommands` merged `config.defaultCommands` mit `entry.commands`, `resolvePathCommand` sucht im Ergebnis von `listPathCommands`), `src/launch.ts` (`runShellCommand`) und `src/server.ts` (Routing, Wiederverwendung von `t_commands` für Status-Tracking).
 
 ## Manifest (`GET /manifest`)
 
@@ -370,7 +389,11 @@ Liefert die aktuellen Claude-Code-Nutzungslimits (Subscription-Kontingent, nicht
 {
   "limits": [
     { "label": "Current session", "percentUsed": 94, "resetsAt": "Aug 27, 5:40pm (Europe/Berlin)" },
-    { "label": "Current week (all models)", "percentUsed": 67, "resetsAt": "Aug 29, 9pm (Europe/Berlin)" }
+    {
+      "label": "Current week (all models)",
+      "percentUsed": 67,
+      "resetsAt": "Aug 29, 9pm (Europe/Berlin)"
+    }
   ]
 }
 ```
@@ -439,12 +462,13 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 
 ## Config/Context-System
 
-`config.json` (Projekt-Root) hat sechs Felder:
+`config.json` (Projekt-Root) hat sieben Felder:
 
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
 - `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
 - `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[], commands?: { key: string, command: string, displayName: string, description: string }[] }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut. Das optionale `commands`-Array definiert vordefinierte Shell-Befehle, auslösbar über `POST /paths/<pathName>/commands/<key>` (siehe "Pfad-Commands (paths[].commands)").
+- `defaultCommands` – optionales Array derselben Form wie `paths[].commands`, aber auf Root-Ebene: jeder Eintrag ist in **jedem** Pfad zusätzlich ausführbar, ohne ihn dort einzeln eintragen zu müssen. Ein `paths[].commands`-Eintrag mit gleichem `key` überschreibt den Default für genau diesen Pfad (siehe "Pfad-Commands (paths[].commands)").
 - `tasks` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string, startCommand: string }`, erreichbar ausschließlich über `cl task <name>` (immer interaktiv, siehe "Task-Ausführung (cl task <name>)") – nie über `cl server`.
 - `ticketAgent` – ein Objekt `{ model: string, task: string }` für den Ticket-Erstellungs-Agent (siehe "Ticket-System (cl ticket)"). `task` ist die frei editierbare Aufgabenbeschreibung ("interpretiere den Text im Projektkontext, erstelle daraus ein Ticket"); `model` dessen Model (Default `"haiku"`).
 
