@@ -152,6 +152,18 @@
       "command": "git merge master",
       "displayName": "merge-master",
       "description": "Merged den master in diesen branch."
+    },
+    {
+      "key": "install-debug",
+      "command": "cl inst",
+      "displayName": "Build Debug + Install",
+      "description": "Baut die Debug-APK per Gradle und installiert sie auf allen verbundenen adb-Geraeten."
+    },
+    {
+      "key": "install-release",
+      "command": "cl instr",
+      "displayName": "Build Release + Install",
+      "description": "Baut die Release-APK per Gradle und installiert sie auf allen verbundenen adb-Geraeten."
     }
   ],
   "tasks": [
