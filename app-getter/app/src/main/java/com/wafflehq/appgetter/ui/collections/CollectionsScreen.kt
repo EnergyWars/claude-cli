@@ -13,11 +13,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Feedback
+import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,10 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.appgetter.R
 import com.wafflehq.appgetter.data.api.CollectedFile
 import com.wafflehq.appgetter.data.install.DownloadStatus
+import com.wafflehq.appgetter.data.settings.PendingInstall
 import com.wafflehq.appgetter.ui.components.ApkActionDialog
 import com.wafflehq.appgetter.ui.components.AppBanner
 import com.wafflehq.appgetter.ui.components.AppButton
@@ -52,9 +58,21 @@ fun CollectionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val downloadedTimestamps by viewModel.downloadedTimestamps.collectAsStateWithLifecycle()
+    val pendingInstalls by viewModel.pendingInstalls.collectAsStateWithLifecycle()
     val feedbackState by feedbackViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingDeleteInstallFile by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                viewModel.scan()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(
         modifier = Modifier
@@ -120,6 +138,7 @@ fun CollectionsScreen(
                             file = file,
                             downloadState = downloadState(file, downloadedTimestamps),
                             isDownloading = uiState.downloadingFileName == file.name,
+                            isCached = pendingInstalls.isCached(file),
                             enabled = uiState.downloadingFileName == null,
                             downloadStatus = downloadStatus,
                             onInstall = { viewModel.downloadAndInstall(file) },
@@ -154,7 +173,7 @@ fun CollectionsScreen(
                 context.startActivity(viewModel.shareIntent(installFile))
                 viewModel.resolveInstallFile(installFile)
             },
-            onCancel = { pendingDeleteInstallFile = true },
+            onDelete = { pendingDeleteInstallFile = true },
             onDismiss = { viewModel.consumeInstallFile() },
         )
     }
@@ -174,11 +193,15 @@ fun CollectionsScreen(
     }
 }
 
+private fun List<PendingInstall>.isCached(file: CollectedFile): Boolean =
+    any { it.fileName == file.name && it.timestamp == file.timestamp }
+
 @Composable
 private fun CollectedFileRow(
     file: CollectedFile,
     downloadState: DownloadState,
     isDownloading: Boolean,
+    isCached: Boolean,
     enabled: Boolean,
     downloadStatus: DownloadStatus?,
     onInstall: () -> Unit,
@@ -222,7 +245,7 @@ private fun CollectedFileRow(
                         onClick = onFeedback,
                     )
                     AppIconButton(
-                        icon = Icons.Outlined.Download,
+                        icon = if (isCached) Icons.Outlined.InstallMobile else Icons.Outlined.Download,
                         contentDescription = stringResource(R.string.home_install),
                         role = AppRole.Primary,
                         enabled = enabled,

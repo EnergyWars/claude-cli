@@ -280,3 +280,70 @@ test('runShellCommand: liefert nicht-null Exit-Code bei fehlschlagendem Command'
   const result = await runShellCommand('exit 7', process.cwd(), () => undefined);
   assert.equal(result.exitCode, 7);
 });
+
+test('runHeadlessCommand: onSpawn erhaelt das Kind-Prozess-Handle vor Abschluss', async () => {
+  const mock = createMockClaude({ outputChunks: ['hello'], exitCode: 0 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    let spawnedPid: number | undefined;
+    await runHeadlessCommand(
+      testAgent,
+      'sonnet',
+      'p',
+      process.cwd(),
+      () => undefined,
+      undefined,
+      (child) => {
+        spawnedPid = child.pid;
+      },
+    );
+    assert.ok(spawnedPid !== undefined && spawnedPid > 0);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
+});
+
+test('runHeadlessCommand: SIGTERM ueber das onSpawn-Handle beendet den Prozess vorzeitig', async () => {
+  const mock = createMockClaude({
+    outputChunks: ['a', 'b', 'c', 'd', 'e'],
+    chunkDelayMs: 200,
+    exitCode: 0,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    const started = Date.now();
+    const result = await runHeadlessCommand(
+      testAgent,
+      'sonnet',
+      'p',
+      process.cwd(),
+      () => undefined,
+      undefined,
+      (child) => {
+        setTimeout(() => child.kill('SIGTERM'), 100);
+      },
+    );
+    assert.ok(Date.now() - started < 900, 'Prozess sollte lange vor Ablauf aller 5 Chunks beendet worden sein');
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
+});
+
+test('runShellCommand: onSpawn erhaelt das Kind-Prozess-Handle, SIGTERM beendet es vorzeitig', async () => {
+  const started = Date.now();
+  const result = await runShellCommand(
+    'sleep 5',
+    process.cwd(),
+    () => undefined,
+    (child) => {
+      setTimeout(() => child.kill('SIGTERM'), 100);
+    },
+  );
+  assert.ok(Date.now() - started < 4000, 'Prozess sollte lange vor Ablauf der 5s beendet worden sein');
+  assert.notEqual(result.exitCode, 0);
+});

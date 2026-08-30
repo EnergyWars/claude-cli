@@ -18,7 +18,7 @@ fun ApkActionDialog(
     fileName: String,
     onInstall: () -> Unit,
     onShare: () -> Unit,
-    onCancel: () -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -40,10 +40,10 @@ fun ApkActionDialog(
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
                 AppButton(
-                    text = stringResource(R.string.label_cancel),
+                    text = stringResource(R.string.apk_action_delete),
                     role = AppRole.Error,
                     variant = ButtonVariant.Text,
-                    onClick = onCancel,
+                    onClick = onDelete,
                 )
                 AppButton(
                     text = stringResource(R.string.apk_action_share),

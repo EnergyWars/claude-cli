@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite';
 
-export type CommandStatus = 'running' | 'completed' | 'failed';
+export type CommandStatus = 'running' | 'completed' | 'failed' | 'stopped';
 
 export interface CommandRow {
   id: string;
@@ -189,7 +189,7 @@ export function updateCommandOutput(db: DatabaseSync, id: string, output: string
 export function completeCommand(
   db: DatabaseSync,
   id: string,
-  status: 'completed' | 'failed',
+  status: 'completed' | 'failed' | 'stopped',
   exitCode: number | null,
   output: string,
 ): void {

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 import { resolveAgent, resolveContext, type TaskConfig } from './config.js';
 
@@ -73,11 +73,13 @@ export async function runHeadlessCommand(
   cwd: string,
   onChunk: (output: string) => void,
   permissions?: string[],
+  onSpawn?: (child: ChildProcess) => void,
 ): Promise<HeadlessCommandResult> {
   const args = buildClaudeArgs(model, buildSystemPrompt(entity), command, undefined, permissions);
 
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
+    onSpawn?.(child);
     let output = '';
 
     const handleChunk = (chunk: Buffer): void => {
@@ -98,9 +100,11 @@ export async function runShellCommand(
   command: string,
   cwd: string,
   onChunk: (output: string) => void,
+  onSpawn?: (child: ChildProcess) => void,
 ): Promise<HeadlessCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, { shell: true, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    onSpawn?.(child);
     let output = '';
 
     const handleChunk = (chunk: Buffer): void => {

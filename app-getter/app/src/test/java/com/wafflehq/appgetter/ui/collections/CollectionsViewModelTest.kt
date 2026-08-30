@@ -25,7 +25,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -178,7 +177,7 @@ class CollectionsViewModelTest {
     }
 
     @Test
-    fun `a pending install matching the current file is restored as installFile after scan`() = runTest(dispatcher) {
+    fun `pendingInstalls passes through the repository's flow without opening the dialog`() = runTest(dispatcher) {
         val cached = File.createTempFile("appgetter-test", ".apk")
         val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
         val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
@@ -188,12 +187,13 @@ class CollectionsViewModelTest {
         }
         val viewModel = viewModel(installer, downloadHistoryRepository = downloadHistoryRepository)
 
-        assertEquals(cached, viewModel.uiState.value.installFile)
+        assertEquals(listOf(PendingInstall("test.apk", file.timestamp, cached.absolutePath)), viewModel.pendingInstalls.value)
+        assertNull(viewModel.uiState.value.installFile)
         coVerify(exactly = 0) { downloadHistoryRepository.clearPendingInstall(any()) }
     }
 
     @Test
-    fun `a pending install whose file no longer exists is cleared and ignored`() = runTest(dispatcher) {
+    fun `scan prunes a pending install whose file no longer exists on disk`() = runTest(dispatcher) {
         val missing = File("/tmp/appgetter-test-missing-${file.hashCode()}.apk")
         val installer = mockk<ApkInstaller> { every { downloadStatus } returns MutableStateFlow(null) }
         val downloadHistoryRepository = mockk<DownloadHistoryRepository> {

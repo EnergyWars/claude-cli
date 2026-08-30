@@ -209,6 +209,72 @@ test('GET /state/<id>: 404 bei unbekannter ID', async () => {
   assert.equal(res.status, 404);
 });
 
+test('POST /state/<id>/stop: beendet einen laufenden Command und setzt Status auf "stopped"', async () => {
+  const slowMock = createMockClaude({
+    outputChunks: ['a\n', 'b\n', 'c\n', 'd\n', 'e\n'],
+    chunkDelayMs: 200,
+  });
+  const previousMockPath = process.env.PATH;
+  process.env.PATH = pathWithMock(slowMock.binDir);
+  try {
+    const postRes = await fetch(`${baseUrl()}/`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ command: 'lang laufender Befehl', path: 'default' }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    await sleep(100);
+    const runningRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+    const runningState = (await runningRes.json()) as { status: string };
+    assert.equal(runningState.status, 'running');
+
+    const stopRes = await fetch(`${baseUrl()}/state/${id}/stop`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    assert.equal(stopRes.status, 202);
+    const stopBody = (await stopRes.json()) as { id: string };
+    assert.equal(stopBody.id, id);
+
+    await sleep(400);
+    const finalRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+    const finalState = (await finalRes.json()) as { status: string };
+    assert.equal(finalState.status, 'stopped');
+  } finally {
+    process.env.PATH = previousMockPath;
+    slowMock.cleanup();
+  }
+});
+
+test('POST /state/<id>/stop: 404 bei unbekannter ID', async () => {
+  const res = await fetch(`${baseUrl()}/state/unknown-id/stop`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /state/<id>/stop: 409 wenn der Command bereits abgeschlossen ist', async () => {
+  const postRes = await fetch(`${baseUrl()}/paths/default/commands/pwd`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const { id } = (await postRes.json()) as { id: string };
+  await sleep(300);
+
+  const res = await fetch(`${baseUrl()}/state/${id}/stop`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 409);
+});
+
+test('POST /state/<id>/stop: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/state/unknown-id/stop`, { method: 'POST' });
+  assert.equal(res.status, 401);
+});
+
 test('GET /unbekannte-route: 404', async () => {
   const res = await fetch(`${baseUrl()}/a/b`, { headers: authHeaders() });
   assert.equal(res.status, 404);

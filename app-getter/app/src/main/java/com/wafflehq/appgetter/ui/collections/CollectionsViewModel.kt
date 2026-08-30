@@ -53,6 +53,9 @@ class CollectionsViewModel @Inject constructor(
     val downloadedTimestamps: StateFlow<Map<String, String>> = downloadHistoryRepository.downloadedTimestamps
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+    val pendingInstalls: StateFlow<List<PendingInstall>> = downloadHistoryRepository.pendingInstalls
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     init {
         scan()
     }
@@ -69,7 +72,7 @@ class CollectionsViewModel @Inject constructor(
             try {
                 val files = api.getCollections(host, override.port).files
                 _uiState.update { it.copy(state = CollectionsState.Found(host, override.port, files)) }
-                restorePendingInstall(files)
+                prunePendingInstalls()
             } catch (error: ApiException) {
                 _uiState.update {
                     it.copy(state = CollectionsState.NotFound, error = error.message ?: "Unbekannter Fehler.")
@@ -78,9 +81,14 @@ class CollectionsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun restorePendingInstall(files: List<CollectedFile>) {
-        val cached = cachedFileFor(files) ?: return
-        _uiState.update { it.copy(installFile = cached) }
+    private suspend fun prunePendingInstalls() {
+        val pending = downloadHistoryRepository.pendingInstalls.first()
+        pending.forEach { entry ->
+            val cached = File(entry.filePath)
+            if (!cached.exists() || cached.length() <= 0L) {
+                downloadHistoryRepository.clearPendingInstall(entry.fileName)
+            }
+        }
     }
 
     private suspend fun cachedFileFor(files: List<CollectedFile>): File? {

@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -523,6 +524,32 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
   sendJson(res, 200, row);
 }
 
+/** Laufende Subprozesse je Command-ID, damit `POST /state/:id/stop` sie gezielt beenden kann. */
+const runningProcesses = new Map<string, ChildProcess>();
+
+/** IDs, deren Stop bereits angefordert wurde - der `exit`-Handler in `handlePostCommand`/`handlePostPathCommand` markiert den Command dann als "stopped" statt "failed", obwohl SIGTERM einen non-zero/null Exit-Code erzeugt. */
+const stopRequestedIds = new Set<string>();
+
+function handlePostStop(db: DatabaseSync, res: ServerResponse, id: string): void {
+  const row = getCommand(db, id);
+  if (!row) {
+    sendJson(res, 404, { error: `Command "${id}" wurde nicht gefunden.` });
+    return;
+  }
+  if (row.status !== 'running') {
+    sendJson(res, 409, { error: `Command "${id}" laeuft nicht mehr.` });
+    return;
+  }
+  const child = runningProcesses.get(id);
+  if (!child) {
+    sendJson(res, 409, { error: `Command "${id}" hat keinen aktiven Prozess auf diesem Server.` });
+    return;
+  }
+  stopRequestedIds.add(id);
+  child.kill('SIGTERM');
+  sendJson(res, 202, { id });
+}
+
 const SSE_HEARTBEAT_MS = 15_000;
 
 /** Pro Command-ID die offenen SSE-Antworten, die auf Output-Updates warten. */
@@ -888,21 +915,32 @@ function handlePostPathCommand(
   });
   sendJson(res, 202, { id });
 
-  runShellCommand(pathCommand.command, pathEntry.path, (output) => {
-    updateCommandOutput(db, id, output);
-    publishCommandState(db, id);
-  })
+  runShellCommand(
+    pathCommand.command,
+    pathEntry.path,
+    (output) => {
+      updateCommandOutput(db, id, output);
+      publishCommandState(db, id);
+    },
+    (child) => {
+      runningProcesses.set(id, child);
+    },
+  )
     .then((result) => {
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
       completeCommand(
         db,
         id,
-        result.exitCode === 0 ? 'completed' : 'failed',
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
       );
       publishCommandState(db, id);
     })
     .catch((error: unknown) => {
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
       const message = error instanceof Error ? error.message : String(error);
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
@@ -1374,18 +1412,25 @@ function handlePostCommand(
       publishCommandState(db, id);
     },
     permissions,
+    (child) => {
+      runningProcesses.set(id, child);
+    },
   )
     .then((result) => {
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
       completeCommand(
         db,
         id,
-        result.exitCode === 0 ? 'completed' : 'failed',
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
       );
       publishCommandState(db, id);
     })
     .catch((error: unknown) => {
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
       const message = error instanceof Error ? error.message : String(error);
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
@@ -1458,6 +1503,13 @@ async function handleRequest(
       segments[2] === 'stream'
     ) {
       handleGetStateStream(db, req, res, segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 3 &&
+      segments[0] === 'state' &&
+      segments[2] === 'stop'
+    ) {
+      handlePostStop(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'state') {
       handleGetState(db, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'paths') {
@@ -1608,6 +1660,7 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  GET  ${base}/state/:id/stream (Server-Sent Events, Live-Output; Fallback: Polling ueber GET /state/:id)`,
   );
+  console.log(`  POST ${base}/state/:id/stop    (beendet einen laufenden Command)`);
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
   console.log(`  GET  ${base}/config`);

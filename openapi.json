@@ -632,6 +632,50 @@
         }
       }
     },
+    "/state/{id}/stop": {
+      "post": {
+        "summary": "Laufenden Command beenden",
+        "description": "Sendet SIGTERM an den Subprozess des Commands. Setzt den Status nach dessen Beendigung auf \"stopped\" statt \"failed\", abfragbar wie gewohnt ueber GET /state/{id} bzw. GET /state/{id}/stream.",
+        "operationId": "stopCommand",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Von POST / bzw. POST /{agent} zurueckgegebene Command-ID.",
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Stop-Signal wurde gesendet, der Command laeuft ggf. noch kurz nach.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header X-TOTP-Code fehlt oder ist ungueltig.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Command mit dieser ID bekannt.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "409": {
+            "description": "Command laeuft nicht mehr oder hat auf diesem Server-Prozess keinen aktiven Subprozess (z.B. nach einem Server-Neustart).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/state/{id}/stream": {
       "get": {
         "summary": "Live-Output eines Commands per Server-Sent Events abonnieren",
@@ -1570,7 +1614,7 @@
           },
           "status": {
             "type": "string",
-            "enum": ["running", "completed", "failed"]
+            "enum": ["running", "completed", "failed", "stopped"]
           },
           "output": {
             "type": "string",
