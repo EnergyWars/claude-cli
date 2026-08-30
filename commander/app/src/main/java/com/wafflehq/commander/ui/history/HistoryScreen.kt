@@ -37,10 +37,12 @@ import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 private const val STATUS_COMPLETED = "completed"
+private const val STATUS_STOPPED = "stopped"
 
 private fun historyStatusRole(status: String): AppRole = when (status) {
     STATUS_COMPLETED -> AppRole.Success
     COMMAND_STATUS_RUNNING -> AppRole.Warning
+    STATUS_STOPPED -> AppRole.Neutral
     else -> AppRole.Error
 }
 

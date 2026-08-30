@@ -10,9 +10,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 
 private const val FILE_PROVIDER_SUFFIX = ".fileprovider"
 private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
@@ -28,6 +30,7 @@ data class DownloadStatus(val phase: DownloadPhase, val progress: DownloadProgre
 class HostedFileDownloader @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val api: ClServerApi,
+    private val historyRepository: DownloadHistoryRepository,
 ) {
     private val downloadsDir: File
         get() = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
@@ -35,21 +38,42 @@ class HostedFileDownloader @Inject constructor(
     private val _downloadStatus = MutableStateFlow<DownloadStatus?>(null)
     val downloadStatus: StateFlow<DownloadStatus?> = _downloadStatus.asStateFlow()
 
+    val pendingInstalls: Flow<List<PendingInstall>> = historyRepository.pendingInstalls
+
+    suspend fun resolvePendingInstall(pathName: String, identity: String): File? {
+        val key = pendingKey(pathName, identity)
+        val filePath = historyRepository.pendingInstalls.first().find { it.key == key }?.filePath ?: return null
+        val file = File(filePath)
+        if (file.exists() && file.length() > 0L) return file
+        historyRepository.clearPendingInstall(key)
+        return null
+    }
+
+    suspend fun deletePendingInstall(pathName: String, identity: String, file: File) {
+        file.delete()
+        historyRepository.clearPendingInstall(pendingKey(pathName, identity))
+    }
+
     suspend fun downloadEntry(pathName: String, hostedName: String): File =
-        runDownload { api.downloadHostedEntry(pathName, hostedName, downloadsDir, onProgress = ::emitProgress) }
+        runDownload(pathName, hostedName) { api.downloadHostedEntry(pathName, hostedName, downloadsDir, onProgress = ::emitProgress) }
 
     suspend fun downloadFile(pathName: String, hostedName: String, fileName: String): File =
-        runDownload { api.downloadHostedFile(pathName, hostedName, fileName, downloadsDir, onProgress = ::emitProgress) }
+        runDownload(pathName, fileName) { api.downloadHostedFile(pathName, hostedName, fileName, downloadsDir, onProgress = ::emitProgress) }
 
-    private suspend fun runDownload(download: suspend () -> File): File {
+    private suspend fun runDownload(pathName: String, identity: String, download: suspend () -> File): File {
         _downloadStatus.value = DownloadStatus(DownloadPhase.DOWNLOADING)
         val file = download()
         _downloadStatus.value = DownloadStatus(DownloadPhase.VERIFYING, _downloadStatus.value?.progress)
         verify(file)
         val finalPhase = if (isApkFileName(file.name)) DownloadPhase.INSTALLING else DownloadPhase.OPENING
         _downloadStatus.value = DownloadStatus(finalPhase, _downloadStatus.value?.progress)
+        if (isApkFileName(file.name)) {
+            historyRepository.recordPendingInstall(pendingKey(pathName, identity), file.absolutePath)
+        }
         return file
     }
+
+    private fun pendingKey(pathName: String, identity: String) = "$pathName::$identity"
 
     private fun verify(file: File) {
         if (!file.exists() || file.length() <= 0L) {

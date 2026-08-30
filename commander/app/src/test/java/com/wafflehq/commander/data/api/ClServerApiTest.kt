@@ -253,6 +253,18 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `stopCommand posts to state slash id slash stop`() = runBlocking {
+        server.enqueue(MockResponse(code = 202, body = """{"id":"abc-123"}"""))
+
+        val result = apiWithConnection().stopCommand("abc-123")
+
+        assertEquals("abc-123", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("/state/abc-123/stop", recorded.target)
+        assertEquals("POST", recorded.method)
+    }
+
+    @Test
     fun `getCommands requests the path-scoped history and parses newest-first`() = runBlocking {
         server.enqueue(
             MockResponse(

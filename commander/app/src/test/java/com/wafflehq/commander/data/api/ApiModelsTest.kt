@@ -26,8 +26,13 @@ class ApiModelsTest {
     }
 
     @Test
-    fun `a completed run is not retryable`() {
-        assertFalse(commandState(agent = "dev", status = "completed").isRetryable())
+    fun `a completed run is also retryable`() {
+        assertTrue(commandState(agent = "dev", status = "completed").isRetryable())
+    }
+
+    @Test
+    fun `a stopped run is also retryable`() {
+        assertTrue(commandState(agent = "dev", status = "stopped").isRetryable())
     }
 
     @Test
@@ -38,6 +43,11 @@ class ApiModelsTest {
     @Test
     fun `a failed path command is not retryable, since it has no free-text prompt`() {
         assertFalse(commandState(agent = "path-command:backend:build", status = "failed").isRetryable())
+    }
+
+    @Test
+    fun `a completed path command is not retryable, since it has no free-text prompt`() {
+        assertFalse(commandState(agent = "path-command:backend:build", status = "completed").isRetryable())
     }
 
     @Test

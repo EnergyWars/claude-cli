@@ -164,6 +164,9 @@ class ClServerApi @Inject constructor(
 
     suspend fun getState(id: String): CommandState = authedGet("state", id)
 
+    /** Sends SIGTERM to a still-running command's process; the resulting terminal status ("stopped") arrives via [streamState]/[getState] as usual. */
+    suspend fun stopCommand(id: String): CommandAccepted = authedPost("", "state", id, "stop")
+
     /**
      * Live-Output per Server-Sent Events statt Polling. Emits one [CommandState] per "data:" event; the flow
      * completes normally once the server closes the connection (command no longer running). Callers should

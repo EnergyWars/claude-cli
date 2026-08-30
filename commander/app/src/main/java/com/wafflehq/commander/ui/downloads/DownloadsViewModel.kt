@@ -13,8 +13,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -40,6 +43,14 @@ class DownloadsViewModel @Inject constructor(
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
 
     val downloadStatus: StateFlow<DownloadStatus?> = downloader.downloadStatus
+
+    val pendingInstalls: StateFlow<Set<String>> = downloader.pendingInstalls
+        .map { list ->
+            list.filter { it.key.startsWith("$pathName::") }
+                .map { it.key.removePrefix("$pathName::") }
+                .toSet()
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     init {
         refresh()
@@ -76,6 +87,11 @@ class DownloadsViewModel @Inject constructor(
     fun downloadEntry(hostedName: String) {
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            val cached = downloader.resolvePendingInstall(pathName, hostedName)
+            if (cached != null) {
+                _uiState.update { it.copy(downloadingName = hostedName, downloadedFile = cached, error = null) }
+                return@launch
+            }
             _uiState.update { it.copy(downloadingName = hostedName, error = null) }
             try {
                 val file = downloader.downloadEntry(pathName, hostedName)
@@ -90,6 +106,11 @@ class DownloadsViewModel @Inject constructor(
     fun downloadNestedFile(hostedName: String, fileName: String) {
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            val cached = downloader.resolvePendingInstall(pathName, fileName)
+            if (cached != null) {
+                _uiState.update { it.copy(downloadingName = fileName, downloadedFile = cached, error = null) }
+                return@launch
+            }
             _uiState.update { it.copy(downloadingName = fileName, error = null) }
             try {
                 val file = downloader.downloadFile(pathName, hostedName, fileName)
@@ -108,8 +129,9 @@ class DownloadsViewModel @Inject constructor(
 
     fun deleteDownloadedFile() {
         val file = _uiState.value.downloadedFile ?: return
+        val identity = _uiState.value.downloadingName ?: return
         viewModelScope.launch {
-            file.delete()
+            downloader.deletePendingInstall(pathName, identity, file)
             consumeDownloadedFile()
         }
     }

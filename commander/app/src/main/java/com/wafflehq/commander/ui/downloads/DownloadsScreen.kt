@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +52,7 @@ fun DownloadsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
+    val pendingInstalls by viewModel.pendingInstalls.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingDeleteDownloadedFile by remember { mutableStateOf(false) }
 
@@ -75,7 +77,7 @@ fun DownloadsScreen(
                 context.startActivity(viewModel.shareApkIntent(downloadedFile))
                 viewModel.consumeDownloadedFile()
             },
-            onCancel = { pendingDeleteDownloadedFile = true },
+            onDelete = { pendingDeleteDownloadedFile = true },
             onDismiss = { viewModel.consumeDownloadedFile() },
         )
     }
@@ -128,6 +130,7 @@ fun DownloadsScreen(
                     expandedFiles = state.expandedHostedFiles[entry.name],
                     downloadingName = state.downloadingName,
                     downloadStatus = downloadStatus,
+                    pendingInstalls = pendingInstalls,
                     onToggleExpand = { viewModel.toggleExpandHosted(entry.name) },
                     onDownload = { viewModel.downloadEntry(entry.name) },
                     onDownloadNested = { fileName -> viewModel.downloadNestedFile(entry.name, fileName) },
@@ -143,6 +146,7 @@ private fun HostedEntryRow(
     expandedFiles: List<String>?,
     downloadingName: String?,
     downloadStatus: DownloadStatus?,
+    pendingInstalls: Set<String>,
     onToggleExpand: () -> Unit,
     onDownload: () -> Unit,
     onDownloadNested: (String) -> Unit,
@@ -164,7 +168,8 @@ private fun HostedEntryRow(
                 Text(entry.name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                 if (isFile) {
                     if (!isDownloading) {
-                        AppIconButton(icon = Icons.Outlined.Download, contentDescription = entry.name, role = AppRole.Primary, onClick = onDownload)
+                        val icon = if (pendingInstalls.contains(entry.name)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
+                        AppIconButton(icon = icon, contentDescription = entry.name, role = AppRole.Primary, onClick = onDownload)
                     }
                 } else {
                     AppIconButton(icon = Icons.Outlined.ChevronRight, contentDescription = entry.name, role = AppRole.Neutral, onClick = onToggleExpand)
@@ -191,8 +196,9 @@ private fun HostedEntryRow(
                             ) {
                                 Text(fileName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                                 if (!isNestedDownloading) {
+                                    val icon = if (pendingInstalls.contains(fileName)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
                                     AppIconButton(
-                                        icon = Icons.Outlined.Download,
+                                        icon = icon,
                                         contentDescription = fileName,
                                         role = AppRole.Primary,
                                         onClick = { onDownloadNested(fileName) },

@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,9 +39,11 @@ import com.wafflehq.commander.data.api.CommandState
 import com.wafflehq.commander.data.download.isApkFileName
 import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
+import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
+import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.downloads.DownloadProgressIndicator
 import com.wafflehq.commander.ui.history.formatDuration
@@ -56,10 +59,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val STATUS_COMPLETED = "completed"
+private const val STATUS_STOPPED = "stopped"
 
 private fun statusRole(status: String): AppRole = when (status) {
     STATUS_COMPLETED -> AppRole.Success
     COMMAND_STATUS_RUNNING -> AppRole.Warning
+    STATUS_STOPPED -> AppRole.Neutral
     else -> AppRole.Error
 }
 
@@ -70,11 +75,21 @@ fun CommandDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
+    val pendingInstalls by viewModel.pendingInstalls.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
-    val copiedMessage = stringResource(R.string.command_detail_output_copied)
+    val copiedOutputMessage = stringResource(R.string.command_detail_output_copied)
+    val copiedInputMessage = stringResource(R.string.command_detail_input_copied)
     var pendingDeleteDownloadedFile by remember { mutableStateOf(false) }
+    var pendingStopConfirm by remember { mutableStateOf(false) }
+
+    fun copyToClipboard(text: String, confirmationMessage: String) {
+        coroutineScope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("", text)))
+        }
+        Toast.makeText(context, confirmationMessage, Toast.LENGTH_SHORT).show()
+    }
 
     val downloadedFile = uiState.downloadedFile
     LaunchedEffect(downloadedFile) {
@@ -97,7 +112,7 @@ fun CommandDetailScreen(
                 context.startActivity(viewModel.shareApkIntent(downloadedFile))
                 viewModel.consumeDownloadedFile()
             },
-            onCancel = { pendingDeleteDownloadedFile = true },
+            onDelete = { pendingDeleteDownloadedFile = true },
             onDismiss = { viewModel.consumeDownloadedFile() },
         )
     }
@@ -113,6 +128,20 @@ fun CommandDetailScreen(
                 pendingDeleteDownloadedFile = false
             },
             onDismiss = { pendingDeleteDownloadedFile = false },
+        )
+    }
+
+    if (pendingStopConfirm) {
+        AppConfirmDialog(
+            title = stringResource(R.string.command_detail_stop_confirm_title),
+            body = stringResource(R.string.command_detail_stop_confirm_body),
+            confirmText = stringResource(R.string.command_detail_stop_confirm_confirm),
+            dismissText = stringResource(R.string.label_cancel),
+            onConfirm = {
+                viewModel.stop()
+                pendingStopConfirm = false
+            },
+            onDismiss = { pendingStopConfirm = false },
         )
     }
 
@@ -140,7 +169,20 @@ fun CommandDetailScreen(
             }
 
             val state = uiState.state ?: return@Column
-            CommandSummary(state)
+            CommandSummary(
+                state = state,
+                onCopyInput = { copyToClipboard(state.command, copiedInputMessage) },
+            )
+
+            if (state.status == COMMAND_STATUS_RUNNING) {
+                AppButton(
+                    text = stringResource(R.string.command_detail_stop_action),
+                    role = AppRole.Error,
+                    variant = ButtonVariant.Tonal,
+                    enabled = !uiState.stopping,
+                    onClick = { pendingStopConfirm = true },
+                )
+            }
 
             if (uiState.hostedFiles.isNotEmpty() && state.status == STATUS_COMPLETED) {
                 Text(
@@ -158,8 +200,9 @@ fun CommandDetailScreen(
                         ) {
                             Text(hostedName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                             if (!isDownloading) {
+                                val icon = if (pendingInstalls.contains(hostedName)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
                                 AppIconButton(
-                                    icon = Icons.Outlined.Download,
+                                    icon = icon,
                                     contentDescription = hostedName,
                                     role = AppRole.Primary,
                                     onClick = { viewModel.download(hostedName) },
@@ -188,12 +231,7 @@ fun CommandDetailScreen(
                     icon = Icons.Outlined.ContentCopy,
                     contentDescription = stringResource(R.string.command_detail_output_copy),
                     role = AppRole.Primary,
-                    onClick = {
-                        coroutineScope.launch {
-                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("", state.output)))
-                        }
-                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { copyToClipboard(state.output, copiedOutputMessage) },
                 )
             }
             Text(
@@ -210,7 +248,7 @@ fun CommandDetailScreen(
 }
 
 @Composable
-private fun CommandSummary(state: CommandState) {
+private fun CommandSummary(state: CommandState, onCopyInput: () -> Unit) {
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(state.status) {
         while (state.status == COMMAND_STATUS_RUNNING) {
@@ -228,7 +266,23 @@ private fun CommandSummary(state: CommandState) {
             AppStatusPill(text = state.status, role = statusRole(state.status))
             Text(state.agent, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
         }
-        Text(state.command, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurfaceVariant)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
+            Text(
+                text = state.command,
+                style = MaterialTheme.typography.bodyMedium,
+                color = AppTheme.colors.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            AppIconButton(
+                icon = Icons.Outlined.ContentCopy,
+                contentDescription = stringResource(R.string.command_detail_input_copy),
+                role = AppRole.Primary,
+                onClick = onCopyInput,
+            )
+        }
         Text(
             text = stringResource(R.string.command_detail_started_at, formatTimestamp(state.createdAt)),
             style = MaterialTheme.typography.bodySmall,

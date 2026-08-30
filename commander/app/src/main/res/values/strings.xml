@@ -67,6 +67,7 @@
     <string name="apk_action_title">APK downloaded</string>
     <string name="apk_action_install">Install</string>
     <string name="apk_action_share">Share</string>
+    <string name="apk_action_delete">Delete</string>
     <string name="apk_action_delete_confirm_title">Delete download?</string>
     <string name="apk_action_delete_confirm_body">Delete \"%1$s\"?</string>
     <string name="apk_action_delete_confirm_confirm">Delete</string>
@@ -84,6 +85,8 @@
     <string name="run_agent_start">Start</string>
 
     <string name="command_detail_title">Command</string>
+    <string name="command_detail_input_copy">Copy input</string>
+    <string name="command_detail_input_copied">Input copied</string>
     <string name="command_detail_output_title">Output</string>
     <string name="command_detail_output_copy">Copy output</string>
     <string name="command_detail_output_copied">Output copied</string>
@@ -92,6 +95,10 @@
     <string name="command_detail_started_at">Started: %1$s</string>
     <string name="command_detail_duration">Duration: %1$s</string>
     <string name="command_detail_downloads_title">Downloads</string>
+    <string name="command_detail_stop_action">Stop command</string>
+    <string name="command_detail_stop_confirm_title">Stop command?</string>
+    <string name="command_detail_stop_confirm_body">The running process is terminated immediately.</string>
+    <string name="command_detail_stop_confirm_confirm">Stop</string>
 
     <string name="tickets_title">Tickets</string>
     <string name="tickets_empty">No tickets yet.</string>

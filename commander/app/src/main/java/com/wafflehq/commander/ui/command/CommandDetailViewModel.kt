@@ -14,8 +14,11 @@ import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,6 +33,7 @@ data class CommandDetailUiState(
     val hostedFiles: List<String> = emptyList(),
     val downloadedFile: File? = null,
     val downloadingName: String? = null,
+    val stopping: Boolean = false,
 )
 
 @HiltViewModel
@@ -46,6 +50,15 @@ class CommandDetailViewModel @Inject constructor(
     val uiState: StateFlow<CommandDetailUiState> = _uiState.asStateFlow()
 
     val downloadStatus: StateFlow<DownloadStatus?> = downloader.downloadStatus
+
+    val pendingInstalls: StateFlow<Set<String>> = downloader.pendingInstalls
+        .map { list ->
+            val name = pathName ?: return@map emptySet()
+            list.filter { it.key.startsWith("$name::") }
+                .map { it.key.removePrefix("$name::") }
+                .toSet()
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     init {
         loadHostedFiles()
@@ -95,6 +108,11 @@ class CommandDetailViewModel @Inject constructor(
         val name = pathName ?: return
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
+            val cached = downloader.resolvePendingInstall(name, hostedName)
+            if (cached != null) {
+                _uiState.update { it.copy(downloadingName = hostedName, downloadedFile = cached, error = null) }
+                return@launch
+            }
             _uiState.update { it.copy(downloadingName = hostedName, error = null) }
             try {
                 val file = downloader.downloadEntry(name, hostedName)
@@ -113,9 +131,24 @@ class CommandDetailViewModel @Inject constructor(
 
     fun deleteDownloadedFile() {
         val file = _uiState.value.downloadedFile ?: return
+        val name = pathName ?: return
+        val identity = _uiState.value.downloadingName ?: return
         viewModelScope.launch {
-            file.delete()
+            downloader.deletePendingInstall(name, identity, file)
             consumeDownloadedFile()
+        }
+    }
+
+    fun stop() {
+        if (_uiState.value.stopping) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(stopping = true, error = null) }
+            try {
+                api.stopCommand(id)
+            } catch (error: ApiException) {
+                _uiState.update { it.copy(error = error.message ?: "Stoppen fehlgeschlagen.") }
+            }
+            _uiState.update { it.copy(stopping = false) }
         }
     }
 
