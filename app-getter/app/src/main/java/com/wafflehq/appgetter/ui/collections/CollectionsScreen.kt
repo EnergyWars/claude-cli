@@ -218,9 +218,9 @@ private fun CollectedFileRow(
                     Text(file.name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
                     if (!isDownloading) {
                         Text(
-                            text = formatTimestamp(file.timestamp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AppTheme.colors.onSurfaceVariant,
+                            text = stringResource(R.string.apk_build_time, formatTimestamp(file.timestamp)),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = AppTheme.colors.onSurface,
                         )
                         when (downloadState) {
                             DownloadState.UP_TO_DATE -> Text(

@@ -23,11 +23,16 @@ export interface FixturePathCommandEntry {
   description: string;
 }
 
+export interface FixturePathHooks {
+  onLastAgentFinish?: string;
+}
+
 export interface FixturePathEntry {
   name: string;
   path: string;
   hosted?: FixtureHostedEntry[];
   commands?: FixturePathCommandEntry[];
+  hooks?: FixturePathHooks;
 }
 
 export interface FixtureTask {

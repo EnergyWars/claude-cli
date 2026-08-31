@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
+private val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
 
 /** UTC-ISO-8601 ("2026-08-25T19:13:12.620Z") in die Zeitzone des Geräts umgerechnet und im deutschen Format formatiert. */
 fun formatTimestamp(iso: String): String {

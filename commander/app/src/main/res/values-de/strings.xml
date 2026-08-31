@@ -64,6 +64,7 @@
     <string name="download_status_downloading">Wird heruntergeladen…</string>
     <string name="download_status_verifying">Wird überprüft…</string>
     <string name="download_status_installing">Wird installiert…</string>
+    <string name="apk_build_time">Gebaut am %1$s</string>
     <string name="apk_action_title">APK heruntergeladen</string>
     <string name="apk_action_install">Installieren</string>
     <string name="apk_action_share">Teilen</string>
@@ -72,13 +73,13 @@
     <string name="apk_action_delete_confirm_body">„%1$s“ löschen?</string>
     <string name="apk_action_delete_confirm_confirm">Löschen</string>
     <string name="download_status_opening">Wird geöffnet…</string>
+    <string name="download_notification_channel_name">Downloads</string>
 
     <string name="agents_title">Entwicklung</string>
     <string name="agents_empty">Keine Agenten konfiguriert.</string>
 
     <string name="agent_run_path_label">Projekt: %1$s</string>
-    <string name="agent_run_context_label">Kontext</string>
-    <string name="agent_run_context_none">Kein Kontext</string>
+    <string name="agent_run_context_label">Kontexte</string>
     <string name="run_agent_model_label">Model</string>
     <string name="run_agent_model_default">Standard</string>
     <string name="run_agent_prompt_label">Prompt</string>

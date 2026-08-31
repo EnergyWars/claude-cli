@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -21,10 +21,12 @@ let running: RunningServer;
 let previousRootDir: string | undefined;
 let previousPath: string | undefined;
 let hostedDir: string;
+let hookedDir: string;
 let authToken: string;
 
 before(async () => {
   hostedDir = mkdtempSync(join(tmpdir(), 'cl-hosted-'));
+  hookedDir = mkdtempSync(join(tmpdir(), 'cl-hooked-'));
   writeFileSync(join(hostedDir, 'notes.txt'), 'hosted-file-inhalt');
   mkdirSync(join(hostedDir, 'docs'));
   writeFileSync(join(hostedDir, 'docs', 'a.txt'), 'a-inhalt');
@@ -57,6 +59,11 @@ before(async () => {
         ],
       },
       { name: 'other', path: hostedDir },
+      {
+        name: 'hooked',
+        path: hookedDir,
+        hooks: { onLastAgentFinish: 'touch hook-fired.txt' },
+      },
     ],
     contentPath: join(hostedDir, 'content'),
     collection: [
@@ -89,6 +96,7 @@ after(async () => {
   mock.cleanup();
   fixture.cleanup();
   rmSync(hostedDir, { recursive: true, force: true });
+  rmSync(hookedDir, { recursive: true, force: true });
   if (previousRootDir === undefined) {
     delete process.env.CL_ROOT_DIR;
   } else {
@@ -284,7 +292,7 @@ test('GET /paths: listet nur die Namen aus config.json', async () => {
   const res = await fetch(`${baseUrl()}/paths`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { paths: string[] };
-  assert.deepEqual(body.paths, ['default', 'other']);
+  assert.deepEqual(body.paths, ['default', 'other', 'hooked']);
 });
 
 test('GET /paths: 401 ohne Authorization-Header', async () => {
@@ -300,7 +308,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
     paths: {
       name: string;
       commands: { key: string }[];
-      hosted: { name: string; type: string }[];
+      hosted: { name: string; type: string; timestamp: string | null }[];
     }[];
   };
   assert.deepEqual(body.agents, [
@@ -309,7 +317,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
     { command: 'cl permagent', description: 'Permission-Agent' },
   ]);
   assert.ok(!('tasks' in body));
-  assert.equal(body.paths.length, 2);
+  assert.equal(body.paths.length, 3);
   const [defaultPath] = body.paths;
   assert.ok(defaultPath);
   assert.equal(defaultPath.name, 'default');
@@ -317,10 +325,13 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
     defaultPath.commands.map((command) => command.key),
     ['pwd', 'fail'],
   );
-  assert.deepEqual(defaultPath.hosted, [
-    { name: 'notes', type: 'file' },
-    { name: 'docs', type: 'path' },
-  ]);
+  const [notes, docs] = defaultPath.hosted;
+  assert.ok(notes);
+  assert.ok(docs);
+  assert.equal(notes.name, 'notes');
+  assert.equal(notes.type, 'file');
+  assert.match(notes.timestamp ?? '', /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(docs, { name: 'docs', type: 'path', timestamp: null });
 });
 
 test('GET /manifest: 401 ohne Authorization-Header', async () => {
@@ -576,11 +587,18 @@ test('GET /files/default/notes: hosted-Typ "file" laedt direkt herunter', async 
   assert.equal(await res.text(), 'hosted-file-inhalt');
 });
 
-test('GET /files/default/docs: hosted-Typ "path" listet die Dateien im Verzeichnis', async () => {
+test('GET /files/default/docs: hosted-Typ "path" listet die Dateien im Verzeichnis inkl. Timestamp', async () => {
   const res = await fetch(`${baseUrl()}/files/default/docs`, { headers: authHeaders() });
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { files: string[] };
-  assert.deepEqual(body.files.sort(), ['a.txt', 'b.txt']);
+  const body = (await res.json()) as { files: { name: string; timestamp: string }[] };
+  const sorted = [...body.files].sort((a, b) => a.name.localeCompare(b.name));
+  assert.deepEqual(
+    sorted.map((f) => f.name),
+    ['a.txt', 'b.txt'],
+  );
+  for (const file of sorted) {
+    assert.match(file.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+  }
 });
 
 test('GET /files/default/doesnotexist: 404 bei unbekanntem Hosted-Namen', async () => {
@@ -809,6 +827,22 @@ test('POST /paths/default/commands/fail: nicht-null Exit-Code wird als "failed" 
   const state = (await stateRes.json()) as { status: string; exitCode: number };
   assert.equal(state.status, 'failed');
   assert.equal(state.exitCode, 5);
+});
+
+test('POST /: fuehrt den onLastAgentFinish-Hook des Pfads aus, sobald der letzte Agent fertig ist', async () => {
+  const res = await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'x', path: 'hooked' }),
+  });
+  const { id } = (await res.json()) as { id: string };
+
+  await sleep(300);
+
+  const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { status: string };
+  assert.equal(state.status, 'completed');
+  assert.ok(existsSync(join(hookedDir, 'hook-fired.txt')));
 });
 
 test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key', async () => {

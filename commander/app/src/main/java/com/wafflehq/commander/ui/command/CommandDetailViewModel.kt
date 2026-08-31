@@ -7,6 +7,8 @@ import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.CommandState
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
+import com.wafflehq.commander.data.api.ManifestHostedEntry
+import com.wafflehq.commander.data.download.DownloadOutcome
 import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.HostedFileDownloader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,7 +32,7 @@ data class CommandDetailUiState(
     val state: CommandState? = null,
     val loading: Boolean = true,
     val error: String? = null,
-    val hostedFiles: List<String> = emptyList(),
+    val hostedFiles: List<ManifestHostedEntry> = emptyList(),
     val downloadedFile: File? = null,
     val downloadingName: String? = null,
     val stopping: Boolean = false,
@@ -62,6 +64,8 @@ class CommandDetailViewModel @Inject constructor(
 
     init {
         loadHostedFiles()
+        resumeActiveDownload()
+        observeDownloadOutcome()
         viewModelScope.launch {
             var reachedTerminalStatus = false
             try {
@@ -80,9 +84,35 @@ class CommandDetailViewModel @Inject constructor(
                     if (state.status != COMMAND_STATUS_RUNNING) reachedTerminalStatus = true
                 } catch (error: ApiException) {
                     _uiState.update { it.copy(loading = false, error = error.message ?: "Unbekannter Fehler.") }
-                    reachedTerminalStatus = true
                 }
                 if (!reachedTerminalStatus) delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** Ein Download laeuft prozessweit weiter, auch wenn dieser Screen zwischenzeitlich geschlossen war - beim Wiedereintritt den Anzeigezustand daran ausrichten. */
+    private fun resumeActiveDownload() {
+        val name = pathName ?: return
+        val target = downloader.activeTarget.value
+        if (target != null && target.pathName == name) {
+            _uiState.update { it.copy(downloadingName = target.identity) }
+        }
+    }
+
+    private fun observeDownloadOutcome() {
+        viewModelScope.launch {
+            downloader.downloadOutcome.collect { outcome ->
+                val name = pathName ?: return@collect
+                if (outcome == null || outcome.target.pathName != name) return@collect
+                when (outcome) {
+                    is DownloadOutcome.Success -> _uiState.update {
+                        it.copy(downloadingName = outcome.target.identity, downloadedFile = outcome.file, error = null)
+                    }
+                    is DownloadOutcome.Failure -> _uiState.update {
+                        it.copy(downloadingName = null, error = outcome.message)
+                    }
+                }
+                downloader.consumeDownloadOutcome()
             }
         }
     }
@@ -91,13 +121,12 @@ class CommandDetailViewModel @Inject constructor(
         val name = pathName ?: return
         viewModelScope.launch {
             try {
-                val hostedFileNames = api.getManifest().paths
+                val hostedFileEntries = api.getManifest().paths
                     .firstOrNull { it.name == name }
                     ?.hosted
                     ?.filter { it.type == HOSTED_TYPE_FILE }
-                    ?.map { it.name }
                     .orEmpty()
-                _uiState.update { it.copy(hostedFiles = hostedFileNames) }
+                _uiState.update { it.copy(hostedFiles = hostedFileEntries) }
             } catch (_: ApiException) {
                 // Hosted-Downloads sind ein Zusatzangebot - kein Fehler in der Haupt-Statusanzeige.
             }
@@ -108,21 +137,28 @@ class CommandDetailViewModel @Inject constructor(
         val name = pathName ?: return
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
-            val cached = downloader.resolvePendingInstall(name, hostedName)
+            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
+            val timestamp = currentHostedTimestamp(name, hostedName)
+            val cached = downloader.resolvePendingInstall(name, hostedName, timestamp)
             if (cached != null) {
-                _uiState.update { it.copy(downloadingName = hostedName, downloadedFile = cached, error = null) }
+                _uiState.update { it.copy(downloadedFile = cached, error = null) }
                 return@launch
             }
-            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
-            try {
-                val file = downloader.downloadEntry(name, hostedName)
-                _uiState.update { it.copy(downloadedFile = file) }
-            } catch (error: ApiException) {
-                downloader.clearDownloadStatus()
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
+            val started = downloader.startDownload(name, hostedName, fileName = null, timestamp = timestamp)
+            if (!started) {
+                _uiState.update { it.copy(error = "Ein anderer Download läuft bereits.", downloadingName = null) }
             }
         }
     }
+
+    /** Fragt den aktuellen Server-Stand direkt ab, statt sich auf das zuletzt in [loadHostedFiles] geladene Manifest zu verlassen - nur so laesst sich eine gecachte APK verlaesslich gegen eine inzwischen geaenderte Server-Version pruefen. */
+    private suspend fun currentHostedTimestamp(name: String, hostedName: String): String? =
+        try {
+            api.getManifest().paths.firstOrNull { it.name == name }
+                ?.hosted?.firstOrNull { it.name == hostedName && it.type == HOSTED_TYPE_FILE }?.timestamp
+        } catch (error: ApiException) {
+            null
+        }
 
     fun consumeDownloadedFile() {
         downloader.clearDownloadStatus()

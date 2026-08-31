@@ -49,7 +49,10 @@
           "path": "app/build/outputs/apk/release/allinonecalendar.apk",
           "type": "file"
         }
-      ]
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
     },
     {
       "name": "therapy",

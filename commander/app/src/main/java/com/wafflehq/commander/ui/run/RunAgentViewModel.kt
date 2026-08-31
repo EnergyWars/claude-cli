@@ -19,11 +19,11 @@ import javax.inject.Inject
 
 val RUN_AGENT_MODELS = listOf("", "haiku", "sonnet", "opus", "fable")
 
-/** Kein Kontext gewaehlt -&gt; nur der Prompt; sonst der Kontext-Wert vor den Prompt gehaengt, Prompt optional. */
-fun buildAgentCommand(contextValue: String?, prompt: String): String = when {
-    contextValue == null -> prompt
-    prompt.isBlank() -> contextValue
-    else -> "$contextValue\n\n$prompt"
+/** Keine Kontexte gewaehlt -&gt; nur der Prompt; sonst alle Kontext-Werte der Reihe nach vor den Prompt gehaengt, Prompt optional. */
+fun buildAgentCommand(contextValues: List<String>, prompt: String): String = when {
+    contextValues.isEmpty() -> prompt
+    prompt.isBlank() -> contextValues.joinToString("\n\n")
+    else -> (contextValues + prompt).joinToString("\n\n")
 }
 
 data class RunAgentUiState(
@@ -31,7 +31,7 @@ data class RunAgentUiState(
     val agentDescription: String = "",
     val pathName: String = "",
     val contexts: List<DevContextEntity> = emptyList(),
-    val selectedContextIndex: Int = 0,
+    val selectedContextIds: Set<Long> = emptySet(),
     val selectedModelIndex: Int = 0,
     val prompt: String = "",
     val loading: Boolean = true,
@@ -74,8 +74,11 @@ class RunAgentViewModel @Inject constructor(
         }
     }
 
-    fun onContextSelected(index: Int) {
-        _uiState.update { it.copy(selectedContextIndex = index) }
+    fun onContextToggled(id: Long) {
+        _uiState.update {
+            val selected = it.selectedContextIds
+            it.copy(selectedContextIds = if (id in selected) selected - id else selected + id)
+        }
     }
 
     fun onModelSelected(index: Int) {
@@ -88,13 +91,13 @@ class RunAgentViewModel @Inject constructor(
 
     fun start() {
         val state = _uiState.value
-        val contextValue = state.contexts.getOrNull(state.selectedContextIndex - 1)?.value
-        if (contextValue == null && state.prompt.isBlank()) {
+        val contextValues = state.contexts.filter { it.id in state.selectedContextIds }.map { it.value }
+        if (contextValues.isEmpty() && state.prompt.isBlank()) {
             _uiState.update { it.copy(error = "Prompt angeben.") }
             return
         }
         val model = RUN_AGENT_MODELS.getOrNull(state.selectedModelIndex)?.ifEmpty { null }
-        val command = buildAgentCommand(contextValue, state.prompt)
+        val command = buildAgentCommand(contextValues, state.prompt)
         _uiState.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch {
             try {

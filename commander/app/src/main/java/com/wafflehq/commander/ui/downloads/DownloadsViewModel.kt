@@ -6,7 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
+import com.wafflehq.commander.data.api.HostedFileEntry
 import com.wafflehq.commander.data.api.ManifestHostedEntry
+import com.wafflehq.commander.data.download.DownloadOutcome
 import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.HostedFileDownloader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +25,7 @@ import kotlinx.coroutines.launch
 
 data class DownloadsUiState(
     val hosted: List<ManifestHostedEntry> = emptyList(),
-    val expandedHostedFiles: Map<String, List<String>> = emptyMap(),
+    val expandedHostedFiles: Map<String, List<HostedFileEntry>> = emptyMap(),
     val loading: Boolean = true,
     val error: String? = null,
     val downloadedFile: File? = null,
@@ -54,6 +56,33 @@ class DownloadsViewModel @Inject constructor(
 
     init {
         refresh()
+        resumeActiveDownload()
+        observeDownloadOutcome()
+    }
+
+    /** Ein Download laeuft prozessweit weiter, auch wenn dieser Screen zwischenzeitlich geschlossen war - beim Wiedereintritt den Anzeigezustand daran ausrichten. */
+    private fun resumeActiveDownload() {
+        val target = downloader.activeTarget.value
+        if (target != null && target.pathName == pathName) {
+            _uiState.update { it.copy(downloadingName = target.identity) }
+        }
+    }
+
+    private fun observeDownloadOutcome() {
+        viewModelScope.launch {
+            downloader.downloadOutcome.collect { outcome ->
+                if (outcome == null || outcome.target.pathName != pathName) return@collect
+                when (outcome) {
+                    is DownloadOutcome.Success -> _uiState.update {
+                        it.copy(downloadingName = outcome.target.identity, downloadedFile = outcome.file, error = null)
+                    }
+                    is DownloadOutcome.Failure -> _uiState.update {
+                        it.copy(downloadingName = null, error = outcome.message)
+                    }
+                }
+                downloader.consumeDownloadOutcome()
+            }
+        }
     }
 
     fun refresh() {
@@ -87,18 +116,16 @@ class DownloadsViewModel @Inject constructor(
     fun downloadEntry(hostedName: String) {
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
-            val cached = downloader.resolvePendingInstall(pathName, hostedName)
+            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
+            val timestamp = currentHostedTimestamp(hostedName)
+            val cached = downloader.resolvePendingInstall(pathName, hostedName, timestamp)
             if (cached != null) {
-                _uiState.update { it.copy(downloadingName = hostedName, downloadedFile = cached, error = null) }
+                _uiState.update { it.copy(downloadedFile = cached, error = null) }
                 return@launch
             }
-            _uiState.update { it.copy(downloadingName = hostedName, error = null) }
-            try {
-                val file = downloader.downloadEntry(pathName, hostedName)
-                _uiState.update { it.copy(downloadedFile = file) }
-            } catch (error: ApiException) {
-                downloader.clearDownloadStatus()
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
+            val started = downloader.startDownload(pathName, hostedName, fileName = null, timestamp = timestamp)
+            if (!started) {
+                _uiState.update { it.copy(error = "Ein anderer Download läuft bereits.", downloadingName = null) }
             }
         }
     }
@@ -106,21 +133,35 @@ class DownloadsViewModel @Inject constructor(
     fun downloadNestedFile(hostedName: String, fileName: String) {
         if (_uiState.value.downloadingName != null) return
         viewModelScope.launch {
-            val cached = downloader.resolvePendingInstall(pathName, fileName)
+            _uiState.update { it.copy(downloadingName = fileName, error = null) }
+            val timestamp = currentNestedFileTimestamp(hostedName, fileName)
+            val cached = downloader.resolvePendingInstall(pathName, fileName, timestamp)
             if (cached != null) {
-                _uiState.update { it.copy(downloadingName = fileName, downloadedFile = cached, error = null) }
+                _uiState.update { it.copy(downloadedFile = cached, error = null) }
                 return@launch
             }
-            _uiState.update { it.copy(downloadingName = fileName, error = null) }
-            try {
-                val file = downloader.downloadFile(pathName, hostedName, fileName)
-                _uiState.update { it.copy(downloadedFile = file) }
-            } catch (error: ApiException) {
-                downloader.clearDownloadStatus()
-                _uiState.update { it.copy(error = error.message ?: "Download fehlgeschlagen.", downloadingName = null) }
+            val started = downloader.startDownload(pathName, hostedName, fileName = fileName, timestamp = timestamp)
+            if (!started) {
+                _uiState.update { it.copy(error = "Ein anderer Download läuft bereits.", downloadingName = null) }
             }
         }
     }
+
+    /** Fragt den aktuellen Server-Stand direkt ab, statt sich auf den zuletzt geladenen [DownloadsUiState.hosted] zu verlassen - nur so laesst sich eine gecachte APK verlaesslich gegen eine inzwischen geaenderte Server-Version pruefen. */
+    private suspend fun currentHostedTimestamp(hostedName: String): String? =
+        try {
+            api.getManifest().paths.firstOrNull { it.name == pathName }
+                ?.hosted?.firstOrNull { it.name == hostedName }?.timestamp
+        } catch (error: ApiException) {
+            null
+        }
+
+    private suspend fun currentNestedFileTimestamp(hostedName: String, fileName: String): String? =
+        try {
+            api.listHostedFiles(pathName, hostedName).files.firstOrNull { it.name == fileName }?.timestamp
+        } catch (error: ApiException) {
+            null
+        }
 
     fun consumeDownloadedFile() {
         downloader.clearDownloadStatus()

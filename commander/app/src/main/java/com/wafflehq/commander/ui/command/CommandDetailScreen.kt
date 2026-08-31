@@ -190,24 +190,32 @@ fun CommandDetailScreen(
                     style = MaterialTheme.typography.titleSmall,
                     color = AppTheme.colors.onSurfaceVariant,
                 )
-                uiState.hostedFiles.forEach { hostedName ->
-                    val isDownloading = uiState.downloadingName == hostedName
+                uiState.hostedFiles.forEach { hostedFile ->
+                    val isDownloading = uiState.downloadingName == hostedFile.name
                     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
                         ) {
-                            Text(hostedName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
+                            Text(hostedFile.name, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                             if (!isDownloading) {
-                                val icon = if (pendingInstalls.contains(hostedName)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
+                                val icon = if (pendingInstalls.contains(hostedFile.name)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
                                 AppIconButton(
                                     icon = icon,
-                                    contentDescription = hostedName,
+                                    contentDescription = hostedFile.name,
                                     role = AppRole.Primary,
-                                    onClick = { viewModel.download(hostedName) },
+                                    onClick = { viewModel.download(hostedFile.name) },
                                 )
                             }
+                        }
+                        val hostedTimestamp = hostedFile.timestamp
+                        if (hostedTimestamp != null) {
+                            Text(
+                                text = stringResource(R.string.apk_build_time, formatTimestamp(hostedTimestamp)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = AppTheme.colors.onSurface,
+                            )
                         }
                         if (isDownloading) {
                             DownloadProgressIndicator(status = downloadStatus)

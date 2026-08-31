@@ -67,7 +67,10 @@ data class UsageResponse(val limits: List<UsageLimit>)
 data class PathList(val paths: List<String>)
 
 @Serializable
-data class FileList(val files: List<String>)
+data class HostedFileEntry(val name: String, val timestamp: String)
+
+@Serializable
+data class FileList(val files: List<HostedFileEntry>)
 
 @Serializable
 data class PathCommandEntry(
@@ -81,7 +84,7 @@ data class PathCommandEntry(
 data class ManifestAgent(val command: String, val description: String)
 
 @Serializable
-data class ManifestHostedEntry(val name: String, val type: String)
+data class ManifestHostedEntry(val name: String, val type: String, val timestamp: String? = null)
 
 @Serializable
 data class ManifestPath(

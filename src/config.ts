@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -31,11 +31,17 @@ export interface PathCommandEntry {
   description: string;
 }
 
+export interface PathHooks {
+  /** Bash-Befehl, ausgefuehrt im path-Verzeichnis, sobald in diesem Pfad kein Agent mehr laeuft. */
+  onLastAgentFinish?: string;
+}
+
 export interface PathEntry {
   name: string;
   path: string;
   hosted?: HostedEntry[];
   commands?: PathCommandEntry[];
+  hooks?: PathHooks;
 }
 
 export interface TaskDefinition {
@@ -167,6 +173,14 @@ function isPathCommandEntry(value: unknown): value is PathCommandEntry {
   );
 }
 
+function isPathHooks(value: unknown): value is PathHooks {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record.onLastAgentFinish === undefined || typeof record.onLastAgentFinish === 'string';
+}
+
 function isPathEntry(value: unknown): value is PathEntry {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -178,7 +192,8 @@ function isPathEntry(value: unknown): value is PathEntry {
     (record.hosted === undefined ||
       (Array.isArray(record.hosted) && record.hosted.every(isHostedEntry))) &&
     (record.commands === undefined ||
-      (Array.isArray(record.commands) && record.commands.every(isPathCommandEntry)))
+      (Array.isArray(record.commands) && record.commands.every(isPathCommandEntry))) &&
+    (record.hooks === undefined || isPathHooks(record.hooks))
   );
 }
 
@@ -272,7 +287,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands? }, wobei hosted ein Array von { name, path, type: "path"|"file" } und commands ein Array von { key, command, displayName, description } ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -345,11 +360,25 @@ export function listHostedNames(config: Config, pathName: string): string[] {
 export interface HostedSummary {
   name: string;
   type: 'path' | 'file';
+  /** ISO-Timestamp der letzten Aenderung (mtime) fuer `type: 'file'`; `null` fuer Verzeichnisse oder falls die Datei fehlt. Erlaubt Clients, eine gecachte Datei gegen den aktuellen Serverstand zu pruefen. */
+  timestamp: string | null;
 }
 
 export function listHostedSummaries(config: Config, pathName: string): HostedSummary[] {
   const entry = resolvePathEntry(config, pathName);
-  return (entry.hosted ?? []).map((hosted) => ({ name: hosted.name, type: hosted.type }));
+  return (entry.hosted ?? []).map((hosted) => ({
+    name: hosted.name,
+    type: hosted.type,
+    timestamp: hosted.type === 'file' ? hostedFileTimestamp(join(entry.path, hosted.path)) : null,
+  }));
+}
+
+function hostedFileTimestamp(filePath: string): string | null {
+  try {
+    return statSync(filePath).mtime.toISOString();
+  } catch {
+    return null;
+  }
 }
 
 export function resolveHostedEntry(

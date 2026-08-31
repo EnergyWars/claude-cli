@@ -31,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.HOSTED_TYPE_FILE
+import com.wafflehq.commander.data.api.HostedFileEntry
 import com.wafflehq.commander.data.api.ManifestHostedEntry
 import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.isApkFileName
@@ -40,6 +41,7 @@ import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.history.formatTimestamp
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
@@ -143,7 +145,7 @@ fun DownloadsScreen(
 @Composable
 private fun HostedEntryRow(
     entry: ManifestHostedEntry,
-    expandedFiles: List<String>?,
+    expandedFiles: List<HostedFileEntry>?,
     downloadingName: String?,
     downloadStatus: DownloadStatus?,
     pendingInstalls: Set<String>,
@@ -175,6 +177,14 @@ private fun HostedEntryRow(
                     AppIconButton(icon = Icons.Outlined.ChevronRight, contentDescription = entry.name, role = AppRole.Neutral, onClick = onToggleExpand)
                 }
             }
+            val entryTimestamp = entry.timestamp
+            if (isFile && entryTimestamp != null) {
+                Text(
+                    text = stringResource(R.string.apk_build_time, formatTimestamp(entryTimestamp)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppTheme.colors.onSurface,
+                )
+            }
             if (isDownloading) {
                 DownloadProgressIndicator(status = downloadStatus, modifier = Modifier.padding(top = AppSpacing.sm))
             }
@@ -186,25 +196,30 @@ private fun HostedEntryRow(
                     if (expandedFiles.isEmpty()) {
                         Text(stringResource(R.string.downloads_files_empty), color = AppTheme.colors.onSurfaceVariant)
                     }
-                    expandedFiles.forEach { fileName ->
-                        val isNestedDownloading = downloadingName == fileName
+                    expandedFiles.forEach { file ->
+                        val isNestedDownloading = downloadingName == file.name
                         Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
                             ) {
-                                Text(fileName, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
+                                Text(file.name, color = AppTheme.colors.onSurface, modifier = Modifier.weight(1f))
                                 if (!isNestedDownloading) {
-                                    val icon = if (pendingInstalls.contains(fileName)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
+                                    val icon = if (pendingInstalls.contains(file.name)) Icons.Outlined.InstallMobile else Icons.Outlined.Download
                                     AppIconButton(
                                         icon = icon,
-                                        contentDescription = fileName,
+                                        contentDescription = file.name,
                                         role = AppRole.Primary,
-                                        onClick = { onDownloadNested(fileName) },
+                                        onClick = { onDownloadNested(file.name) },
                                     )
                                 }
                             }
+                            Text(
+                                text = stringResource(R.string.apk_build_time, formatTimestamp(file.timestamp)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = AppTheme.colors.onSurface,
+                            )
                             if (isNestedDownloading) {
                                 DownloadProgressIndicator(status = downloadStatus)
                             }

@@ -91,32 +91,40 @@ class CollectionsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun cachedFileFor(files: List<CollectedFile>): File? {
+    /** Vergleicht den gecachten Eintrag mit [current] (frisch vom Server geladen); loescht die gecachte APK bei einer veralteten Version statt sie zum Installieren anzubieten. */
+    private suspend fun cachedFileFor(current: CollectedFile): File? {
         val pending = downloadHistoryRepository.pendingInstalls.first()
-        val match = files.firstNotNullOfOrNull { file -> pending.matching(file) } ?: return null
-        val cached = File(match.filePath)
+        val entry = pending.find { it.fileName == current.name } ?: return null
+        val cached = File(entry.filePath)
+        if (entry.timestamp != current.timestamp) {
+            cached.delete()
+            downloadHistoryRepository.clearPendingInstall(entry.fileName)
+            return null
+        }
         if (cached.exists() && cached.length() > 0L) return cached
-        downloadHistoryRepository.clearPendingInstall(match.fileName)
+        downloadHistoryRepository.clearPendingInstall(entry.fileName)
         return null
     }
-
-    private fun List<PendingInstall>.matching(file: CollectedFile): PendingInstall? =
-        find { it.fileName == file.name && it.timestamp == file.timestamp }
 
     fun downloadAndInstall(file: CollectedFile) {
         if (_uiState.value.downloadingFileName != null) return
         val found = _uiState.value.state as? CollectionsState.Found ?: return
         viewModelScope.launch {
-            val cached = cachedFileFor(listOf(file))
-            if (cached != null) {
-                _uiState.update { it.copy(installFile = cached, error = null) }
-                return@launch
-            }
             _uiState.update { it.copy(downloadingFileName = file.name, error = null) }
             try {
-                val downloaded = installer.downloadFile(found.host, found.port, file.name)
-                downloadHistoryRepository.recordDownload(file.name, file.timestamp)
-                downloadHistoryRepository.recordPendingInstall(file.name, file.timestamp, downloaded.absolutePath)
+                val current = try {
+                    api.getCollections(found.host, found.port).files.find { it.name == file.name } ?: file
+                } catch (error: ApiException) {
+                    file
+                }
+                val cached = cachedFileFor(current)
+                if (cached != null) {
+                    _uiState.update { it.copy(installFile = cached, downloadingFileName = null, error = null) }
+                    return@launch
+                }
+                val downloaded = installer.downloadFile(found.host, found.port, current.name)
+                downloadHistoryRepository.recordDownload(current.name, current.timestamp)
+                downloadHistoryRepository.recordPendingInstall(current.name, current.timestamp, downloaded.absolutePath)
                 _uiState.update { it.copy(installFile = downloaded) }
             } catch (error: ApiException) {
                 installer.clearDownloadStatus()

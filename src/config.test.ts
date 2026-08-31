@@ -162,6 +162,33 @@ test('parseConfig: wirft wenn ein Command-Eintrag "description" fehlt', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
+test('parseConfig: akzeptiert einen Path-Eintrag mit "hooks.onLastAgentFinish"', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = {
+    ...raw.paths[0],
+    hooks: { onLastAgentFinish: 'cl inst' },
+  };
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.paths[0]?.hooks?.onLastAgentFinish, 'cl inst');
+});
+
+test('parseConfig: akzeptiert einen Path-Eintrag ohne "hooks"', () => {
+  const parsed = parseConfig(validRawConfig());
+  assert.equal(parsed.paths[0]?.hooks, undefined);
+});
+
+test('parseConfig: wirft wenn "hooks.onLastAgentFinish" kein String ist', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = { ...raw.paths[0], hooks: { onLastAgentFinish: 42 } };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn "hooks" kein Objekt ist', () => {
+  const raw = validRawConfig() as { paths: Record<string, unknown>[] };
+  raw.paths[0] = { ...raw.paths[0], hooks: 'cl inst' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
 test('parseConfig: wirft bei Agent-Namen "totp"', () => {
   const raw = validRawConfig();
   firstAgentOf(raw).name = 'totp';
@@ -464,7 +491,7 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
   );
 });
 
-test('listHostedSummaries: liefert Name + Typ der Hosted-Eintraege eines Pfads', () => {
+test('listHostedSummaries: liefert Name + Typ + Timestamp der Hosted-Eintraege eines Pfads', () => {
   const config: Config = {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [],
@@ -487,14 +514,37 @@ test('listHostedSummaries: liefert Name + Typ der Hosted-Eintraege eines Pfads',
   };
 
   assert.deepEqual(listHostedSummaries(config, 'myapp'), [
-    { name: 'notes', type: 'file' },
-    { name: 'docs', type: 'path' },
+    { name: 'notes', type: 'file', timestamp: null },
+    { name: 'docs', type: 'path', timestamp: null },
   ]);
   assert.deepEqual(listHostedSummaries(config, 'empty'), []);
   assert.throws(
     () => listHostedSummaries(config, 'doesnotexist'),
     /wurde in config\.json nicht gefunden/,
   );
+});
+
+test('listHostedSummaries: liefert die mtime der Datei als Timestamp fuer type "file"', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-hosted-timestamp-'));
+  try {
+    writeFileSync(join(dir, 'notes.txt'), 'inhalt');
+    const config: Config = {
+      main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
+      agents: [],
+      databaseDirectory: '/tmp/x',
+      paths: [{ name: 'myapp', path: dir, hosted: [{ name: 'notes', path: 'notes.txt', type: 'file' }] }],
+      tasks: [],
+      ticketAgent: { model: 'haiku', task: 'Test-Task' },
+      contentPath: '/tmp/content',
+      collection: [],
+    };
+
+    const [summary] = listHostedSummaries(config, 'myapp');
+    assert.ok(summary);
+    assert.match(summary.timestamp ?? '', /^\d{4}-\d{2}-\d{2}T/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => {

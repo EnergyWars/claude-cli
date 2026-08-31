@@ -64,6 +64,7 @@
     <string name="download_status_downloading">Downloading…</string>
     <string name="download_status_verifying">Verifying…</string>
     <string name="download_status_installing">Installing…</string>
+    <string name="apk_build_time">Built %1$s</string>
     <string name="apk_action_title">APK downloaded</string>
     <string name="apk_action_install">Install</string>
     <string name="apk_action_share">Share</string>
@@ -72,13 +73,13 @@
     <string name="apk_action_delete_confirm_body">Delete \"%1$s\"?</string>
     <string name="apk_action_delete_confirm_confirm">Delete</string>
     <string name="download_status_opening">Opening…</string>
+    <string name="download_notification_channel_name">Downloads</string>
 
     <string name="agents_title">Development</string>
     <string name="agents_empty">No agents configured.</string>
 
     <string name="agent_run_path_label">Project: %1$s</string>
-    <string name="agent_run_context_label">Context</string>
-    <string name="agent_run_context_none">No context</string>
+    <string name="agent_run_context_label">Contexts</string>
     <string name="run_agent_model_label">Model</string>
     <string name="run_agent_model_default">Default</string>
     <string name="run_agent_prompt_label">Prompt</string>

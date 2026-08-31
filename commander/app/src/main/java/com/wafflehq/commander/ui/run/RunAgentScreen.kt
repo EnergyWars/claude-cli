@@ -2,6 +2,7 @@ package com.wafflehq.commander.ui.run
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -21,7 +22,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
+import com.wafflehq.commander.ui.components.AppChip
 import com.wafflehq.commander.ui.components.AppTextField
+import com.wafflehq.commander.ui.components.ChipVariant
 import com.wafflehq.commander.ui.components.SettingsDropdownField
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -60,7 +63,6 @@ fun RunAgentScreen(
             }
 
             val modelStandardLabel = stringResource(R.string.run_agent_model_default)
-            val noContextLabel = stringResource(R.string.agent_run_context_none)
 
             if (state.agentDescription.isNotEmpty()) {
                 Text(state.agentDescription, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.onSurfaceVariant)
@@ -71,14 +73,26 @@ fun RunAgentScreen(
                 color = AppTheme.colors.onSurfaceVariant,
             )
 
-            val contextLabels = listOf(noContextLabel) + state.contexts.map { it.name }
-            SettingsDropdownField(
-                label = stringResource(R.string.agent_run_context_label),
-                value = contextLabels.getOrElse(state.selectedContextIndex) { noContextLabel },
-                options = contextLabels,
-                selectedIndex = state.selectedContextIndex,
-                onSelect = viewModel::onContextSelected,
-            )
+            if (state.contexts.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                    Text(
+                        text = stringResource(R.string.agent_run_context_label),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = AppTheme.colors.onSurfaceVariant,
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                        state.contexts.forEach { context ->
+                            AppChip(
+                                label = context.name,
+                                role = AppRole.Primary,
+                                variant = ChipVariant.Filter,
+                                selected = context.id in state.selectedContextIds,
+                                onClick = { viewModel.onContextToggled(context.id) },
+                            )
+                        }
+                    }
+                }
+            }
             SettingsDropdownField(
                 label = stringResource(R.string.run_agent_model_label),
                 value = RUN_AGENT_MODELS.getOrNull(state.selectedModelIndex)?.ifEmpty { modelStandardLabel } ?: modelStandardLabel,

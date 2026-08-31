@@ -18,6 +18,7 @@
     <string name="home_installing">Wird installiert…</string>
     <string name="home_download_up_to_date">✓ Aktuell</string>
     <string name="home_download_update_available">Neue Version verfügbar</string>
+    <string name="apk_build_time">Gebaut am %1$s</string>
     <string name="apk_action_title">APK heruntergeladen</string>
     <string name="apk_action_install">Installieren</string>
     <string name="apk_action_share">Teilen</string>

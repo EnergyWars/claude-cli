@@ -10,11 +10,15 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 private const val FILE_PROVIDER_SUFFIX = ".fileprovider"
 private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
@@ -35,15 +39,34 @@ class HostedFileDownloader @Inject constructor(
     private val downloadsDir: File
         get() = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
 
+    /** Prozessweiter Scope statt viewModelScope: der Download darf laufen, wenn der Nutzer den Screen wechselt oder die App minimiert. */
+    private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val _downloadStatus = MutableStateFlow<DownloadStatus?>(null)
     val downloadStatus: StateFlow<DownloadStatus?> = _downloadStatus.asStateFlow()
 
+    private val _activeTarget = MutableStateFlow<DownloadTarget?>(null)
+    val activeTarget: StateFlow<DownloadTarget?> = _activeTarget.asStateFlow()
+
+    private val _downloadOutcome = MutableStateFlow<DownloadOutcome?>(null)
+    val downloadOutcome: StateFlow<DownloadOutcome?> = _downloadOutcome.asStateFlow()
+
     val pendingInstalls: Flow<List<PendingInstall>> = historyRepository.pendingInstalls
 
-    suspend fun resolvePendingInstall(pathName: String, identity: String): File? {
+    /**
+     * [currentTimestamp] ist der frisch vom Server geladene Stand (`ManifestHostedEntry.timestamp`/`HostedFileEntry.timestamp`).
+     * Weicht er vom beim Download gespeicherten Timestamp ab, ist die gecachte Datei veraltet: sie wird geloescht statt
+     * zur Installation angeboten, damit der naechste Aufruf sie neu herunterlaedt.
+     */
+    suspend fun resolvePendingInstall(pathName: String, identity: String, currentTimestamp: String?): File? {
         val key = pendingKey(pathName, identity)
-        val filePath = historyRepository.pendingInstalls.first().find { it.key == key }?.filePath ?: return null
-        val file = File(filePath)
+        val entry = historyRepository.pendingInstalls.first().find { it.key == key } ?: return null
+        val file = File(entry.filePath)
+        if (currentTimestamp != null && entry.timestamp != null && entry.timestamp != currentTimestamp) {
+            file.delete()
+            historyRepository.clearPendingInstall(key)
+            return null
+        }
         if (file.exists() && file.length() > 0L) return file
         historyRepository.clearPendingInstall(key)
         return null
@@ -54,13 +77,42 @@ class HostedFileDownloader @Inject constructor(
         historyRepository.clearPendingInstall(pendingKey(pathName, identity))
     }
 
-    suspend fun downloadEntry(pathName: String, hostedName: String): File =
-        runDownload(pathName, hostedName) { api.downloadHostedEntry(pathName, hostedName, downloadsDir, onProgress = ::emitProgress) }
+    /** Laeuft in [downloadScope] statt im Scope des Aufrufers, damit Tab-Wechsel/App-Minimieren den Download nicht abbrechen; liefert `false`, wenn bereits ein Download laeuft. */
+    fun startDownload(pathName: String, hostedName: String, fileName: String?, timestamp: String?): Boolean {
+        if (_activeTarget.value != null) return false
+        val target = DownloadTarget(pathName, fileName ?: hostedName, hostedName, fileName, timestamp)
+        _activeTarget.value = target
+        downloadScope.launch { runQueuedDownload(target) }
+        return true
+    }
 
-    suspend fun downloadFile(pathName: String, hostedName: String, fileName: String): File =
-        runDownload(pathName, fileName) { api.downloadHostedFile(pathName, hostedName, fileName, downloadsDir, onProgress = ::emitProgress) }
+    fun consumeDownloadOutcome() {
+        _downloadOutcome.value = null
+    }
 
-    private suspend fun runDownload(pathName: String, identity: String, download: suspend () -> File): File {
+    private suspend fun runQueuedDownload(target: DownloadTarget) {
+        try {
+            val file = if (target.fileName != null) {
+                downloadFile(target.pathName, target.hostedName, target.fileName, target.timestamp)
+            } else {
+                downloadEntry(target.pathName, target.hostedName, target.timestamp)
+            }
+            _downloadOutcome.value = DownloadOutcome.Success(target, file)
+        } catch (error: ApiException) {
+            clearDownloadStatus()
+            _downloadOutcome.value = DownloadOutcome.Failure(target, error.message ?: "Download fehlgeschlagen.")
+        } finally {
+            _activeTarget.value = null
+        }
+    }
+
+    suspend fun downloadEntry(pathName: String, hostedName: String, timestamp: String?): File =
+        runDownload(pathName, hostedName, timestamp) { api.downloadHostedEntry(pathName, hostedName, downloadsDir, onProgress = ::emitProgress) }
+
+    suspend fun downloadFile(pathName: String, hostedName: String, fileName: String, timestamp: String?): File =
+        runDownload(pathName, fileName, timestamp) { api.downloadHostedFile(pathName, hostedName, fileName, downloadsDir, onProgress = ::emitProgress) }
+
+    private suspend fun runDownload(pathName: String, identity: String, timestamp: String?, download: suspend () -> File): File {
         _downloadStatus.value = DownloadStatus(DownloadPhase.DOWNLOADING)
         val file = download()
         _downloadStatus.value = DownloadStatus(DownloadPhase.VERIFYING, _downloadStatus.value?.progress)
@@ -68,7 +120,7 @@ class HostedFileDownloader @Inject constructor(
         val finalPhase = if (isApkFileName(file.name)) DownloadPhase.INSTALLING else DownloadPhase.OPENING
         _downloadStatus.value = DownloadStatus(finalPhase, _downloadStatus.value?.progress)
         if (isApkFileName(file.name)) {
-            historyRepository.recordPendingInstall(pendingKey(pathName, identity), file.absolutePath)
+            historyRepository.recordPendingInstall(pendingKey(pathName, identity), timestamp, file.absolutePath)
         }
         return file
     }

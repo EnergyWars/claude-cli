@@ -230,6 +230,39 @@ class CollectionsViewModelTest {
     }
 
     @Test
+    fun `a changed timestamp on the server deletes the stale cached apk and redownloads it instead of installing it`() =
+        runTest(dispatcher) {
+            val stale = File.createTempFile("appgetter-test-stale", ".apk")
+            val fresh = File.createTempFile("appgetter-test-fresh", ".apk")
+            val updated = file.copy(timestamp = "2026-08-27T00:00:00.000Z")
+            val api = mockk<AppGetterApi> {
+                coEvery { getCollections("host", 8787) } returns CollectionList(listOf(updated))
+            }
+            val installer = mockk<ApkInstaller> {
+                every { downloadStatus } returns MutableStateFlow(null)
+                every { clearDownloadStatus() } just Runs
+                coEvery { downloadFile("host", 8787, "test.apk") } returns fresh
+            }
+            val downloadHistoryRepository = mockk<DownloadHistoryRepository> {
+                every { downloadedTimestamps } returns flowOf(emptyMap())
+                every { pendingInstalls } returns flowOf(listOf(PendingInstall("test.apk", file.timestamp, stale.absolutePath)))
+                coEvery { recordDownload(any(), any()) } just Runs
+                coEvery { recordPendingInstall(any(), any(), any()) } just Runs
+                coEvery { clearPendingInstall(any()) } just Runs
+            }
+            val viewModel = viewModel(installer, api, downloadHistoryRepository)
+
+            viewModel.downloadAndInstall(file)
+            dispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(false, stale.exists())
+            assertEquals(fresh, viewModel.uiState.value.installFile)
+            coVerify { downloadHistoryRepository.clearPendingInstall("test.apk") }
+            coVerify { downloadHistoryRepository.recordDownload("test.apk", updated.timestamp) }
+            coVerify { downloadHistoryRepository.recordPendingInstall("test.apk", updated.timestamp, fresh.absolutePath) }
+        }
+
+    @Test
     fun `resolveInstallFile clears the pending install and the dialog state`() = runTest(dispatcher) {
         val downloaded = File.createTempFile("appgetter-test", ".apk")
         val installer = mockk<ApkInstaller> {

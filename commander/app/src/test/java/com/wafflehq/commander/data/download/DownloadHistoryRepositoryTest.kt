@@ -15,7 +15,22 @@ class DownloadHistoryRepositoryTest {
         val result = parsePendingInstalls(raw)
 
         assertEquals(
-            listOf(PendingInstall("periodical::debug-apk", "/data/user/0/app/files/Download/app-debug.apk")),
+            listOf(PendingInstall("periodical::debug-apk", null, "/data/user/0/app/files/Download/app-debug.apk")),
+            result,
+        )
+    }
+
+    @Test
+    fun `parsePendingInstalls joins the stored timestamp onto the matching path entry`() {
+        val raw = mapOf(
+            "pending_path::periodical::debug-apk" to "/tmp/app-debug.apk",
+            "pending_ts::periodical::debug-apk" to "2026-08-26T00:00:00.000Z",
+        )
+
+        val result = parsePendingInstalls(raw)
+
+        assertEquals(
+            listOf(PendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", "/tmp/app-debug.apk")),
             result,
         )
     }

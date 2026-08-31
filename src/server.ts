@@ -71,7 +71,6 @@ import {
   resolveAgentFrom,
   resolveEffectiveConfig,
   resolveHostedEntry,
-  resolvePath,
   resolvePathCommand,
   resolvePathEntry,
 } from './config.js';
@@ -994,7 +993,10 @@ function handleGetHostedEntry(
   }
   const files = readdirSync(entry.path, { withFileTypes: true })
     .filter((dirent) => dirent.isFile())
-    .map((dirent) => dirent.name);
+    .map((dirent) => ({
+      name: dirent.name,
+      timestamp: statSync(join(entry.path, dirent.name)).mtime.toISOString(),
+    }));
   sendJson(res, 200, { files });
 }
 
@@ -1355,6 +1357,19 @@ function handleDeleteTicket(
   sendJson(res, 200, { message: `Ticket "${String(existing.id)}" wurde geloescht.` });
 }
 
+function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): void {
+  const hookCommand = pathEntry.hooks?.onLastAgentFinish;
+  if (hookCommand === undefined || countRunningAgents(db, pathEntry.path) > 0) {
+    return;
+  }
+  runShellCommand(hookCommand, pathEntry.path, () => undefined).catch((error: unknown) => {
+    console.error(
+      `onLastAgentFinish-Hook fuer Pfad "${pathEntry.name}" fehlgeschlagen:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+}
+
 function handlePostCommand(
   db: DatabaseSync,
   config: Config,
@@ -1386,13 +1401,14 @@ function handlePostCommand(
     return;
   }
 
-  let cwd: string;
+  let pathEntry: PathEntry;
   try {
-    cwd = resolvePath(config, body.path);
+    pathEntry = resolvePathEntry(config, body.path);
   } catch (error) {
     sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
     return;
   }
+  const cwd = pathEntry.path;
 
   const model = body.model ?? agent.model;
   const permissions = body.permissions ?? agent.permissions;
@@ -1427,6 +1443,7 @@ function handlePostCommand(
         result.output,
       );
       publishCommandState(db, id);
+      triggerOnLastAgentFinishHook(db, pathEntry);
     })
     .catch((error: unknown) => {
       runningProcesses.delete(id);
@@ -1434,6 +1451,7 @@ function handlePostCommand(
       const message = error instanceof Error ? error.message : String(error);
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
+      triggerOnLastAgentFinishHook(db, pathEntry);
     });
 }
 
