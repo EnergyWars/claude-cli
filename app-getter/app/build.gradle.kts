@@ -39,6 +39,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (localProperties["RELEASE_STORE_FILE"] != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled   = true
             isShrinkResources = true
