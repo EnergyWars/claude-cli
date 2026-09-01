@@ -10,6 +10,7 @@ import io.mockk.every
 import io.mockk.mockk
 import java.io.File
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -25,7 +26,7 @@ class HostedFileDownloaderTest {
     private val api = mockk<ClServerApi>()
 
     private fun downloader(historyRepository: DownloadHistoryRepository = mockk(relaxed = true) {
-        every { pendingInstalls } returns flowOf(emptyList())
+        every { versions } returns flowOf(emptyList())
     }) = HostedFileDownloader(context, api, historyRepository)
 
     @Test
@@ -95,10 +96,10 @@ class HostedFileDownloaderTest {
     }
 
     @Test
-    fun `a successfully downloaded apk is recorded as a pending install with its server timestamp`() = runBlocking {
+    fun `a successfully downloaded apk is recorded as a new version with its server timestamp`() = runBlocking {
         val downloaded = File.createTempFile("commander-test", ".apk").apply { writeText("apk-bytes") }
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns flowOf(emptyList())
+            every { versions } returns flowOf(emptyList())
         }
         val instance = downloader(historyRepository)
         coEvery { api.downloadHostedEntry(any(), any(), any(), any()) } returns downloaded
@@ -106,30 +107,49 @@ class HostedFileDownloaderTest {
         instance.downloadEntry("periodical", "debug-apk", timestamp = "2026-08-26T00:00:00.000Z")
 
         coVerify {
-            historyRepository.recordPendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", downloaded.absolutePath)
+            historyRepository.recordVersion("periodical::debug-apk", "2026-08-26T00:00:00.000Z", any(), downloaded.absolutePath)
         }
     }
 
     @Test
-    fun `a downloaded non-apk file is not recorded as a pending install`() = runBlocking {
+    fun `a downloaded non-apk file is also recorded as a new version`() = runBlocking {
         val downloaded = File.createTempFile("commander-test", ".txt").apply { writeText("log output") }
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns flowOf(emptyList())
+            every { versions } returns flowOf(emptyList())
         }
         val instance = downloader(historyRepository)
         coEvery { api.downloadHostedFile(any(), any(), any(), any(), any()) } returns downloaded
 
         instance.downloadFile("periodical", "logs", "notes.txt", timestamp = null)
 
-        coVerify(exactly = 0) { historyRepository.recordPendingInstall(any(), any(), any()) }
+        coVerify {
+            historyRepository.recordVersion("periodical::notes.txt", null, any(), downloaded.absolutePath)
+        }
+    }
+
+    @Test
+    fun `a downloaded file evicted beyond the version limit is deleted from disk`() = runBlocking {
+        val evicted = File.createTempFile("commander-test", ".apk")
+        val downloaded = File.createTempFile("commander-test", ".apk").apply { writeText("apk-bytes") }
+        val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
+            every { versions } returns flowOf(emptyList())
+            coEvery { recordVersion(any(), any(), any(), any()) } returns
+                listOf(DownloadVersion("periodical::debug-apk", null, "2026-08-01T00:00:00Z", evicted.absolutePath))
+        }
+        val instance = downloader(historyRepository)
+        coEvery { api.downloadHostedEntry(any(), any(), any(), any()) } returns downloaded
+
+        instance.downloadEntry("periodical", "debug-apk", timestamp = null)
+
+        assertFalse(evicted.exists())
     }
 
     @Test
     fun `resolvePendingInstall returns the cached file when its timestamp still matches the server`() = runBlocking {
         val cached = File.createTempFile("commander-test", ".apk")
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns
-                flowOf(listOf(PendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", cached.absolutePath)))
+            every { versions } returns
+                flowOf(listOf(DownloadVersion("periodical::debug-apk", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:05Z", cached.absolutePath)))
         }
         val instance = downloader(historyRepository)
 
@@ -139,27 +159,27 @@ class HostedFileDownloaderTest {
     }
 
     @Test
-    fun `resolvePendingInstall deletes a stale cached apk and returns null when the server timestamp changed`() = runBlocking {
+    fun `resolvePendingInstall keeps the stale cached apk in history and returns null when the server timestamp changed`() = runBlocking {
         val cached = File.createTempFile("commander-test", ".apk")
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns
-                flowOf(listOf(PendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", cached.absolutePath)))
+            every { versions } returns
+                flowOf(listOf(DownloadVersion("periodical::debug-apk", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:05Z", cached.absolutePath)))
         }
         val instance = downloader(historyRepository)
 
         val result = instance.resolvePendingInstall("periodical", "debug-apk", currentTimestamp = "2026-08-27T00:00:00.000Z")
 
         assertNull(result)
-        assertFalse(cached.exists())
-        coVerify { historyRepository.clearPendingInstall("periodical::debug-apk") }
+        assertTrue(cached.exists())
+        coVerify(exactly = 0) { historyRepository.deleteVersion(any(), any()) }
     }
 
     @Test
     fun `resolvePendingInstall keeps the cached file when the current timestamp is unknown`() = runBlocking {
         val cached = File.createTempFile("commander-test", ".apk")
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns
-                flowOf(listOf(PendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", cached.absolutePath)))
+            every { versions } returns
+                flowOf(listOf(DownloadVersion("periodical::debug-apk", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:05Z", cached.absolutePath)))
         }
         val instance = downloader(historyRepository)
 
@@ -169,24 +189,43 @@ class HostedFileDownloaderTest {
     }
 
     @Test
-    fun `resolvePendingInstall clears and returns null when the cached file is gone`() = runBlocking {
+    fun `resolvePendingInstall uses the most recently recorded version for a key`() = runBlocking {
+        val older = File.createTempFile("commander-test", ".apk")
+        val newer = File.createTempFile("commander-test", ".apk")
+        val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
+            every { versions } returns flowOf(
+                listOf(
+                    DownloadVersion("periodical::debug-apk", "ts1", "2026-08-25T00:00:00Z", older.absolutePath),
+                    DownloadVersion("periodical::debug-apk", "ts2", "2026-08-26T00:00:00Z", newer.absolutePath),
+                ),
+            )
+        }
+        val instance = downloader(historyRepository)
+
+        val result = instance.resolvePendingInstall("periodical", "debug-apk", currentTimestamp = "ts2")
+
+        assertEquals(newer, result)
+    }
+
+    @Test
+    fun `resolvePendingInstall prunes and returns null when the latest cached file is gone`() = runBlocking {
         val missing = File("/tmp/commander-test-missing.apk")
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns
-                flowOf(listOf(PendingInstall("periodical::debug-apk", "2026-08-26T00:00:00.000Z", missing.absolutePath)))
+            every { versions } returns
+                flowOf(listOf(DownloadVersion("periodical::debug-apk", "2026-08-26T00:00:00.000Z", "2026-08-26T00:00:05Z", missing.absolutePath)))
         }
         val instance = downloader(historyRepository)
 
         val result = instance.resolvePendingInstall("periodical", "debug-apk", currentTimestamp = "2026-08-26T00:00:00.000Z")
 
         assertNull(result)
-        coVerify { historyRepository.clearPendingInstall("periodical::debug-apk") }
+        coVerify { historyRepository.deleteVersion("periodical::debug-apk", missing.absolutePath) }
     }
 
     @Test
     fun `resolvePendingInstall returns null without a matching entry`() = runBlocking {
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns flowOf(emptyList())
+            every { versions } returns flowOf(emptyList())
         }
         val instance = downloader(historyRepository)
 
@@ -194,17 +233,38 @@ class HostedFileDownloaderTest {
     }
 
     @Test
-    fun `deletePendingInstall removes the file and clears the cache entry`() = runBlocking {
+    fun `deletePendingInstall removes the file and clears the matching version`() = runBlocking {
         val cached = File.createTempFile("commander-test", ".apk")
         val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
-            every { pendingInstalls } returns flowOf(emptyList())
+            every { versions } returns flowOf(emptyList())
         }
         val instance = downloader(historyRepository)
 
         instance.deletePendingInstall("periodical", "debug-apk", cached)
 
         assertFalse(cached.exists())
-        coVerify { historyRepository.clearPendingInstall("periodical::debug-apk") }
+        coVerify { historyRepository.deleteVersion("periodical::debug-apk", cached.absolutePath) }
+    }
+
+    @Test
+    fun `pendingInstalls exposes only the latest apk version per key`() = runBlocking {
+        val olderApk = File.createTempFile("commander-test", ".apk")
+        val newerApk = File.createTempFile("commander-test", ".apk")
+        val nonApk = File.createTempFile("commander-test", ".txt")
+        val historyRepository = mockk<DownloadHistoryRepository>(relaxed = true) {
+            every { versions } returns flowOf(
+                listOf(
+                    DownloadVersion("periodical::debug-apk", "ts1", "2026-08-25T00:00:00Z", olderApk.absolutePath),
+                    DownloadVersion("periodical::debug-apk", "ts2", "2026-08-26T00:00:00Z", newerApk.absolutePath),
+                    DownloadVersion("periodical::notes.txt", null, "2026-08-26T00:00:00Z", nonApk.absolutePath),
+                ),
+            )
+        }
+        val instance = downloader(historyRepository)
+
+        val result = instance.pendingInstalls.first()
+
+        assertEquals(listOf(DownloadVersion("periodical::debug-apk", "ts2", "2026-08-26T00:00:00Z", newerApk.absolutePath)), result)
     }
 
     @Test

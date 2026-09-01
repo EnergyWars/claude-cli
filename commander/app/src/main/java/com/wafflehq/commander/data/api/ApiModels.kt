@@ -185,10 +185,14 @@ data class ConfigPointerUpdateResponse(val versionId: Int? = null, val config: J
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
 
 private const val PATH_COMMAND_AGENT_PREFIX = "path-command:"
+private const val HOOK_AGENT_PREFIX = "hook:"
 private const val COMMAND_STATUS_RUNNING = "running"
 
-/** True for finished agent runs, successful or not (retryable via the run-agent screen) - excludes still-running commands and shell-based path commands, which have no free-text prompt to retry. */
-fun CommandState.isRetryable(): Boolean = status != COMMAND_STATUS_RUNNING && !agent.startsWith(PATH_COMMAND_AGENT_PREFIX)
+/** True for finished agent runs, successful or not (retryable via the run-agent screen) - excludes still-running commands and shell-based path commands/hooks, which have no free-text prompt to retry. */
+fun CommandState.isRetryable(): Boolean =
+    status != COMMAND_STATUS_RUNNING &&
+        !agent.startsWith(PATH_COMMAND_AGENT_PREFIX) &&
+        !agent.startsWith(HOOK_AGENT_PREFIX)
 
 /** Reverses the server's `agentNameOrNull()` mapping: turns a stored `CommandState.agent` (e.g. "main", "dev") back into the `ManifestAgent.command` used to look it up (e.g. "cl", "cl dev"). */
 fun CommandState.retryAgentCommand(): String = if (agent == "main") "cl" else "cl $agent"

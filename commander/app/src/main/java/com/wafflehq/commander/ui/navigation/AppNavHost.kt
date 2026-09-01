@@ -25,6 +25,7 @@ import com.wafflehq.commander.ui.agents.AgentsScreen
 import com.wafflehq.commander.ui.collect.CollectScreen
 import com.wafflehq.commander.ui.command.CommandDetailScreen
 import com.wafflehq.commander.ui.commands.CommandsScreen
+import com.wafflehq.commander.ui.downloads.DownloadHistoryScreen
 import com.wafflehq.commander.ui.downloads.DownloadsScreen
 import com.wafflehq.commander.ui.feedback.FeedbackListScreen
 import com.wafflehq.commander.ui.history.HistoryScreen
@@ -51,6 +52,7 @@ object Routes {
     const val PROJECT_HOME = "project_home"
     const val COMMANDS = "commands/{pathName}"
     const val DOWNLOADS = "downloads/{pathName}"
+    const val DOWNLOAD_HISTORY = "downloads/{pathName}/history"
     const val AGENTS = "agents/{pathName}"
     const val AGENT_RUN = "agent_run/{pathName}/{agentCommand}?prefillPrompt={prefillPrompt}"
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
@@ -71,6 +73,8 @@ object Routes {
     fun commands(pathName: String): String = "commands/${Uri.encode(pathName)}"
 
     fun downloads(pathName: String): String = "downloads/${Uri.encode(pathName)}"
+
+    fun downloadHistory(pathName: String): String = "downloads/${Uri.encode(pathName)}/history"
 
     fun agents(pathName: String): String = "agents/${Uri.encode(pathName)}"
 
@@ -107,8 +111,13 @@ fun AppNavHost() {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) {
-                gateViewModel.refreshTokenOnForeground()
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    gateViewModel.refreshTokenOnForeground()
+                    gateViewModel.refreshUsage()
+                }
+                Lifecycle.Event.ON_STOP -> gateViewModel.refreshUsage()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -193,8 +202,18 @@ fun AppNavHost() {
         composable(
             route = Routes.DOWNLOADS,
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) { entry ->
+            val pathName = checkNotNull(entry.arguments?.getString("pathName"))
+            DownloadsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenHistory = { navController.navigate(Routes.downloadHistory(pathName)) },
+            )
+        }
+        composable(
+            route = Routes.DOWNLOAD_HISTORY,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
         ) {
-            DownloadsScreen(onBack = { navController.popBackStack() })
+            DownloadHistoryScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.AGENTS,

@@ -5,6 +5,7 @@ import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.Manifest
 import com.wafflehq.commander.data.api.UsageLimit
 import com.wafflehq.commander.data.settings.SettingsRepository
+import com.wafflehq.commander.data.usage.UsageRepository
 import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -59,7 +60,7 @@ class ProjectHomeViewModelTest {
             coEvery { getManifest() } returns EMPTY_MANIFEST
             coEvery { getUsage() } returns limits
         }
-        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository())
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), UsageRepository(api))
         dispatcher.scheduler.runCurrent()
 
         assertEquals(limits, viewModel.uiState.value.usageLimits)
@@ -71,7 +72,7 @@ class ProjectHomeViewModelTest {
             coEvery { getManifest() } returns EMPTY_MANIFEST
             coEvery { getUsage() } throws ApiException(500, "Serverfehler.")
         }
-        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository())
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), UsageRepository(api))
         dispatcher.scheduler.runCurrent()
 
         assertEquals(emptyList<UsageLimit>(), viewModel.uiState.value.usageLimits)
@@ -88,11 +89,32 @@ class ProjectHomeViewModelTest {
                 listOf(UsageLimit("Current session", callCount * 10, "x"))
             }
         }
-        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository())
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), UsageRepository(api))
         dispatcher.scheduler.runCurrent()
         assertEquals(10, viewModel.uiState.value.usageLimits.first().percentUsed)
 
         dispatcher.scheduler.advanceTimeBy(USAGE_POLL_INTERVAL_MS)
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(20, viewModel.uiState.value.usageLimits.first().percentUsed)
+    }
+
+    @Test
+    fun `reflects a usage refresh triggered from outside the view model, eg by firing a command`() = runTest(dispatcher) {
+        var callCount = 0
+        val api = mockk<ClServerApi> {
+            coEvery { getManifest() } returns EMPTY_MANIFEST
+            coEvery { getUsage() } coAnswers {
+                callCount += 1
+                listOf(UsageLimit("Current session", callCount * 10, "x"))
+            }
+        }
+        val usageRepository = UsageRepository(api)
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), usageRepository)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(10, viewModel.uiState.value.usageLimits.first().percentUsed)
+
+        usageRepository.refresh()
         dispatcher.scheduler.runCurrent()
 
         assertEquals(20, viewModel.uiState.value.usageLimits.first().percentUsed)
@@ -104,7 +126,7 @@ class ProjectHomeViewModelTest {
             coEvery { getManifest() } returns EMPTY_MANIFEST
             coEvery { getUsage() } returns emptyList()
         }
-        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(usageBannerExpanded = false))
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(usageBannerExpanded = false), UsageRepository(api))
         dispatcher.scheduler.runCurrent()
 
         assertEquals(false, viewModel.usageBannerExpanded.value)
@@ -117,7 +139,7 @@ class ProjectHomeViewModelTest {
             coEvery { getUsage() } returns emptyList()
         }
         val settingsRepository = fakeSettingsRepository()
-        val viewModel = ProjectHomeViewModel(api, settingsRepository)
+        val viewModel = ProjectHomeViewModel(api, settingsRepository, UsageRepository(api))
         dispatcher.scheduler.runCurrent()
 
         viewModel.onUsageBannerExpandedChanged(false)

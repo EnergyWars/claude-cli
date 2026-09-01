@@ -37,9 +37,11 @@ import com.wafflehq.commander.data.download.DownloadStatus
 import com.wafflehq.commander.data.download.isApkFileName
 import com.wafflehq.commander.ui.components.ApkActionDialog
 import com.wafflehq.commander.ui.components.AppBanner
+import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppConfirmDialog
 import com.wafflehq.commander.ui.components.AppIconButton
+import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.history.formatTimestamp
 import com.wafflehq.commander.ui.navigation.hiltViewModel
@@ -50,6 +52,7 @@ import com.wafflehq.commander.ui.theme.AppTheme
 @Composable
 fun DownloadsScreen(
     onBack: () -> Unit,
+    onOpenHistory: () -> Unit,
     viewModel: DownloadsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -111,6 +114,13 @@ fun DownloadsScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
+            AppButton(
+                text = stringResource(R.string.download_history_button),
+                role = AppRole.Neutral,
+                variant = ButtonVariant.Outlined,
+                onClick = onOpenHistory,
+            )
+
             val error = state.error
             if (error != null) {
                 AppBanner(title = stringResource(R.string.setup_error_title), body = error, role = AppRole.Error)

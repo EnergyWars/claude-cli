@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.PathCommandEntry
+import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,7 @@ data class CommandsUiState(
 @HiltViewModel
 class CommandsViewModel @Inject constructor(
     private val api: ClServerApi,
+    private val usageRepository: UsageRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -53,6 +55,7 @@ class CommandsViewModel @Inject constructor(
             try {
                 val accepted = api.runPathCommand(pathName, key)
                 _uiState.update { it.copy(startedCommandId = accepted.id) }
+                usageRepository.refresh()
             } catch (error: ApiException) {
                 _uiState.update { it.copy(error = error.message ?: "Unbekannter Fehler.") }
             }

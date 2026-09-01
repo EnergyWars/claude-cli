@@ -74,6 +74,11 @@
     <string name="apk_action_delete_confirm_confirm">Löschen</string>
     <string name="download_status_opening">Wird geöffnet…</string>
     <string name="download_notification_channel_name">Downloads</string>
+    <string name="download_history_button">Download-Verlauf</string>
+    <string name="download_history_title">Download-Verlauf</string>
+    <string name="download_history_empty">Kein Download-Verlauf vorhanden.</string>
+    <string name="download_history_open">Öffnen</string>
+    <string name="download_history_downloaded_at">Heruntergeladen am %1$s</string>
 
     <string name="agents_title">Entwicklung</string>
     <string name="agents_empty">Keine Agenten konfiguriert.</string>

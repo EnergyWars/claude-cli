@@ -845,6 +845,26 @@ test('POST /: fuehrt den onLastAgentFinish-Hook des Pfads aus, sobald der letzte
   assert.ok(existsSync(join(hookedDir, 'hook-fired.txt')));
 });
 
+test('POST /: der onLastAgentFinish-Hook erscheint als eigener Eintrag im Verlauf (GET /commands/:pathName)', async () => {
+  await fetch(`${baseUrl()}/`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ command: 'x', path: 'hooked' }),
+  });
+
+  await sleep(300);
+
+  const res = await fetch(`${baseUrl()}/commands/hooked`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    commands: { agent: string; command: string; status: string }[];
+  };
+  const hookEntry = body.commands.find((command) => command.agent === 'hook:hooked:onLastAgentFinish');
+  assert.ok(hookEntry);
+  assert.equal(hookEntry.command, 'touch hook-fired.txt');
+  assert.equal(hookEntry.status, 'completed');
+});
+
 test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key', async () => {
   const res = await fetch(`${baseUrl()}/paths/default/commands/doesnotexist`, {
     method: 'POST',

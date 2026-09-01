@@ -228,7 +228,7 @@ export function listCommands(db: DatabaseSync, path: string): CommandRow[] {
 
 export const DEFAULT_STATS_WINDOW_HOURS = 24;
 
-const AGENT_COMMANDS_ONLY_CLAUSE = "agent NOT LIKE 'path-command:%'";
+const AGENT_COMMANDS_ONLY_CLAUSE = "agent NOT LIKE 'path-command:%' AND agent NOT LIKE 'hook:%'";
 
 /** Reine Agent-Laeufe (ohne Pfad-Commands) mit Status "running" fuer diesen Pfad. */
 export function countRunningAgents(db: DatabaseSync, path: string): number {

@@ -1362,12 +1362,51 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
   if (hookCommand === undefined || countRunningAgents(db, pathEntry.path) > 0) {
     return;
   }
-  runShellCommand(hookCommand, pathEntry.path, () => undefined).catch((error: unknown) => {
-    console.error(
-      `onLastAgentFinish-Hook fuer Pfad "${pathEntry.name}" fehlgeschlagen:`,
-      error instanceof Error ? error.message : String(error),
-    );
+
+  const id = randomUUID();
+  insertCommand(db, {
+    id,
+    agent: `hook:${pathEntry.name}:onLastAgentFinish`,
+    model: '-',
+    command: hookCommand,
+    path: pathEntry.path,
   });
+  publishCommandState(db, id);
+
+  runShellCommand(
+    hookCommand,
+    pathEntry.path,
+    (output) => {
+      updateCommandOutput(db, id, output);
+      publishCommandState(db, id);
+    },
+    (child) => {
+      runningProcesses.set(id, child);
+    },
+  )
+    .then((result) => {
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
+      completeCommand(
+        db,
+        id,
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
+        result.exitCode,
+        result.output,
+      );
+      publishCommandState(db, id);
+    })
+    .catch((error: unknown) => {
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
+      const message = error instanceof Error ? error.message : String(error);
+      completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
+      console.error(
+        `onLastAgentFinish-Hook fuer Pfad "${pathEntry.name}" fehlgeschlagen:`,
+        message,
+      );
+    });
 }
 
 function handlePostCommand(

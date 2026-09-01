@@ -8,6 +8,7 @@ import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.DownloadProgress
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val FILE_PROVIDER_SUFFIX = ".fileprovider"
@@ -51,30 +53,33 @@ class HostedFileDownloader @Inject constructor(
     private val _downloadOutcome = MutableStateFlow<DownloadOutcome?>(null)
     val downloadOutcome: StateFlow<DownloadOutcome?> = _downloadOutcome.asStateFlow()
 
-    val pendingInstalls: Flow<List<PendingInstall>> = historyRepository.pendingInstalls
+    /** Neueste Version je Schluessel, aber nur APKs - treibt das Install- statt Download-Icon in den Downloads-/Command-Detail-Screens. */
+    val pendingInstalls: Flow<List<DownloadVersion>> = historyRepository.versions.map { all ->
+        all.filter { isApkFileName(File(it.filePath).name) }
+            .groupBy { it.key }
+            .map { (_, group) -> group.last() }
+    }
 
     /**
      * [currentTimestamp] ist der frisch vom Server geladene Stand (`ManifestHostedEntry.timestamp`/`HostedFileEntry.timestamp`).
-     * Weicht er vom beim Download gespeicherten Timestamp ab, ist die gecachte Datei veraltet: sie wird geloescht statt
-     * zur Installation angeboten, damit der naechste Aufruf sie neu herunterlaedt.
+     * Weicht er vom beim Download gespeicherten Timestamp ab, ist die gecachte Datei veraltet: statt sie zu loeschen,
+     * bleibt sie Teil der Versionshistorie - der naechste Aufruf laedt einfach neu herunter und haengt die neue Version an.
      */
     suspend fun resolvePendingInstall(pathName: String, identity: String, currentTimestamp: String?): File? {
         val key = pendingKey(pathName, identity)
-        val entry = historyRepository.pendingInstalls.first().find { it.key == key } ?: return null
-        val file = File(entry.filePath)
+        val entry = historyRepository.versions.first().filter { it.key == key }.lastOrNull() ?: return null
         if (currentTimestamp != null && entry.timestamp != null && entry.timestamp != currentTimestamp) {
-            file.delete()
-            historyRepository.clearPendingInstall(key)
             return null
         }
+        val file = File(entry.filePath)
         if (file.exists() && file.length() > 0L) return file
-        historyRepository.clearPendingInstall(key)
+        historyRepository.deleteVersion(key, entry.filePath)
         return null
     }
 
     suspend fun deletePendingInstall(pathName: String, identity: String, file: File) {
         file.delete()
-        historyRepository.clearPendingInstall(pendingKey(pathName, identity))
+        historyRepository.deleteVersion(pendingKey(pathName, identity), file.absolutePath)
     }
 
     /** Laeuft in [downloadScope] statt im Scope des Aufrufers, damit Tab-Wechsel/App-Minimieren den Download nicht abbrechen; liefert `false`, wenn bereits ein Download laeuft. */
@@ -119,9 +124,13 @@ class HostedFileDownloader @Inject constructor(
         verify(file)
         val finalPhase = if (isApkFileName(file.name)) DownloadPhase.INSTALLING else DownloadPhase.OPENING
         _downloadStatus.value = DownloadStatus(finalPhase, _downloadStatus.value?.progress)
-        if (isApkFileName(file.name)) {
-            historyRepository.recordPendingInstall(pendingKey(pathName, identity), timestamp, file.absolutePath)
-        }
+        val evicted = historyRepository.recordVersion(
+            key = pendingKey(pathName, identity),
+            timestamp = timestamp,
+            downloadedAt = Instant.now().toString(),
+            filePath = file.absolutePath,
+        )
+        evicted.forEach { File(it.filePath).delete() }
         return file
     }
 

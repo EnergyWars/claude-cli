@@ -9,6 +9,7 @@ import com.wafflehq.commander.data.api.ManifestAgent
 import com.wafflehq.commander.data.api.agentNameOrNull
 import com.wafflehq.commander.data.context.DevContextRepository
 import com.wafflehq.commander.data.db.DevContextEntity
+import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +44,7 @@ data class RunAgentUiState(
 @HiltViewModel
 class RunAgentViewModel @Inject constructor(
     private val api: ClServerApi,
+    private val usageRepository: UsageRepository,
     devContextRepository: DevContextRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -104,6 +106,7 @@ class RunAgentViewModel @Inject constructor(
                 val agentName = resolvedAgent?.agentNameOrNull()
                 val accepted = api.runAgent(agentName, state.pathName, command, model)
                 _uiState.update { it.copy(submitting = false, createdCommandId = accepted.id) }
+                usageRepository.refresh()
             } catch (error: ApiException) {
                 _uiState.update { it.copy(submitting = false, error = error.message ?: "Unbekannter Fehler.") }
             }

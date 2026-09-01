@@ -6,6 +6,7 @@ import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.connection.ConnectionSource
 import com.wafflehq.commander.data.connection.Session
 import com.wafflehq.commander.data.settings.SettingsRepository
+import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
 import java.time.Instant
@@ -30,6 +31,7 @@ class ConnectionGateViewModel @Inject constructor(
     connectionSource: ConnectionSource,
     settingsRepository: SettingsRepository,
     private val clServerApi: ClServerApi,
+    private val usageRepository: UsageRepository,
 ) : ViewModel() {
 
     private val _gateState = MutableStateFlow<GateState>(GateState.Loading)
@@ -48,6 +50,11 @@ class ConnectionGateViewModel @Inject constructor(
     /** Triggered when the app comes to the foreground (see AppNavHost's lifecycle observer). */
     fun refreshTokenOnForeground() {
         viewModelScope.launch { clServerApi.refreshSessionIfLoggedIn() }
+    }
+
+    /** Triggered when the app enters or leaves the foreground (see AppNavHost's lifecycle observer). */
+    fun refreshUsage() {
+        viewModelScope.launch { usageRepository.refresh() }
     }
 
     private fun applyState(session: Session?, projectName: String?) {

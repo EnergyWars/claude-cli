@@ -6,6 +6,7 @@ import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.UsageLimit
 import com.wafflehq.commander.data.settings.SettingsRepository
+import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -30,6 +31,7 @@ data class ProjectHomeUiState(
 class ProjectHomeViewModel @Inject constructor(
     private val api: ClServerApi,
     private val settingsRepository: SettingsRepository,
+    private val usageRepository: UsageRepository,
 ) : ViewModel() {
 
     val selectedProjectName: StateFlow<String?> = settingsRepository.selectedProjectName
@@ -44,8 +46,13 @@ class ProjectHomeViewModel @Inject constructor(
     init {
         refresh()
         viewModelScope.launch {
+            usageRepository.usageLimits.collect { limits ->
+                _uiState.update { it.copy(usageLimits = limits) }
+            }
+        }
+        viewModelScope.launch {
             while (isActive) {
-                refreshUsage()
+                usageRepository.refresh()
                 delay(USAGE_POLL_INTERVAL_MS)
             }
         }
@@ -59,15 +66,6 @@ class ProjectHomeViewModel @Inject constructor(
             } catch (error: ApiException) {
                 _uiState.update { it.copy(error = error.message ?: "Unbekannter Fehler.") }
             }
-        }
-    }
-
-    private suspend fun refreshUsage() {
-        try {
-            val limits = api.getUsage()
-            _uiState.update { it.copy(usageLimits = limits) }
-        } catch (error: ApiException) {
-            // Best effort - die Nutzungsanzeige ist informativ, ein Fehler soll den Hub nicht blockieren.
         }
     }
 

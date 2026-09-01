@@ -51,6 +51,16 @@ class ApiModelsTest {
     }
 
     @Test
+    fun `a failed hook run is not retryable, since it has no free-text prompt`() {
+        assertFalse(commandState(agent = "hook:backend:onLastAgentFinish", status = "failed").isRetryable())
+    }
+
+    @Test
+    fun `a completed hook run is not retryable, since it has no free-text prompt`() {
+        assertFalse(commandState(agent = "hook:backend:onLastAgentFinish", status = "completed").isRetryable())
+    }
+
+    @Test
     fun `the main agent maps back to its manifest command "cl"`() {
         assertEquals("cl", commandState(agent = "main", status = "failed").retryAgentCommand())
     }

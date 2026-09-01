@@ -10,6 +10,7 @@ import com.wafflehq.commander.data.api.TICKET_STATUS_DONE
 import com.wafflehq.commander.data.api.Ticket
 import com.wafflehq.commander.data.api.TicketPatchRequest
 import com.wafflehq.commander.data.api.agentNameOrNull
+import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ data class TicketDetailUiState(
 @HiltViewModel
 class TicketDetailViewModel @Inject constructor(
     private val api: ClServerApi,
+    private val usageRepository: UsageRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -143,6 +145,7 @@ class TicketDetailViewModel @Inject constructor(
             try {
                 val accepted = api.runAgent(agent?.agentNameOrNull(), ticket.pathName, ticket.claudeInstruction, null)
                 _uiState.update { it.copy(playing = false, startedCommandId = accepted.id) }
+                usageRepository.refresh()
                 try {
                     val updated = api.updateTicket(pathName, id, TicketPatchRequest(status = TICKET_STATUS_DONE))
                     _uiState.update { it.copy().applying(updated) }

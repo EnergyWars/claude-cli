@@ -10,8 +10,8 @@ import com.wafflehq.commander.data.api.ManifestHostedEntry
 import com.wafflehq.commander.data.api.ManifestPath
 import com.wafflehq.commander.data.download.DownloadOutcome
 import com.wafflehq.commander.data.download.DownloadTarget
+import com.wafflehq.commander.data.download.DownloadVersion
 import com.wafflehq.commander.data.download.HostedFileDownloader
-import com.wafflehq.commander.data.download.PendingInstall
 import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -61,7 +61,7 @@ class CommandDetailViewModelTest {
     }
 
     private fun downloader(
-        cachedInstalls: List<PendingInstall> = emptyList(),
+        cachedInstalls: List<DownloadVersion> = emptyList(),
         activeTargetFlow: MutableStateFlow<DownloadTarget?> = MutableStateFlow(null),
         outcomeFlow: MutableStateFlow<DownloadOutcome?> = MutableStateFlow(null),
         block: HostedFileDownloader.() -> Unit = {},
@@ -94,8 +94,8 @@ class CommandDetailViewModelTest {
     fun `pendingInstalls exposes cached identities for the current path only`() = runTest(dispatcher) {
         val downloader = downloader(
             cachedInstalls = listOf(
-                PendingInstall("commander::debug-apk", null, "/tmp/app-debug.apk"),
-                PendingInstall("other-project::debug-apk", null, "/tmp/other.apk"),
+                DownloadVersion("commander::debug-apk", null, "2026-08-26T00:00:00Z", "/tmp/app-debug.apk"),
+                DownloadVersion("other-project::debug-apk", null, "2026-08-26T00:00:00Z", "/tmp/other.apk"),
             ),
         )
         val viewModel = viewModel(downloader)
