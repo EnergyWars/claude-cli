@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -123,7 +123,7 @@ private fun DownloadHistoryVersionRow(
             )
         }
         AppIconButton(
-            icon = Icons.Outlined.OpenInNew,
+            icon = Icons.AutoMirrored.Outlined.OpenInNew,
             contentDescription = stringResource(R.string.download_history_open),
             role = AppRole.Primary,
             onClick = onOpen,
