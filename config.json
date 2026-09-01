@@ -55,6 +55,25 @@
       }
     },
     {
+      "name": "base-project",
+      "path": "/home/simon/IdeaProjects/base-project",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/base-project.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
       "name": "therapy",
       "path": "/home/simon/IdeaProjects/therapy",
       "hosted": [
@@ -189,6 +208,11 @@
       "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "allinonecalendar",
       "path": "periodical"
+    },
+    {
+      "sourcePath": "/home/simon/IdeaProjects/base-project/app/build/outputs/apk/debug/app-debug.apk",
+      "targetName": "base-project",
+      "path": "base-project"
     }
   ]
 }
