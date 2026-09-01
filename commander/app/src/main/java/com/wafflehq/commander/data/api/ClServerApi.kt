@@ -9,6 +9,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -130,7 +131,9 @@ class ClServerApi @Inject constructor(
         val request = Request.Builder().url(urlBuilder(host, port).addPathSegment("status").build()).get().build()
         try {
             discoveryClient.newCall(request).execute().use { it.code == 204 }
-        } catch (error: java.io.IOException) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             false
         }
     }
@@ -194,7 +197,11 @@ class ClServerApi @Inject constructor(
                     }
                 }
             }
-        } catch (error: java.io.IOException) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: ApiException) {
+            throw error
+        } catch (error: Exception) {
             throw ApiException(null, error.message ?: "Netzwerkfehler.", error)
         }
     }.flowOn(Dispatchers.IO)
@@ -376,14 +383,22 @@ class ClServerApi @Inject constructor(
             .get()
             .build()
         return withContext(Dispatchers.IO) {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw errorFrom(response)
-                val body = response.body ?: throw ApiException(response.code, "Leere Antwort.")
-                val fileName = contentDispositionFileName(response.header("Content-Disposition")) ?: fallbackFileName
-                destinationDir.mkdirs()
-                val destination = File(destinationDir, fileName)
-                writeBodyWithProgress(body, destination, onProgress)
-                destination
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw errorFrom(response)
+                    val body = response.body ?: throw ApiException(response.code, "Leere Antwort.")
+                    val fileName = contentDispositionFileName(response.header("Content-Disposition")) ?: fallbackFileName
+                    destinationDir.mkdirs()
+                    val destination = File(destinationDir, fileName)
+                    writeBodyWithProgress(body, destination, onProgress)
+                    destination
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ApiException) {
+                throw error
+            } catch (error: Exception) {
+                throw ApiException(null, error.message ?: "Download fehlgeschlagen.", error)
             }
         }
     }
@@ -421,7 +436,9 @@ class ClServerApi @Inject constructor(
     private suspend inline fun <reified T> execute(request: Request, client: OkHttpClient = this.client): T = withContext(Dispatchers.IO) {
         val response = try {
             client.newCall(request).execute()
-        } catch (error: java.io.IOException) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             throw ApiException(null, error.message ?: "Netzwerkfehler.", error)
         }
         response.use {
@@ -432,10 +449,18 @@ class ClServerApi @Inject constructor(
                 }
                 throw error
             }
-            val text = it.body?.string().orEmpty()
+            val text = try {
+                it.body?.string().orEmpty()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                throw ApiException(it.code, "Fehler beim Lesen der Antwort.", error)
+            }
             val result: T = try {
                 json.decodeFromString(text)
-            } catch (error: SerializationException) {
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 throw ApiException(it.code, "Ungueltige Server-Antwort.", error)
             }
             if (request.header(AUTHORIZATION_HEADER) != null && request.url.encodedPath != AUTH_REFRESH_PATH) {

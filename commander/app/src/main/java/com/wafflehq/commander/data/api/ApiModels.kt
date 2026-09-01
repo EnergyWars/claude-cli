@@ -197,7 +197,12 @@ fun CommandState.isRetryable(): Boolean =
 /** Reverses the server's `agentNameOrNull()` mapping: turns a stored `CommandState.agent` (e.g. "main", "dev") back into the `ManifestAgent.command` used to look it up (e.g. "cl", "cl dev"). */
 fun CommandState.retryAgentCommand(): String = if (agent == "main") "cl" else "cl $agent"
 
-class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)
+open class ApiException(val httpCode: Int?, message: String, cause: Throwable? = null) : Exception(message, cause)
 
-/** Thrown by [com.wafflehq.commander.data.api.ClServerApi] when a Connection exists but its JWT is missing/expired. */
-class AuthRequiredException(message: String) : Exception(message)
+/**
+ * Thrown by [com.wafflehq.commander.data.api.ClServerApi] when a Connection exists but its JWT is missing/expired.
+ * Extends [ApiException] (httpCode 401) so every existing `catch (e: ApiException)` call site handles it too,
+ * instead of crashing the app - [com.wafflehq.commander.ui.navigation.ConnectionGateViewModel] reacts to the
+ * underlying session state separately and routes to the login screen regardless.
+ */
+class AuthRequiredException(message: String) : ApiException(401, message)
