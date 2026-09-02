@@ -206,7 +206,19 @@ class ClServerApi @Inject constructor(
         }
     }.flowOn(Dispatchers.IO)
 
-    suspend fun getCommands(pathName: String): CommandList = authedGet("commands", pathName)
+    /** GET /commands/:pathName: paginiert per `limit`/`offset` (Server-Default `limit=5`, neueste zuerst). */
+    suspend fun getCommands(pathName: String, limit: Int? = null, offset: Int? = null): CommandList {
+        val session = requireSession()
+        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
+            .addPathSegment("commands").addPathSegment(pathName)
+        if (limit != null) urlBuilder.addQueryParameter("limit", limit.toString())
+        if (offset != null) urlBuilder.addQueryParameter("offset", offset.toString())
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
+            .get()
+        return execute(request)
+    }
 
     suspend fun getStats(pathName: String, hours: Int? = null): ProjectStats {
         val session = requireSession()

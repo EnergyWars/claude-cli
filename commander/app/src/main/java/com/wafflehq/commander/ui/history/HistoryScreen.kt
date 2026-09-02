@@ -2,11 +2,13 @@ package com.wafflehq.commander.ui.history
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -27,9 +29,11 @@ import com.wafflehq.commander.data.api.isRetryable
 import com.wafflehq.commander.data.api.retryAgentCommand
 import com.wafflehq.commander.ui.command.COMMAND_STATUS_RUNNING
 import com.wafflehq.commander.ui.components.AppBanner
+import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
+import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
@@ -89,6 +93,22 @@ fun HistoryScreen(
                         onClick = { onOpenCommand(command.id) },
                         onRetry = { onRetryCommand(command.retryAgentCommand(), command.command) },
                     )
+                }
+                if (state.hasMore || state.loadingMore) {
+                    item(key = "load-more") {
+                        Box(modifier = Modifier.fillMaxWidth().padding(AppSpacing.md), contentAlignment = Alignment.Center) {
+                            if (state.loadingMore) {
+                                CircularProgressIndicator(modifier = Modifier.size(AppSpacing.xl))
+                            } else {
+                                AppButton(
+                                    text = stringResource(R.string.history_load_more),
+                                    role = AppRole.Primary,
+                                    variant = ButtonVariant.Tonal,
+                                    onClick = { viewModel.loadMore() },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -22,11 +22,13 @@ let previousRootDir: string | undefined;
 let previousPath: string | undefined;
 let hostedDir: string;
 let hookedDir: string;
+let pagedDir: string;
 let authToken: string;
 
 before(async () => {
   hostedDir = mkdtempSync(join(tmpdir(), 'cl-hosted-'));
   hookedDir = mkdtempSync(join(tmpdir(), 'cl-hooked-'));
+  pagedDir = mkdtempSync(join(tmpdir(), 'cl-paged-'));
   writeFileSync(join(hostedDir, 'notes.txt'), 'hosted-file-inhalt');
   mkdirSync(join(hostedDir, 'docs'));
   writeFileSync(join(hostedDir, 'docs', 'a.txt'), 'a-inhalt');
@@ -64,6 +66,7 @@ before(async () => {
         path: hookedDir,
         hooks: { onLastAgentFinish: 'touch hook-fired.txt' },
       },
+      { name: 'paged', path: pagedDir },
     ],
     contentPath: join(hostedDir, 'content'),
     collection: [
@@ -97,6 +100,7 @@ after(async () => {
   fixture.cleanup();
   rmSync(hostedDir, { recursive: true, force: true });
   rmSync(hookedDir, { recursive: true, force: true });
+  rmSync(pagedDir, { recursive: true, force: true });
   if (previousRootDir === undefined) {
     delete process.env.CL_ROOT_DIR;
   } else {
@@ -292,7 +296,7 @@ test('GET /paths: listet nur die Namen aus config.json', async () => {
   const res = await fetch(`${baseUrl()}/paths`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { paths: string[] };
-  assert.deepEqual(body.paths, ['default', 'other', 'hooked']);
+  assert.deepEqual(body.paths, ['default', 'other', 'hooked', 'paged']);
 });
 
 test('GET /paths: 401 ohne Authorization-Header', async () => {
@@ -317,7 +321,7 @@ test('GET /manifest: liefert Agents und Paths inkl. Commands/Hosted (keine Tasks
     { command: 'cl permagent', description: 'Permission-Agent' },
   ]);
   assert.ok(!('tasks' in body));
-  assert.equal(body.paths.length, 3);
+  assert.equal(body.paths.length, 4);
   const [defaultPath] = body.paths;
   assert.ok(defaultPath);
   assert.equal(defaultPath.name, 'default');
@@ -368,6 +372,70 @@ test('GET /commands/doesnotexist: 404 bei unbekanntem Pfad', async () => {
 test('GET /commands/default: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/commands/default`);
   assert.equal(res.status, 401);
+});
+
+test('GET /commands/:pathName: paginiert per ?limit=/?offset=, neueste zuerst, mit total/hasMore', async () => {
+  const total = 7;
+  const ids: string[] = [];
+  for (let i = 0; i < total; i++) {
+    const res = await fetch(`${baseUrl()}/`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ command: `pagination-test-${i.toString()}`, path: 'paged' }),
+    });
+    const { id } = (await res.json()) as { id: string };
+    ids.push(id);
+  }
+  const expectedOrder = [...ids].reverse(); // neueste zuerst
+
+  const defaultRes = await fetch(`${baseUrl()}/commands/paged`, { headers: authHeaders() });
+  assert.equal(defaultRes.status, 200);
+  const defaultBody = (await defaultRes.json()) as {
+    commands: { id: string }[];
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+  assert.equal(defaultBody.limit, 5, 'Default-Seitengroesse ohne ?limit= ist 5');
+  assert.equal(defaultBody.offset, 0);
+  assert.equal(defaultBody.total, total);
+  assert.equal(defaultBody.hasMore, true);
+  assert.deepEqual(
+    defaultBody.commands.map((c) => c.id),
+    expectedOrder.slice(0, 5),
+  );
+
+  const secondPageRes = await fetch(`${baseUrl()}/commands/paged?limit=5&offset=5`, {
+    headers: authHeaders(),
+  });
+  assert.equal(secondPageRes.status, 200);
+  const secondPageBody = (await secondPageRes.json()) as {
+    commands: { id: string }[];
+    total: number;
+    hasMore: boolean;
+  };
+  assert.equal(secondPageBody.total, total);
+  assert.equal(secondPageBody.hasMore, false);
+  assert.deepEqual(
+    secondPageBody.commands.map((c) => c.id),
+    expectedOrder.slice(5, 7),
+  );
+});
+
+test('GET /commands/default?limit=abc: 400 bei ungueltigem limit', async () => {
+  const res = await fetch(`${baseUrl()}/commands/default?limit=abc`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /commands/default?limit=0: 400 bei nicht-positivem limit', async () => {
+  const res = await fetch(`${baseUrl()}/commands/default?limit=0`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /commands/default?offset=-1: 400 bei negativem offset', async () => {
+  const res = await fetch(`${baseUrl()}/commands/default?offset=-1`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
 });
 
 test('GET /stats/default: Default-Zeitfenster ist 24h, lastDebugBuildAt/lastReleaseBuildAt sind zunaechst null', async () => {

@@ -9,6 +9,7 @@ import {
   completeCommand,
   confirmTotpSecret,
   countAgentsSince,
+  countCommands,
   countRunningAgents,
   deleteFeedback,
   deleteTicket,
@@ -230,6 +231,33 @@ test('listCommands: liefert nur Commands des angegebenen Pfads, neueste zuerst',
 
 test('listCommands: leeres Array fuer Pfad ohne Commands', () => {
   assert.deepEqual(listCommands(db, '/no-such-path'), []);
+});
+
+test('listCommands: mit { limit, offset } paginiert per SQL statt die volle Liste zu schneiden', () => {
+  for (let i = 0; i < 7; i++) {
+    insertCommand(db, {
+      id: `lc-page-${String(i)}`,
+      agent: 'main',
+      model: 'sonnet',
+      command: String(i),
+      path: '/list-commands-paged',
+    });
+  }
+  const firstPage = listCommands(db, '/list-commands-paged', { limit: 5 });
+  assert.deepEqual(
+    firstPage.map((row) => row.id),
+    ['lc-page-6', 'lc-page-5', 'lc-page-4', 'lc-page-3', 'lc-page-2'],
+  );
+  const secondPage = listCommands(db, '/list-commands-paged', { limit: 5, offset: 5 });
+  assert.deepEqual(
+    secondPage.map((row) => row.id),
+    ['lc-page-1', 'lc-page-0'],
+  );
+});
+
+test('countCommands: zaehlt alle Commands eines Pfads, unabhaengig von limit/offset', () => {
+  assert.equal(countCommands(db, '/list-commands-paged'), 7);
+  assert.equal(countCommands(db, '/no-such-path'), 0);
 });
 
 test('countRunningAgents: zaehlt nur Agent-Laeufe mit status "running" dieses Pfads', () => {

@@ -218,12 +218,35 @@ export function getCommand(db: DatabaseSync, id: string): CommandRow | undefined
   return row === undefined ? undefined : toCommandRow(row);
 }
 
-/** Neueste zuerst; "rowid" als Tiebreaker fuer Commands mit identischem created_at (Millisekunden-Aufloesung). */
-export function listCommands(db: DatabaseSync, path: string): CommandRow[] {
+/**
+ * Neueste zuerst; "rowid" als Tiebreaker fuer Commands mit identischem created_at (Millisekunden-Aufloesung).
+ * Ohne `options` (bzw. ohne `limit`) unveraendert die volle Liste; mit `limit` paginiert per SQL LIMIT/OFFSET
+ * (kein In-Memory-`slice()` noetig – bleibt effizient auch bei langem Verlauf).
+ */
+export function listCommands(
+  db: DatabaseSync,
+  path: string,
+  options?: { limit?: number; offset?: number },
+): CommandRow[] {
+  if (options?.limit === undefined) {
+    const rows = db
+      .prepare('SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC')
+      .all(path);
+    return rows.map((row) => toCommandRow(row));
+  }
   const rows = db
-    .prepare('SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC')
-    .all(path);
+    .prepare(
+      'SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?',
+    )
+    .all(path, options.limit, options.offset ?? 0);
   return rows.map((row) => toCommandRow(row));
+}
+
+export function countCommands(db: DatabaseSync, path: string): number {
+  const row = db.prepare('SELECT COUNT(*) AS count FROM t_commands WHERE path = ?').get(path) as {
+    count: number;
+  };
+  return row.count;
 }
 
 export const DEFAULT_STATS_WINDOW_HOURS = 24;

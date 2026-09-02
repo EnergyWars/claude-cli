@@ -268,15 +268,33 @@ class ClServerApiTest {
     fun `getCommands requests the path-scoped history and parses newest-first`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"commands":[{"id":"2","agent":"main","model":"sonnet","command":"b","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"2","updatedAt":"2"},{"id":"1","agent":"main","model":"sonnet","command":"a","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"1","updatedAt":"1"}]}""",
+                body = """{"commands":[{"id":"2","agent":"main","model":"sonnet","command":"b","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"2","updatedAt":"2"},{"id":"1","agent":"main","model":"sonnet","command":"a","path":"/p","status":"completed","output":"","exitCode":0,"createdAt":"1","updatedAt":"1"}],"total":2,"limit":5,"offset":0,"hasMore":false}""",
             ),
         )
 
         val result = apiWithConnection().getCommands("myapp")
 
         assertEquals(listOf("2", "1"), result.commands.map { it.id })
+        assertEquals(2, result.total)
+        assertEquals(5, result.limit)
+        assertEquals(0, result.offset)
+        assertEquals(false, result.hasMore)
         val recorded = server.takeRequest()
         assertEquals("/commands/myapp", recorded.target)
+    }
+
+    @Test
+    fun `getCommands appends limit and offset query parameters when given`() = runBlocking {
+        server.enqueue(
+            MockResponse(body = """{"commands":[],"total":12,"limit":5,"offset":5,"hasMore":true}"""),
+        )
+
+        val result = apiWithConnection().getCommands("myapp", limit = 5, offset = 5)
+
+        assertEquals(12, result.total)
+        assertEquals(true, result.hasMore)
+        val recorded = server.takeRequest()
+        assertEquals("/commands/myapp?limit=5&offset=5", recorded.target)
     }
 
     @Test

@@ -42,7 +42,13 @@ data class CommandState(
 )
 
 @Serializable
-data class CommandList(val commands: List<CommandState>)
+data class CommandList(
+    val commands: List<CommandState>,
+    val total: Int = 0,
+    val limit: Int = 0,
+    val offset: Int = 0,
+    val hasMore: Boolean = false,
+)
 
 @Serializable
 data class ProjectStats(

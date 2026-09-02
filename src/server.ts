@@ -19,6 +19,7 @@ import {
   completeCommand,
   confirmTotpSecret,
   countAgentsSince,
+  countCommands,
   countRunningAgents,
   DEFAULT_STATS_WINDOW_HOURS,
   deleteFeedback,
@@ -602,6 +603,69 @@ function publishCommandState(db: DatabaseSync, id: string): void {
   }
 }
 
+/** Wie oft ein laufender Command hoechstens per {@link createOutputPublisher} in die DB geschrieben/per SSE verteilt wird. */
+const OUTPUT_PUBLISH_INTERVAL_MS = 250;
+
+interface OutputPublisher {
+  /** Meldet den aktuellen Gesamt-Output; schreibt/verteilt gedrosselt statt bei jedem einzelnen stdout/stderr-Chunk. */
+  push: (output: string) => void;
+  /** Verwirft einen noch ausstehenden verzoegerten Schreibvorgang (vor dem finalen `completeCommand`-Aufruf noetig). */
+  cancel: () => void;
+}
+
+/**
+ * `updateCommandOutput`/`publishCommandState` schreiben bei jedem Aufruf den kompletten bisherigen Output
+ * synchron in die DB (node:sqlite kennt keine async API) und verteilen ihn per SSE an alle Abonnenten – bei
+ * chattigen Prozessen (z. B. `claude`s Streaming-Output oder ein verbose `gradlew`-Build) kommen stdout/stderr-
+ * Chunks oft mehrmals pro Sekunde an, mit wachsendem Output wird jeder einzelne Schreibvorgang teurer. Ohne
+ * Drosselung blockiert das den einzigen Node-Event-Loop wiederholt und macht den Server (und damit `commander`,
+ * das ueber denselben Prozess pollt/streamt) waehrend eines solchen Laufs spuerbar langsam. `push()` schreibt
+ * daher hoechstens alle `OUTPUT_PUBLISH_INTERVAL_MS` einmal (Leading-Edge sofort nach einer Ruhephase, sonst
+ * verzoegerte Trailing-Edge mit dem zuletzt gemeldeten Output).
+ */
+function createOutputPublisher(db: DatabaseSync, id: string): OutputPublisher {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastFlushAt = 0;
+  let pendingOutput: string | undefined;
+
+  const flush = (output: string): void => {
+    lastFlushAt = Date.now();
+    updateCommandOutput(db, id, output);
+    publishCommandState(db, id);
+  };
+
+  const push = (output: string): void => {
+    if (timer !== undefined) {
+      pendingOutput = output;
+      return;
+    }
+    const elapsed = Date.now() - lastFlushAt;
+    if (elapsed >= OUTPUT_PUBLISH_INTERVAL_MS) {
+      flush(output);
+      return;
+    }
+    pendingOutput = output;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (pendingOutput !== undefined) {
+        const toFlush = pendingOutput;
+        pendingOutput = undefined;
+        flush(toFlush);
+      }
+    }, OUTPUT_PUBLISH_INTERVAL_MS - elapsed);
+  };
+
+  const cancel = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    pendingOutput = undefined;
+  };
+
+  return { push, cancel };
+}
+
 /**
  * Server-Sent Events statt WebSocket: Live-Output ist ein reiner Server->Client-Push (kein Client->Server-
  * Kanal noetig), SSE laeuft ueber eine gewoehnliche GET-Verbindung (kein Upgrade-Handshake, kein Framing-Code,
@@ -649,11 +713,16 @@ function handleGetPaths(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { paths: listPathNames(config) });
 }
 
+/** Default-Seitengroesse von `GET /commands/:pathName`, falls kein `?limit=` mitgegeben wird - `commander`s Verlauf-Screen fragt immer in 5er-Schritten ab. */
+const DEFAULT_HISTORY_PAGE_SIZE = 5;
+
 function handleGetCommands(
   db: DatabaseSync,
   config: Config,
   res: ServerResponse,
   pathName: string,
+  limitParam: string | null,
+  offsetParam: string | null,
 ): void {
   let pathEntry: PathEntry;
   try {
@@ -662,7 +731,38 @@ function handleGetCommands(
     sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
     return;
   }
-  sendJson(res, 200, { commands: listCommands(db, pathEntry.path) });
+
+  let limit = DEFAULT_HISTORY_PAGE_SIZE;
+  if (limitParam !== null) {
+    const parsed = Number(limitParam);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      sendJson(res, 400, { error: 'Query-Parameter "limit" muss eine positive Ganzzahl sein.' });
+      return;
+    }
+    limit = parsed;
+  }
+
+  let offset = 0;
+  if (offsetParam !== null) {
+    const parsed = Number(offsetParam);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      sendJson(res, 400, {
+        error: 'Query-Parameter "offset" muss eine nicht-negative Ganzzahl sein.',
+      });
+      return;
+    }
+    offset = parsed;
+  }
+
+  const commands = listCommands(db, pathEntry.path, { limit, offset });
+  const total = countCommands(db, pathEntry.path);
+  sendJson(res, 200, {
+    commands,
+    total,
+    limit,
+    offset,
+    hasMore: offset + commands.length < total,
+  });
 }
 
 function handleGetStats(
@@ -914,18 +1014,19 @@ function handlePostPathCommand(
   });
   sendJson(res, 202, { id });
 
+  const outputPublisher = createOutputPublisher(db, id);
   runShellCommand(
     pathCommand.command,
     pathEntry.path,
     (output) => {
-      updateCommandOutput(db, id, output);
-      publishCommandState(db, id);
+      outputPublisher.push(output);
     },
     (child) => {
       runningProcesses.set(id, child);
     },
   )
     .then((result) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       const stopped = stopRequestedIds.delete(id);
       completeCommand(
@@ -938,6 +1039,7 @@ function handlePostPathCommand(
       publishCommandState(db, id);
     })
     .catch((error: unknown) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       stopRequestedIds.delete(id);
       const message = error instanceof Error ? error.message : String(error);
@@ -1373,18 +1475,19 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
   });
   publishCommandState(db, id);
 
+  const outputPublisher = createOutputPublisher(db, id);
   runShellCommand(
     hookCommand,
     pathEntry.path,
     (output) => {
-      updateCommandOutput(db, id, output);
-      publishCommandState(db, id);
+      outputPublisher.push(output);
     },
     (child) => {
       runningProcesses.set(id, child);
     },
   )
     .then((result) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       const stopped = stopRequestedIds.delete(id);
       completeCommand(
@@ -1397,6 +1500,7 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
       publishCommandState(db, id);
     })
     .catch((error: unknown) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       stopRequestedIds.delete(id);
       const message = error instanceof Error ? error.message : String(error);
@@ -1457,14 +1561,14 @@ function handlePostCommand(
   insertCommand(db, { id, agent: resolvedAgentName, model, command: body.command, path: cwd });
   sendJson(res, 202, { id });
 
+  const outputPublisher = createOutputPublisher(db, id);
   runHeadlessCommand(
     agent,
     model,
     body.command,
     cwd,
     (output) => {
-      updateCommandOutput(db, id, output);
-      publishCommandState(db, id);
+      outputPublisher.push(output);
     },
     permissions,
     (child) => {
@@ -1472,6 +1576,7 @@ function handlePostCommand(
     },
   )
     .then((result) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       const stopped = stopRequestedIds.delete(id);
       completeCommand(
@@ -1485,6 +1590,7 @@ function handlePostCommand(
       triggerOnLastAgentFinishHook(db, pathEntry);
     })
     .catch((error: unknown) => {
+      outputPublisher.cancel();
       runningProcesses.delete(id);
       stopRequestedIds.delete(id);
       const message = error instanceof Error ? error.message : String(error);
@@ -1608,7 +1714,14 @@ async function handleRequest(
       bodyText = await readRequestBody(req);
       handlePutConfigPointer(db, configState, res, bodyText);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
-      handleGetCommands(db, config, res, segments[1] ?? '');
+      handleGetCommands(
+        db,
+        config,
+        res,
+        segments[1] ?? '',
+        url.searchParams.get('limit'),
+        url.searchParams.get('offset'),
+      );
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'stats') {
       handleGetStats(db, config, res, segments[1] ?? '', url.searchParams.get('hours'));
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'usage') {
@@ -1730,7 +1843,9 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  PUT  ${base}/config/pointer         ({ "versionId": number } oder { "embedded": true })`,
   );
-  console.log(`  GET  ${base}/commands/:pathName`);
+  console.log(
+    `  GET  ${base}/commands/:pathName     (optionale Query-Parameter ?limit=, Default ${String(DEFAULT_HISTORY_PAGE_SIZE)}, und ?offset=)`,
+  );
   console.log(
     `  GET  ${base}/stats/:pathName        (optionaler Query-Parameter ?hours=, Default 24)`,
   );

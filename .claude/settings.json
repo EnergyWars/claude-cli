@@ -6,6 +6,8 @@
       "Edit",
       "Bash(git *)",
       "Bash(./gradlew *)",
+      "Bash(gradlew *)",
+      "Bash(gradlew.bat *)",
       "Bash(gradle *)",
       "Bash(mkdir *)",
       "Bash(mv *)",

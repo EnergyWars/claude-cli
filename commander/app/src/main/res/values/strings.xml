@@ -51,6 +51,7 @@
     <string name="history_empty">No commands sent yet.</string>
     <string name="history_row_meta">%1$s · %2$s</string>
     <string name="history_retry_action">Retry</string>
+    <string name="history_load_more">Load more</string>
 
     <string name="stats_title">Statistics</string>
     <string name="stats_running_agents">Running agents</string>
