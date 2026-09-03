@@ -339,6 +339,16 @@ Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `hooks`-Objekt de
 
 Implementiert in `src/config.ts` (`PathHooks`), `src/server.ts` (`triggerOnLastAgentFinishHook`, aufgerufen am Ende von `handlePostCommand`s Abschluss-Handlern), `src/db.ts` (`AGENT_COMMANDS_ONLY_CLAUSE` schließt `hook:%` mit aus).
 
+## Remote-Control-Sessions (`GET/POST /paths/<pathName>/remote-sessions`)
+
+Startet direkt über die API eine volle Claude-Code-Session mit aktiviertem Remote Control (`claude --remote-control`) im Dateisystem-Verzeichnis eines gewählten Pfad-Eintrags – gedacht für einen Client (z. B. `commander`), der von unterwegs eine neue, per claude.ai/Mobile-App fernsteuerbare Session in einem der konfigurierten Projekte anstoßen und danach dort weiterarbeiten will, ohne selbst am Rechner zu sitzen.
+
+**`POST /paths/<pathName>/remote-sessions`** – Body optional `{ "name"?: "<Anzeigename>" }`. Ruft `claude --bg --remote-control[=<name>]` mit dem aufgelösten Dateisystem-Pfad (`paths[].path`) als `cwd` auf: `--bg` startet die Session als eigenständigen, vom aufrufenden `cl server`-Prozess unabhängigen Hintergrund-Prozess und kehrt selbst sofort zurück (kein Polling/Tracking über `t_commands` nötig, anders als bei Agent-/Pfad-Commands), `--remote-control` aktiviert die Fernsteuerung; der optionale `name` ist nur der Anzeigename der Remote-Control-Pairing (taucht **nicht** als Session-Name in `claude agents --json` auf). Antwort bei Erfolg `201 { "id": "<kurze-id>", "output": "<rohe stdout/stderr-Ausgabe>" }` – `id` ist die von `claude --bg` vergebene Kurz-ID, mit der die Session später per `claude attach/logs/stop/rm <id>` auf der Maschine selbst verwaltet werden kann. 404, falls `pathName` unbekannt ist; 400 bei ungültigem `name`; 500, falls der `claude`-Aufruf fehlschlägt oder die ID nicht aus dessen Ausgabe gelesen werden kann (z. B. `claude` nicht im `PATH`, oder ein Ausgabeformat-Wechsel in einer neueren `claude`-Version).
+
+**`GET /paths/<pathName>/remote-sessions`** – ruft `claude agents --json --cwd <path>` auf und liefert `{ "sessions": [...] }`, gefiltert auf Sessions, deren `cwd` unter dem Dateisystem-Verzeichnis dieses Pfad-Eintrags liegt (sowohl interaktive als auch Hintergrund-Sessions, unabhängig davon, ob sie über diesen Endpunkt oder direkt auf der Maschine gestartet wurden). Jeder Eintrag: `{ pid, id?, cwd, kind: "interactive" | "background", startedAt, sessionId, name, status?, waitingFor?, state? }` (`id` nur bei `kind: "background"` gesetzt). Damit sieht ein Client vor dem Start einer neuen Session, ob in diesem Projekt bereits eine läuft. 404, falls `pathName` unbekannt ist.
+
+Implementiert in `src/remote-session.ts` (`startRemoteSession(cwd, name?)`, `listRemoteSessions(cwd?)`, reine `spawn`-Wrapper ohne DB-Anbindung – die Session-ID wird per Regex aus der stdout/stderr-Ausgabe von `claude --bg --remote-control` gelesen, `claude agents --json`s Ausgabe wird direkt geparst und gegen ein Mindest-Schema validiert) und `src/server.ts` (Routing, Body-Validierung).
+
 ## Manifest (`GET /manifest`)
 
 Liefert die gesamte per `config.json` gesteuerte Oberfläche in einem einzigen Aufruf – gedacht als Grundlage für eine spätere, voll dynamische Remote-Steuerung (z. B. per App), ohne dass diese die Struktur von `config.json` kennen oder mehrere Endpunkte kombinieren muss:

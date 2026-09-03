@@ -34,6 +34,7 @@
     <string name="project_home_feedback">Feedback</string>
     <string name="project_home_collect">Sammlung</string>
     <string name="project_home_stats">Statistik</string>
+    <string name="project_home_remote_sessions">Remote-Sitzungen</string>
 
     <string name="usage_banner_title">Nutzung</string>
     <string name="usage_banner_expand">Nutzung anzeigen</string>
@@ -59,6 +60,17 @@
     <string name="stats_last_debug_build">Letzter Debug-Build</string>
     <string name="stats_last_release_build">Letzter Release-Build</string>
     <string name="stats_no_build_yet">Kein Build vorhanden</string>
+
+    <string name="remote_sessions_title">Remote-Sitzungen</string>
+    <string name="remote_sessions_empty">Keine aktiven Sitzungen.</string>
+    <string name="remote_sessions_name_label">Sitzungsname (optional)</string>
+    <string name="remote_sessions_start_button">Remote-Control-Sitzung starten</string>
+    <string name="remote_sessions_started_title">Sitzung gestartet</string>
+    <string name="remote_sessions_started_body">ID: %1$s</string>
+    <string name="remote_sessions_kind_interactive">Interaktiv</string>
+    <string name="remote_sessions_kind_background">Hintergrund · ID: %1$s</string>
+    <string name="remote_sessions_started_at">Gestartet %1$s</string>
+    <string name="remote_sessions_waiting_for">Wartet auf: %1$s</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>

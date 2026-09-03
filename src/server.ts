@@ -80,6 +80,7 @@ import { findLatestBuildTimestamp } from './gradle-install.js';
 import { signJwt, verifyJwt } from './jwt.js';
 import { runHeadlessCommand, runShellCommand } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
+import { listRemoteSessions, startRemoteSession } from './remote-session.js';
 import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
@@ -1048,6 +1049,76 @@ function handlePostPathCommand(
     });
 }
 
+async function handleGetRemoteSessions(
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+): Promise<void> {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const sessions = await listRemoteSessions(pathEntry.path);
+  sendJson(res, 200, { sessions });
+}
+
+interface RemoteSessionCreateBody {
+  name?: string;
+}
+
+function parseRemoteSessionCreateBody(raw: unknown): RemoteSessionCreateBody {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.name !== undefined && (typeof record.name !== 'string' || record.name.trim() === '')) {
+    throw new Error('Feld "name" muss ein nicht-leerer String sein, falls angegeben.');
+  }
+  const body: RemoteSessionCreateBody = {};
+  if (typeof record.name === 'string') {
+    body.name = record.name;
+  }
+  return body;
+}
+
+async function handlePostRemoteSession(
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  bodyText: string,
+): Promise<void> {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+  } catch {
+    sendJson(res, 400, { error: 'Body ist kein gueltiges JSON.' });
+    return;
+  }
+
+  let body: RemoteSessionCreateBody;
+  try {
+    body = parseRemoteSessionCreateBody(parsedBody);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const session = await startRemoteSession(pathEntry.path, body.name);
+  sendJson(res, 201, session);
+}
+
 function sendFileDownload(res: ServerResponse, filePath: string): void {
   const stat = statSync(filePath);
   res.writeHead(200, {
@@ -1740,6 +1811,21 @@ async function handleRequest(
       segments[2] === 'commands'
     ) {
       handlePostPathCommand(db, config, res, segments[1] ?? '', segments[3] ?? '');
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'remote-sessions'
+    ) {
+      await handleGetRemoteSessions(config, res, segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 3 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'remote-sessions'
+    ) {
+      bodyText = await readRequestBody(req);
+      await handlePostRemoteSession(config, res, segments[1] ?? '', bodyText);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'files') {
       handleGetHostedNames(config, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'files') {
@@ -1858,6 +1944,10 @@ function printEndpoints(config: Config, port: number): void {
       console.log(`  POST ${base}/paths/${pathEntry.name}/commands/${command.key}`);
     }
   }
+  console.log(`  GET  ${base}/paths/:pathName/remote-sessions`);
+  console.log(
+    `  POST ${base}/paths/:pathName/remote-sessions (startet eine "claude --bg --remote-control"-Session)`,
+  );
   console.log(`  GET  ${base}/files/:pathName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);

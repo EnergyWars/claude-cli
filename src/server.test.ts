@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -927,7 +935,9 @@ test('POST /: der onLastAgentFinish-Hook erscheint als eigener Eintrag im Verlau
   const body = (await res.json()) as {
     commands: { agent: string; command: string; status: string }[];
   };
-  const hookEntry = body.commands.find((command) => command.agent === 'hook:hooked:onLastAgentFinish');
+  const hookEntry = body.commands.find(
+    (command) => command.agent === 'hook:hooked:onLastAgentFinish',
+  );
   assert.ok(hookEntry);
   assert.equal(hookEntry.command, 'touch hook-fired.txt');
   assert.equal(hookEntry.status, 'completed');
@@ -939,6 +949,156 @@ test('POST /paths/default/commands/doesnotexist: 404 bei unbekanntem Command-Key
     headers: authHeaders(),
   });
   assert.equal(res.status, 404);
+});
+
+const sampleRemoteSessions = () => [
+  {
+    pid: 123,
+    cwd: hostedDir,
+    kind: 'interactive',
+    startedAt: 1_700_000_000_000,
+    sessionId: 'a1b2c3',
+    name: 'default-a1',
+    status: 'idle',
+  },
+];
+
+test('GET /paths/default/remote-sessions: liefert die von "claude agents --json" gemeldeten Sessions', async () => {
+  const sessions = sampleRemoteSessions();
+  const sessionsMock = createMockClaude({
+    rawOutput: JSON.stringify(sessions),
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(sessionsMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(
+      `http://localhost:${server.port.toString()}/paths/default/remote-sessions`,
+      { headers: authHeaders() },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { sessions: { name: string }[] };
+    assert.deepEqual(body.sessions, sessions);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    sessionsMock.cleanup();
+  }
+});
+
+test('GET /paths/doesnotexist/remote-sessions: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/remote-sessions`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('GET /paths/default/remote-sessions: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/remote-sessions`);
+  assert.equal(res.status, 401);
+});
+
+test('POST /paths/default/remote-sessions: startet eine Remote-Control-Session und liefert die ID', async () => {
+  const startMock = createMockClaude({
+    outputChunks: ['backgrounded · abc123f9 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(startMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(
+      `http://localhost:${server.port.toString()}/paths/default/remote-sessions`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { id: string };
+    assert.equal(body.id, 'abc123f9');
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    startMock.cleanup();
+  }
+});
+
+test('POST /paths/default/remote-sessions: uebergibt "name" als "--remote-control=<name>"', async () => {
+  const logFile = join(mkdtempSync(join(tmpdir(), 'cl-remote-session-log-')), 'args.log');
+  const startMock = createMockClaude({
+    outputChunks: ['backgrounded · xyz98765 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(startMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(
+      `http://localhost:${server.port.toString()}/paths/default/remote-sessions`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ name: 'mein-name' }),
+      },
+    );
+    assert.equal(res.status, 201);
+    const args = JSON.parse(
+      readFileSync(logFile, 'utf8').trim().split('\n')[0] ?? '[]',
+    ) as string[];
+    assert.deepEqual(args, ['--bg', '--remote-control=mein-name']);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    startMock.cleanup();
+  }
+});
+
+test('POST /paths/doesnotexist/remote-sessions: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/remote-sessions`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /paths/default/remote-sessions: 400 bei ungueltigem "name"', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/remote-sessions`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ name: 42 }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /paths/default/remote-sessions: 500 wenn "claude --bg --remote-control" fehlschlaegt', async () => {
+  const failMock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(failMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const res = await fetch(
+      `http://localhost:${server.port.toString()}/paths/default/remote-sessions`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(res.status, 500);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    failMock.cleanup();
+  }
 });
 
 interface TicketBody {

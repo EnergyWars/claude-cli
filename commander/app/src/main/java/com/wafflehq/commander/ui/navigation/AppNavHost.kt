@@ -32,6 +32,7 @@ import com.wafflehq.commander.ui.history.HistoryScreen
 import com.wafflehq.commander.ui.login.LoginScreen
 import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
+import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
 import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
 import com.wafflehq.commander.ui.settings.SettingsScreen
@@ -60,6 +61,7 @@ object Routes {
     const val TICKET_DETAIL = "tickets/{pathName}/{id}"
     const val HISTORY = "history/{pathName}"
     const val STATS = "stats/{pathName}"
+    const val REMOTE_SESSIONS = "remote_sessions/{pathName}"
     const val FEEDBACK = "feedback/{pathName}"
     const val COLLECT = "collect/{pathName}"
     const val SETTINGS = "settings"
@@ -95,6 +97,8 @@ object Routes {
     fun history(pathName: String): String = "history/${Uri.encode(pathName)}"
 
     fun stats(pathName: String): String = "stats/${Uri.encode(pathName)}"
+
+    fun remoteSessions(pathName: String): String = "remote_sessions/${Uri.encode(pathName)}"
 
     fun feedback(pathName: String): String = "feedback/${Uri.encode(pathName)}"
 
@@ -187,6 +191,7 @@ fun AppNavHost() {
                 onOpenFeedback = { pathName -> navController.navigate(Routes.feedback(pathName)) },
                 onOpenCollect = { pathName -> navController.navigate(Routes.collect(pathName)) },
                 onOpenStats = { pathName -> navController.navigate(Routes.stats(pathName)) },
+                onOpenRemoteSessions = { pathName -> navController.navigate(Routes.remoteSessions(pathName)) },
                 onOpenSettings = openSettings,
             )
         }
@@ -288,6 +293,12 @@ fun AppNavHost() {
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
         ) {
             StatsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = Routes.REMOTE_SESSIONS,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
+            RemoteSessionsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.FEEDBACK,

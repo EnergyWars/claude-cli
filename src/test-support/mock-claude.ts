@@ -10,6 +10,8 @@ export interface MockClaudeOptions {
   exitCode?: number;
   /** When set, each invocation appends its args as a JSON line to this file (opt-in, for tests that spawn "claude" with stdio: 'inherit' and can't capture its stdout directly). */
   logFile?: string;
+  /** When set, skips the argv/marker preamble and outputChunks entirely, writing this string to stdout as-is (for callers that JSON.parse() the full stdout, e.g. "claude agents --json"). */
+  rawOutput?: string;
 }
 
 export interface MockClaude {
@@ -18,23 +20,33 @@ export interface MockClaude {
 }
 
 export function createMockClaude(options: MockClaudeOptions = {}): MockClaude {
-  const { outputChunks = ['MOCK_OUTPUT'], chunkDelayMs = 20, exitCode = 0, logFile } = options;
+  const {
+    outputChunks = ['MOCK_OUTPUT'],
+    chunkDelayMs = 20,
+    exitCode = 0,
+    logFile,
+    rawOutput,
+  } = options;
   const binDir = mkdtempSync(join(tmpdir(), 'cl-mock-claude-'));
   const scriptPath = join(binDir, 'claude');
-
-  const writeStatements = outputChunks
-    .map((chunk) => `  process.stdout.write(${JSON.stringify(chunk)});`)
-    .join(`\n  await new Promise((r) => setTimeout(r, ${chunkDelayMs.toString()}));\n`);
 
   const logStatement =
     logFile === undefined
       ? ''
       : `require('node:fs').appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`;
 
-  const script = `#!/usr/bin/env node
+  const script =
+    rawOutput !== undefined
+      ? `#!/usr/bin/env node
+${logStatement}process.stdout.write(${JSON.stringify(rawOutput)});
+process.exit(${exitCode.toString()});
+`
+      : `#!/usr/bin/env node
 ${logStatement}process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n${ARGS_END_MARKER}\\n');
 (async () => {
-${writeStatements}
+${outputChunks
+  .map((chunk) => `  process.stdout.write(${JSON.stringify(chunk)});`)
+  .join(`\n  await new Promise((r) => setTimeout(r, ${chunkDelayMs.toString()}));\n`)}
   process.exit(${exitCode.toString()});
 })();
 `;

@@ -454,6 +454,100 @@
         }
       }
     },
+    "/paths/{pathName}/remote-sessions": {
+      "get": {
+        "summary": "Listet die aktiven Claude-Code-Sessions in diesem Pfad-Verzeichnis",
+        "description": "Ruft \"claude agents --json --cwd <path>\" auf (interaktive und Hintergrund-Sessions, kein Auth-/config.json-Bezug ausser der Pfad-Aufloesung).",
+        "operationId": "listRemoteSessions",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aktive Sessions, deren cwd unter dem Dateisystem-Verzeichnis dieses Pfad-Eintrags liegt.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RemoteSessionList" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Startet eine neue Claude-Code-Session mit aktiviertem Remote Control",
+        "description": "Ruft \"claude --bg --remote-control[=name]\" im Dateisystem-Verzeichnis des Pfad-Eintrags auf und liefert die Kurz-ID der neu gestarteten Hintergrund-Session, sobald der Aufruf zurueckkehrt (synchron, kein Polling noetig).",
+        "operationId": "startRemoteSession",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RemoteSessionCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Die Session wurde gestartet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RemoteSessionStart" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body ist kein gueltiges JSON oder \"name\" ist kein nicht-leerer String.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "\"claude --bg --remote-control\" ist fehlgeschlagen oder die Session-ID konnte nicht aus der Ausgabe gelesen werden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/files/{pathName}": {
       "get": {
         "summary": "Listet die Namen aller hosted-Eintraege eines Pfads",
@@ -1690,6 +1784,59 @@
           "commands": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/PathCommandEntry" }
+          }
+        }
+      },
+      "RemoteSessionCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Optionaler Anzeigename der Remote-Control-Pairing (nicht die Session-ID/den Session-Namen aus \"claude agents --json\")."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemoteSessionStart": {
+        "type": "object",
+        "required": ["id", "output"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Kurz-ID der gestarteten Hintergrund-Session (nutzbar mit \"claude attach/logs/stop/rm <id>\")."
+          },
+          "output": {
+            "type": "string",
+            "description": "Rohe stdout/stderr-Ausgabe von \"claude --bg --remote-control\"."
+          }
+        }
+      },
+      "RemoteAgentSession": {
+        "type": "object",
+        "required": ["pid", "cwd", "kind", "startedAt", "sessionId", "name"],
+        "properties": {
+          "pid": { "type": "integer" },
+          "id": {
+            "type": "string",
+            "description": "Nur bei kind=\"background\" gesetzt - Kurz-ID fuer \"claude attach/logs/stop/rm\"."
+          },
+          "cwd": { "type": "string" },
+          "kind": { "type": "string", "enum": ["interactive", "background"] },
+          "startedAt": { "type": "integer", "description": "Unix-Timestamp in Millisekunden." },
+          "sessionId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "status": { "type": "string" },
+          "waitingFor": { "type": "string" },
+          "state": { "type": "string" }
+        }
+      },
+      "RemoteSessionList": {
+        "type": "object",
+        "required": ["sessions"],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RemoteAgentSession" }
           }
         }
       },

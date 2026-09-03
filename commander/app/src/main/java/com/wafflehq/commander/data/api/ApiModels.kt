@@ -187,6 +187,34 @@ data class ConfigPointerResponse(val versionId: Int? = null)
 @Serializable
 data class ConfigPointerUpdateResponse(val versionId: Int? = null, val config: JsonElement, val warning: String? = null)
 
+@Serializable
+data class RemoteSessionCreateRequest(val name: String? = null)
+
+@Serializable
+data class RemoteSessionStart(val id: String, val output: String)
+
+@Serializable
+data class RemoteAgentSession(
+    val pid: Long,
+    val id: String? = null,
+    val cwd: String,
+    val kind: String,
+    val startedAt: Long,
+    val sessionId: String,
+    val name: String,
+    val status: String? = null,
+    val waitingFor: String? = null,
+    val state: String? = null,
+)
+
+@Serializable
+data class RemoteSessionList(val sessions: List<RemoteAgentSession>)
+
+private const val REMOTE_SESSION_KIND_BACKGROUND = "background"
+
+/** True for `--bg`-started sessions, which carry a short `id` usable with `claude attach/logs/stop/rm`. */
+fun RemoteAgentSession.isBackground(): Boolean = kind == REMOTE_SESSION_KIND_BACKGROUND
+
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }
 

@@ -25,7 +25,7 @@ Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App 
 
 ## Projekt-Hub
 
-Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter acht Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen sieben Einträge bleiben schlichte Listenzeilen:
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter neun Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen acht Einträge bleiben schlichte Listenzeilen:
 
 - **Entwicklung** (hervorgehoben) – alle konfigurierten Agenten des aktuellen Projekts.
 - **Befehle** – alle Commands des aktuellen Projekts.
@@ -35,6 +35,7 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 - **Feedback** – Feedback-Liste nur des aktuellen Projekts (siehe unten).
 - **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
 - **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
+- **Remote-Sitzungen** – aktive Claude-Code-Sessions dieses Projekts anzeigen und eine neue mit Remote Control starten (siehe unten).
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
@@ -121,6 +122,14 @@ Erreichbar über den „Statistik"-Eintrag im Projekt-Hub, immer auf das aktuell
 - **Letzter Release-Build:** wie oben, für die Release-APK.
 
 Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
+
+## Remote-Sitzungen
+
+Erreichbar über den „Remote-Sitzungen"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET/POST /paths/<pathName>/remote-sessions`, siehe `../FEATURES.md`, Remote-Control-Sessions).
+
+Oben ein optionales Textfeld für einen Anzeigenamen sowie ein Button „Remote-Control-Sitzung starten": startet direkt auf dem Server per `claude --bg --remote-control` eine neue, von unterwegs per claude.ai/Mobile-App fernsteuerbare Session im Verzeichnis dieses Projekts. Nach erfolgreichem Start zeigt ein Erfolgs-Banner die vergebene Kurz-ID der Session; die Liste darunter lädt automatisch neu.
+
+Darunter die Liste aller aktiven Sessions dieses Projekts (interaktive **und** Hintergrund-Sessions, unabhängig davon, ob sie über die App oder direkt auf der Maschine gestartet wurden): Name, Status-Pill, Typ (Interaktiv bzw. Hintergrund inkl. Kurz-ID) und Startzeitpunkt (Geräte-Zeitzone); wartet eine Session gerade auf eine Rückmeldung (z. B. einen Permission-Prompt), erscheint zusätzlich eine Zeile dazu. Lädt einmalig beim Öffnen und nach jedem Start einer neuen Session neu (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
 
 ## Einstellungen
 

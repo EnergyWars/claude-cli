@@ -234,6 +234,12 @@ class ClServerApi @Inject constructor(
 
     suspend fun getUsage(): List<UsageLimit> = authedGet<UsageResponse>("usage").limits
 
+    suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
+        authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions
+
+    suspend fun startRemoteSession(pathName: String, name: String? = null): RemoteSessionStart =
+        authedPost(json.encodeToString(RemoteSessionCreateRequest(name)), "paths", pathName, "remote-sessions")
+
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
 

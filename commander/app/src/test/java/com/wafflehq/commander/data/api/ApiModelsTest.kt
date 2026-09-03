@@ -70,3 +70,25 @@ class ApiModelsTest {
         assertEquals("cl dev", commandState(agent = "dev", status = "failed").retryAgentCommand())
     }
 }
+
+private fun remoteAgentSession(kind: String) = RemoteAgentSession(
+    pid = 123,
+    cwd = "/tmp/project",
+    kind = kind,
+    startedAt = 1_700_000_000_000,
+    sessionId = "a1b2c3",
+    name = "project-a1",
+)
+
+class RemoteAgentSessionTest {
+
+    @Test
+    fun `a background session is background`() {
+        assertTrue(remoteAgentSession(kind = "background").isBackground())
+    }
+
+    @Test
+    fun `an interactive session is not background`() {
+        assertFalse(remoteAgentSession(kind = "interactive").isBackground())
+    }
+}

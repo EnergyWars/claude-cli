@@ -709,4 +709,46 @@ class ClServerApiTest {
 
         assertNull(server.takeRequest(200, TimeUnit.MILLISECONDS))
     }
+
+    @Test
+    fun `getRemoteSessions requests the path-scoped endpoint and parses the sessions`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"sessions":[{"pid":123,"cwd":"/home/user/myapp","kind":"interactive","startedAt":1700000000000,"sessionId":"a1b2c3","name":"myapp-a1","status":"idle"},{"pid":456,"id":"1771997d","cwd":"/home/user/myapp","kind":"background","startedAt":1700000100000,"sessionId":"1771997d-e1ab-4ed7-9d04-79696f05ec1d","name":"1771997d","status":"idle","state":"blocked"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getRemoteSessions("myapp")
+
+        assertEquals(2, result.size)
+        assertEquals("myapp-a1", result[0].name)
+        assertFalse(result[0].isBackground())
+        assertEquals("1771997d", result[1].id)
+        assertTrue(result[1].isBackground())
+        val recorded = server.takeRequest()
+        assertEquals("/paths/myapp/remote-sessions", recorded.target)
+    }
+
+    @Test
+    fun `startRemoteSession posts without a body field when no name is given`() = runBlocking {
+        server.enqueue(MockResponse(code = 201, body = """{"id":"abc123f9","output":"backgrounded"}"""))
+
+        val result = apiWithConnection().startRemoteSession("myapp")
+
+        assertEquals("abc123f9", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/paths/myapp/remote-sessions", recorded.target)
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"name\":null"))
+    }
+
+    @Test
+    fun `startRemoteSession posts the given name`() = runBlocking {
+        server.enqueue(MockResponse(code = 201, body = """{"id":"xyz98765","output":"backgrounded"}"""))
+
+        apiWithConnection().startRemoteSession("myapp", name = "mein-name")
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"name\":\"mein-name\""))
+    }
 }
