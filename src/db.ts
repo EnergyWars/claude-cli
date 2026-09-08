@@ -96,7 +96,10 @@ export function openDatabase(directory: string): DatabaseSync {
   ]);
   migrateLegacyTicketColumns(db);
   db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_path_name ON t_tickets (path_name)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_commands_path ON t_commands (path)');
+  db.exec('DROP INDEX IF EXISTS idx_commands_path');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_commands_path_created ON t_commands (path, created_at DESC)',
+  );
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,6 +216,22 @@ function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
   };
 }
 
+/** Wie {@link toCommandRow}, aber fuer Zeilen ohne selektierte `output`-Spalte (siehe {@link listCommands}). */
+function toCommandSummaryRow(row: Record<string, SQLOutputValue>): CommandRow {
+  return {
+    id: String(row.id),
+    agent: String(row.agent),
+    model: String(row.model),
+    command: String(row.command),
+    path: String(row.path),
+    status: String(row.status) as CommandStatus,
+    output: '',
+    exitCode: row.exit_code === null ? null : Number(row.exit_code),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 export function getCommand(db: DatabaseSync, id: string): CommandRow | undefined {
   const row = db.prepare('SELECT * FROM t_commands WHERE id = ?').get(id);
   return row === undefined ? undefined : toCommandRow(row);
@@ -220,6 +239,11 @@ export function getCommand(db: DatabaseSync, id: string): CommandRow | undefined
 
 /**
  * Neueste zuerst; "rowid" als Tiebreaker fuer Commands mit identischem created_at (Millisekunden-Aufloesung).
+ * `ORDER BY created_at DESC` wird per `idx_commands_path_created (path, created_at DESC)` ohne
+ * Sortierschritt ueber die volle Treffermenge bedient (SQLite muss nur noch innerhalb von Gruppen mit
+ * identischem created_at nach rowid sortieren, praktisch immer sehr kleine Gruppen). Die potenziell
+ * grosse `output`-Spalte (voller CLI-Output) wird bewusst NICHT selektiert - die Verlaufsliste zeigt sie
+ * nicht an, `getCommand` laedt sie separat pro Detail-Ansicht.
  * Ohne `options` (bzw. ohne `limit`) unveraendert die volle Liste; mit `limit` paginiert per SQL LIMIT/OFFSET
  * (kein In-Memory-`slice()` noetig – bleibt effizient auch bei langem Verlauf).
  */
@@ -228,18 +252,21 @@ export function listCommands(
   path: string,
   options?: { limit?: number; offset?: number },
 ): CommandRow[] {
+  const columns = 'id, agent, model, command, path, status, exit_code, created_at, updated_at';
   if (options?.limit === undefined) {
     const rows = db
-      .prepare('SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC')
+      .prepare(
+        `SELECT ${columns} FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC`,
+      )
       .all(path);
-    return rows.map((row) => toCommandRow(row));
+    return rows.map((row) => toCommandSummaryRow(row));
   }
   const rows = db
     .prepare(
-      'SELECT * FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?',
+      `SELECT ${columns} FROM t_commands WHERE path = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
     )
     .all(path, options.limit, options.offset ?? 0);
-  return rows.map((row) => toCommandRow(row));
+  return rows.map((row) => toCommandSummaryRow(row));
 }
 
 export function countCommands(db: DatabaseSync, path: string): number {

@@ -1043,6 +1043,72 @@ test('cl inst: Build-Fehler ohne verfuegbaren Fix-Agent ("claude" fehlt) -> Exit
   }
 });
 
+test('cl test: fuehrt ./gradlew test aus und meldet Erfolg', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-test-'));
+  writeFakeGradlew(cwd, { steps: [{ exitCode: 0, createApk: false }] });
+  try {
+    const result = await runCli(['test'], {
+      env: { CL_ROOT_DIR: fixture.rootDir, PATH: process.env.PATH ?? '' },
+      cwd,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Unit-Tests erfolgreich und ohne Warnings\./);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl test: Testfehler startet den Sonnet-Fix-Agent im Auto-Mode, danach erneuter Testlauf', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-test-fix-'));
+  writeFakeGradlew(cwd, {
+    steps: [
+      { exitCode: 1, stdout: 'FooTest > bar FAILED', createApk: false },
+      { exitCode: 0, createApk: false },
+    ],
+  });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const fixAgent = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  try {
+    const result = await runCli(['test'], {
+      env: {
+        CL_ROOT_DIR: fixture.rootDir,
+        PATH: [fixAgent.binDir, process.env.PATH ?? ''].join(delimiter),
+      },
+      cwd,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Unit-Tests erfolgreich und ohne Warnings\./);
+
+    const invocations = readFileSync(claudeLogFile, 'utf8').trim().split('\n');
+    assert.equal(invocations.length, 1);
+    const [firstInvocation] = invocations;
+    assert.ok(firstInvocation);
+    const invokedArgs = JSON.parse(firstInvocation) as string[];
+    assert.deepEqual(invokedArgs.slice(0, 2), ['--model', 'sonnet']);
+    assert.ok(invokedArgs.some((arg) => arg.includes('FooTest > bar FAILED')));
+  } finally {
+    fixAgent.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('cl test: Testfehler ohne verfuegbaren Fix-Agent ("claude" fehlt) -> Exit != 0', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-test-fail-'));
+  writeFakeGradlew(cwd, { steps: [{ exitCode: 1, stdout: 'error', createApk: false }] });
+  try {
+    const result = await runCli(['test'], {
+      // Deliberately excludes the real PATH so a real "claude" binary on the test
+      // machine can never be found/invoked here; /usr/bin + /bin are kept so the
+      // fake gradlew's own shell built-ins resolve.
+      env: { CL_ROOT_DIR: fixture.rootDir, PATH: ['/usr/bin', '/bin'].join(delimiter) },
+      cwd,
+    });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test('cl --help: listet auch alle Tasks aus config.json auf', async () => {
   const result = await runCli(['--help'], { env: baseEnv() });
   assert.equal(result.exitCode, 0);

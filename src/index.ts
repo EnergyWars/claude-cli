@@ -37,7 +37,7 @@ import {
   type TicketRow,
   type TicketStatus,
 } from './db.js';
-import { buildAndInstall, findLatestBuildTimestamp } from './gradle-install.js';
+import { buildAndInstall, findLatestBuildTimestamp, runUnitTests } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { startServer } from './server.js';
 import { runTicketAgent } from './ticket.js';
@@ -631,7 +631,7 @@ program
 program
   .command('inst')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('debug');
@@ -640,10 +640,19 @@ program
 program
   .command('instr')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
+    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('release');
+  });
+
+program
+  .command('test')
+  .description(
+    'Fuehrt die Unit-Tests des Android-Projekts im aktuellen Verzeichnis per Gradle aus (./gradlew test); bei Fehlern oder Warnings wird ein Fix-Agent gestartet und der Testlauf wiederholt, maximal 10 Durchlaeufe.',
+  )
+  .action(async () => {
+    await runUnitTests();
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

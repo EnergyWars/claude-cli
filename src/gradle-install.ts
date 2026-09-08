@@ -13,6 +13,8 @@ const GRADLE_TASKS: Record<GradleBuildType, string> = {
 
 const FIX_AGENT_MODEL = 'sonnet';
 
+const MAX_FIX_ATTEMPTS = 10;
+
 const FIX_AGENT_SYSTEM_PROMPT =
   'Du bist ein Android-Build-Fix-Agent. Du bekommst die Ausgabe eines fehlgeschlagenen oder ' +
   'Warnings enthaltenden Gradle-Builds. Behebe die Ursache im Code, sodass ein erneuter ' +
@@ -95,8 +97,7 @@ interface GradleBuildResult {
   output: string;
 }
 
-function runGradleBuild(cwd: string, buildType: GradleBuildType): Promise<GradleBuildResult> {
-  const task = GRADLE_TASKS[buildType];
+function runGradleTask(cwd: string, task: string): Promise<GradleBuildResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('./gradlew', [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
@@ -113,6 +114,31 @@ function runGradleBuild(cwd: string, buildType: GradleBuildType): Promise<Gradle
       resolve({ exitCode: code ?? 1, output });
     });
   });
+}
+
+async function runTaskWithFixLoop(cwd: string, task: string, actionLabel: string): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt += 1) {
+    const { exitCode, output } = await runGradleTask(cwd, task);
+    if (exitCode === 0 && !hasWarnings(output)) {
+      return;
+    }
+
+    if (attempt === MAX_FIX_ATTEMPTS) {
+      throw new Error(
+        `${actionLabel} (./gradlew ${task}) ist nach ${String(MAX_FIX_ATTEMPTS)} Durchlaeufen weiterhin fehlgeschlagen oder enthaelt Warnings.`,
+      );
+    }
+
+    const reason =
+      exitCode !== 0
+        ? `${actionLabel} (./gradlew ${task}) ist fehlgeschlagen (Exit-Code ${String(exitCode)}).`
+        : `${actionLabel} (./gradlew ${task}) war erfolgreich, enthaelt aber Warnings.`;
+    console.log(
+      `${reason} Starte Claude (${FIX_AGENT_MODEL}, Auto-Mode) zur Behebung (Durchlauf ${String(attempt)}/${String(MAX_FIX_ATTEMPTS)})...`,
+    );
+    await runFixAgent(cwd, `${reason}\n\nOutput:\n${output}`);
+    console.log('Fix-Agent beendet, starte den Durchlauf erneut...');
+  }
 }
 
 function runFixAgent(cwd: string, message: string): Promise<void> {
@@ -192,20 +218,7 @@ export async function buildAndInstall(
 ): Promise<void> {
   const task = GRADLE_TASKS[buildType];
 
-  for (;;) {
-    const { exitCode, output } = await runGradleBuild(cwd, buildType);
-    if (exitCode === 0 && !hasWarnings(output)) {
-      break;
-    }
-
-    const reason =
-      exitCode !== 0
-        ? `Der Gradle-Build (./gradlew ${task}) ist fehlgeschlagen (Exit-Code ${String(exitCode)}).`
-        : `Der Gradle-Build (./gradlew ${task}) war erfolgreich, enthaelt aber Warnings.`;
-    console.log(`${reason} Starte Claude (${FIX_AGENT_MODEL}, Auto-Mode) zur Behebung...`);
-    await runFixAgent(cwd, `${reason}\n\nBuild-Output:\n${output}`);
-    console.log('Fix-Agent beendet, starte den Build erneut...');
-  }
+  await runTaskWithFixLoop(cwd, task, 'Der Gradle-Build');
 
   const apkPath = findApk(cwd, buildType);
   console.log(`APK: ${apkPath}`);
@@ -230,4 +243,9 @@ export async function buildAndInstall(
     }
   }
   console.log(formatInstallSummary(installed));
+}
+
+export async function runUnitTests(cwd: string = process.cwd()): Promise<void> {
+  await runTaskWithFixLoop(cwd, 'test', 'Der Testlauf');
+  console.log('Unit-Tests erfolgreich und ohne Warnings.');
 }

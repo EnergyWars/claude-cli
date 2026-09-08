@@ -10,6 +10,7 @@ import {
   findLatestBuildTimestamp,
   formatInstallSummary,
   parseAdbDevices,
+  runUnitTests,
 } from './gradle-install.js';
 import { createMockAdb, pathWithMockAdb } from './test-support/mock-adb.js';
 import { createMockClaude } from './test-support/mock-claude.js';
@@ -353,6 +354,96 @@ test('buildAndInstall: wirft wenn "claude" fuer den Fix-Agent nicht gefunden wir
   } finally {
     process.env.PATH = previousPath;
     adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: bricht nach 10 Durchlaeufen ab, wenn der Build weiterhin fehlschlaegt', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-fix-max-attempts-'));
+  writeFakeGradlew(cwd, {
+    buildType: 'debug',
+    steps: [{ exitCode: 1, stdout: 'error' }],
+  });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const claude = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  const adb = createMockAdb();
+  const previousPath = process.env.PATH;
+  process.env.PATH = [claude.binDir, adb.binDir, previousPath ?? ''].join(delimiter);
+  try {
+    await assert.rejects(() => buildAndInstall('debug', cwd), /10 Durchlaeufen/);
+    assert.equal(readGradlewCallCount(cwd), 10);
+    const invocations = readFileSync(claudeLogFile, 'utf8').trim().split('\n');
+    assert.equal(invocations.length, 9);
+  } finally {
+    process.env.PATH = previousPath;
+    claude.cleanup();
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('runUnitTests: fuehrt ./gradlew test aus und meldet Erfolg ohne Warnings', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-test-success-'));
+  writeFakeGradlew(cwd, { steps: [{ exitCode: 0, createApk: false }] });
+  const logged: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args.map(String).join(' '));
+  };
+  try {
+    await runUnitTests(cwd);
+    assert.equal(readGradlewCallCount(cwd), 1);
+    assert.ok(logged.includes('Unit-Tests erfolgreich und ohne Warnings.'));
+  } finally {
+    console.log = originalLog;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('runUnitTests: startet bei fehlgeschlagenen Tests einen Fix-Agent und wiederholt den Testlauf', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-test-fix-'));
+  writeFakeGradlew(cwd, {
+    steps: [
+      { exitCode: 1, stdout: 'FooTest > bar FAILED', createApk: false },
+      { exitCode: 0, createApk: false },
+    ],
+  });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const claude = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  const previousPath = process.env.PATH;
+  process.env.PATH = [claude.binDir, previousPath ?? ''].join(delimiter);
+  try {
+    await runUnitTests(cwd);
+    const invocations = readFileSync(claudeLogFile, 'utf8').trim().split('\n');
+    assert.equal(invocations.length, 1);
+    const [firstInvocation] = invocations;
+    assert.ok(firstInvocation);
+    const invokedArgs = JSON.parse(firstInvocation) as string[];
+    assert.deepEqual(invokedArgs.slice(0, 2), ['--model', 'sonnet']);
+    assert.ok(invokedArgs.some((arg) => arg.includes('FooTest > bar FAILED')));
+    assert.equal(readGradlewCallCount(cwd), 2);
+  } finally {
+    process.env.PATH = previousPath;
+    claude.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('runUnitTests: bricht nach 10 Durchlaeufen ab, wenn die Tests weiterhin fehlschlagen', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-test-fix-max-attempts-'));
+  writeFakeGradlew(cwd, { steps: [{ exitCode: 1, stdout: 'error', createApk: false }] });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const claude = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  const previousPath = process.env.PATH;
+  process.env.PATH = [claude.binDir, previousPath ?? ''].join(delimiter);
+  try {
+    await assert.rejects(() => runUnitTests(cwd), /10 Durchlaeufen/);
+    assert.equal(readGradlewCallCount(cwd), 10);
+    const invocations = readFileSync(claudeLogFile, 'utf8').trim().split('\n');
+    assert.equal(invocations.length, 9);
+  } finally {
+    process.env.PATH = previousPath;
+    claude.cleanup();
     rmSync(cwd, { recursive: true, force: true });
   }
 });
