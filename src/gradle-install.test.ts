@@ -166,6 +166,30 @@ test('buildAndInstall: baut, findet APK und installiert auf allen gefundenen Ger
   }
 });
 
+test('buildAndInstall: verwendet gradlew_ statt gradlew, falls vorhanden', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-install-gradlew-underscore-'));
+  writeFakeGradlew(cwd, {
+    buildType: 'debug',
+    steps: [{ exitCode: 1, stdout: 'sollte nicht laufen' }],
+    scriptName: 'gradlew',
+  });
+  writeFakeGradlew(cwd, {
+    buildType: 'debug',
+    steps: [{ exitCode: 0, createApk: true }],
+    scriptName: 'gradlew_',
+  });
+  const adb = createMockAdb({ devicesOutput: 'List of devices attached\n\n' });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMockAdb(adb.binDir);
+  try {
+    await buildAndInstall('debug', cwd);
+  } finally {
+    process.env.PATH = previousPath;
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test('buildAndInstall: gibt am Ende Anzahl und Namen der installierten Geraete aus', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'cl-build-install-summary-'));
   writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });

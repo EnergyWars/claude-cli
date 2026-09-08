@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { buildClaudeArgs } from './launch.js';
@@ -97,9 +97,13 @@ interface GradleBuildResult {
   output: string;
 }
 
+function resolveGradlewExecutable(cwd: string): string {
+  return existsSync(join(cwd, 'gradlew_')) ? './gradlew_' : './gradlew';
+}
+
 function runGradleTask(cwd: string, task: string): Promise<GradleBuildResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('./gradlew', [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(resolveGradlewExecutable(cwd), [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
 
     const handleChunk = (chunk: Buffer): void => {

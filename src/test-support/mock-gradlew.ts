@@ -13,6 +13,8 @@ export interface FakeGradlewOptions {
   buildType?: GradleBuildType;
   /** Scripted sequence of results, one per invocation; the last entry repeats once exhausted. */
   steps?: GradlewStep[];
+  /** Dateiname des Fake-Scripts, Default 'gradlew'. */
+  scriptName?: string;
 }
 
 function shellQuote(value: string): string {
@@ -35,8 +37,8 @@ function renderStep(step: GradlewStep, buildType: GradleBuildType): string {
 }
 
 export function writeFakeGradlew(cwd: string, options: FakeGradlewOptions = {}): void {
-  const { buildType = 'debug', steps = [{ exitCode: 0, createApk: true }] } = options;
-  const scriptPath = join(cwd, 'gradlew');
+  const { buildType = 'debug', steps = [{ exitCode: 0, createApk: true }], scriptName = 'gradlew' } = options;
+  const scriptPath = join(cwd, scriptName);
   const stateFile = join(cwd, '.gradlew-call-count');
 
   // No indentation of step bodies: a heredoc terminator must start at column 0,
