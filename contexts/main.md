@@ -18,3 +18,8 @@ Nachdem du meine Anforderungen umgesetzt hast, prüfe genau den Aufbau eines Pro
   - Die context.md beschreibt nur den aktuellen stand, niemals eine history
   - Nachdem etwas fertig umgesetzt wurde, muss die context.md so weit wie möglich verkürzt werden, sodass sie nur den aktuellen stand beschreibt
 - Projekt ist ein Git-Projekt. Existiert kein git-Projekt, lege ein neues an
+
+
+
+## Immer beachten
+- Du sollst gradle befehle nur dann verwenden, wenn du der meinung bist, dass dein komplettes feature fertig ist, niemals als zwischenschritte. Gradle verbraucht zu viele ressourcen.
