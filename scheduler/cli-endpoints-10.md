@@ -1,1 +1,1 @@
-Tue gar nichts
+/goal Überprüfe das gesamte projekt auf referenzen zu "periodical". z.B in namen von exports oder an sonstigen stellen. Das Projekt heißt AllInOneCalendar, periodical ist veraltet. Das Ziel ist erreicht, wenn alle Referenzen darauf entfernt wurden und durch AllInOneCalendar ersetzt wurden.
