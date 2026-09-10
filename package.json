@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
+    "croner": "^10.0.1",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

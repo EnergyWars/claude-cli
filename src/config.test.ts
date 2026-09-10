@@ -12,6 +12,7 @@ import {
   listHostedSummaries,
   listPathCommands,
   listPathNames,
+  listSchedulers,
   listTasks,
   loadConfig,
   loadPathsOverride,
@@ -24,11 +25,16 @@ import {
   resolveHostedEntry,
   resolvePath,
   resolvePathCommand,
+  resolveSchedulerContext,
   resolveTask,
   type Config,
 } from './config.js';
 import { getConfigPointer, openDatabase, setConfigPointer } from './db.js';
-import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
+import {
+  EMBEDDED_CONFIG,
+  EMBEDDED_CONTEXTS,
+  EMBEDDED_SCHEDULER_CONTEXTS,
+} from './generated/embedded-context.js';
 import { createEmptyFixtureRoot, createFixtureRoot } from './test-support/fixture-config.js';
 
 function validRawConfig(): unknown {
@@ -44,6 +50,15 @@ function validRawConfig(): unknown {
         contexts: ['main'],
         model: 'sonnet',
         startCommand: 'raeum auf',
+      },
+    ],
+    schedulers: [
+      {
+        name: 'nightly-sync',
+        description: 'Nightly Sync',
+        cron: '0 0 3 * * *',
+        path: 'myapp',
+        model: 'sonnet',
       },
     ],
     ticketAgent: { model: 'haiku', task: 'Erstelle ein Ticket aus dem Text.' },
@@ -232,6 +247,81 @@ test('parseConfig: wirft wenn ein Task-Eintrag "permissions" kein String-Array i
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
+test('parseConfig: wirft ohne Feld "schedulers"', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  delete raw.schedulers;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert ein leeres "schedulers"-Array', () => {
+  const raw = validRawConfig() as { schedulers: unknown[] };
+  raw.schedulers = [];
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.schedulers, []);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "cron" fehlt', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  delete raw.schedulers[0]?.cron;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "cron" leer ist', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], cron: '   ' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "path" fehlt', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  delete raw.schedulers[0]?.path;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "path" leer ist', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], path: '   ' };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "model" fehlt', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  delete raw.schedulers[0]?.model;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "description" fehlt', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  delete raw.schedulers[0]?.description;
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Scheduler-Eintrag ohne "contexts"', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  delete raw.schedulers[0]?.contexts;
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.schedulers[0]?.contexts, undefined);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "contexts" kein String-Array ist', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], contexts: ['ok', 42] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Scheduler-Eintrag mit "permissions"', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], permissions: ['Bash(gradle *)'] };
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.schedulers[0]?.permissions, ['Bash(gradle *)']);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "permissions" kein String-Array ist', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], permissions: ['Bash(gradle *)', 42] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
 test('parseConfig: wirft ohne Feld "ticketAgent"', () => {
   const raw = validRawConfig() as Record<string, unknown>;
   delete raw.ticketAgent;
@@ -395,6 +485,7 @@ test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
     databaseDirectory: '/tmp/x',
     paths: [],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -464,6 +555,7 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -508,6 +600,7 @@ test('listHostedSummaries: liefert Name + Typ + Timestamp der Hosted-Eintraege e
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -532,8 +625,11 @@ test('listHostedSummaries: liefert die mtime der Datei als Timestamp fuer type "
       main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
       agents: [],
       databaseDirectory: '/tmp/x',
-      paths: [{ name: 'myapp', path: dir, hosted: [{ name: 'notes', path: 'notes.txt', type: 'file' }] }],
+      paths: [
+        { name: 'myapp', path: dir, hosted: [{ name: 'notes', path: 'notes.txt', type: 'file' }] },
+      ],
       tasks: [],
+      schedulers: [],
       ticketAgent: { model: 'haiku', task: 'Test-Task' },
       contentPath: '/tmp/content',
       collection: [],
@@ -564,6 +660,7 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
       { name: 'empty', path: '/empty/path' },
     ],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -615,6 +712,7 @@ test('listPathCommands/resolvePathCommand: defaultCommands gelten in jedem Pfad,
       { key: 'status', command: 'git status', displayName: 'Status', description: 'Default' },
     ],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -705,6 +803,13 @@ test('loadConfig/resolveContext: faellt ohne lokale Dateien auf embedded zurueck
   try {
     assert.deepEqual(loadConfig(), EMBEDDED_CONFIG);
     assert.equal(resolveContext('main'), EMBEDDED_CONTEXTS.main);
+    assert.throws(
+      () => resolveSchedulerContext('doesnotexist'),
+      /Scheduler-Context "doesnotexist" wurde nicht gefunden/,
+    );
+    for (const [name, content] of Object.entries(EMBEDDED_SCHEDULER_CONTEXTS)) {
+      assert.equal(resolveSchedulerContext(name), content);
+    }
   } finally {
     if (previous === undefined) {
       delete process.env.CL_ROOT_DIR;
@@ -742,6 +847,7 @@ test('loadPathsOverride/applyPathsOverride: liest Datei und ersetzt config.paths
       databaseDirectory: '/tmp/x',
       paths: [{ name: 'original', path: '/original' }],
       tasks: [],
+      schedulers: [],
       ticketAgent: { model: 'haiku', task: 'Test-Task' },
       contentPath: '/tmp/content',
       collection: [],
@@ -770,6 +876,54 @@ test('loadConfig: bricht bei reserviertem Agent-Namen in lokaler config.json ab'
   }
 });
 
+test('resolveSchedulerContext: lokal-first ueber CL_ROOT_DIR-Fixture, wirft bei unbekanntem Namen', () => {
+  const fixture = createFixtureRoot({
+    schedulers: [{ name: 'nightly-sync', cron: '0 0 3 * * *', path: 'myapp' }],
+    schedulerContexts: { 'nightly-sync': '# Nightly Sync Context\n' },
+  });
+  const previous = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  try {
+    assert.equal(resolveSchedulerContext('nightly-sync'), '# Nightly Sync Context\n');
+    assert.throws(
+      () => resolveSchedulerContext('doesnotexist'),
+      /Scheduler-Context "doesnotexist" wurde nicht gefunden/,
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previous;
+    }
+    fixture.cleanup();
+  }
+});
+
+test('listSchedulers: jeder Scheduler mit name, description, cron und path', () => {
+  const config: Config = {
+    main: { description: 'm', contexts: [], model: 'sonnet' },
+    agents: [],
+    databaseDirectory: '/tmp/db',
+    paths: [],
+    tasks: [],
+    schedulers: [
+      {
+        name: 'nightly-sync',
+        description: 'Sync ueber Nacht',
+        cron: '0 0 3 * * *',
+        path: 'myapp',
+        model: 'sonnet',
+      },
+    ],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+  assert.deepEqual(listSchedulers(config), [
+    { name: 'nightly-sync', description: 'Sync ueber Nacht', cron: '0 0 3 * * *', path: 'myapp' },
+  ]);
+});
+
 test('listTasks: jeder Task als "cl task <name>" mit description', () => {
   const config: Config = {
     main: { description: 'm', contexts: [], model: 'sonnet' },
@@ -780,6 +934,7 @@ test('listTasks: jeder Task als "cl task <name>" mit description', () => {
       { name: 'a', description: 'A-Desc', contexts: [], model: 'sonnet', startCommand: 'x' },
       { name: 'b', description: 'B-Desc', contexts: [], model: 'opus', startCommand: 'y' },
     ],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'Test-Task' },
     contentPath: '/tmp/content',
     collection: [],
@@ -797,6 +952,7 @@ test('resolveAgentFrom: liefert main ohne Namen, Agent per Namen, wirft bei unbe
     databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 'x' },
     contentPath: '/tmp/content',
     collection: [],

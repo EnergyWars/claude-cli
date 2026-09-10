@@ -21,6 +21,7 @@ function baseConfig(overrides: Partial<Config> = {}): Config {
     databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [],
+    schedulers: [],
     ticketAgent: { model: 'haiku', task: 't' },
     contentPath: '/tmp/content',
     collection: [],
@@ -137,10 +138,7 @@ test('listCollectedFiles: neueste zuerst, nur Dateien', () => {
     writeFileSync(join(contentPath, 'b.apk'), 'B');
 
     const files = listCollectedFiles(contentPath);
-    assert.deepEqual(
-      files.map((f) => f.name).sort(),
-      ['a.apk', 'b.apk'],
-    );
+    assert.deepEqual(files.map((f) => f.name).sort(), ['a.apk', 'b.apk']);
     for (const file of files) {
       assert.match(file.timestamp, /^\d{4}-\d{2}-\d{2}T/);
     }
@@ -200,18 +198,20 @@ test('collectForPath: leeres Ergebnis, falls kein Eintrag diesem Pfad zugeordnet
 
 test('collectForPath: wirft bei unbekanntem Pfad', () => {
   const config = baseConfig({ paths: [{ name: 'proj-a', path: '/tmp' }] });
-  assert.throws(() => collectForPath(config, 'doesnotexist'), /wurde in config\.json nicht gefunden/);
+  assert.throws(
+    () => collectForPath(config, 'doesnotexist'),
+    /wurde in config\.json nicht gefunden/,
+  );
 });
 
 test('resolveCollectionPathForFileName: findet den Pfad ueber den resultierenden Dateinamen', () => {
   const config = baseConfig({
-    collection: [{ sourcePath: '/tmp/app.apk', targetName: 'periodical-debug', path: 'periodical-work' }],
+    collection: [
+      { sourcePath: '/tmp/app.apk', targetName: 'periodical-debug', path: 'periodical-work' },
+    ],
   });
 
-  assert.equal(
-    resolveCollectionPathForFileName(config, 'periodical-debug.apk'),
-    'periodical-work',
-  );
+  assert.equal(resolveCollectionPathForFileName(config, 'periodical-debug.apk'), 'periodical-work');
 });
 
 test('resolveCollectionPathForFileName: undefined bei unbekanntem Dateinamen', () => {

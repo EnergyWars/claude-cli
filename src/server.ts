@@ -61,6 +61,7 @@ import {
   type HostedEntry,
   type PathCommandEntry,
   type PathEntry,
+  type SchedulerConfig,
   applyPathsOverride,
   ensureConfigBootstrapped,
   listAgents,
@@ -68,6 +69,7 @@ import {
   listHostedSummaries,
   listPathCommands,
   listPathNames,
+  listSchedulers,
   parseConfig,
   resolveAgentFrom,
   resolveEffectiveConfig,
@@ -78,9 +80,16 @@ import {
 import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
 import { findLatestBuildTimestamp } from './gradle-install.js';
 import { signJwt, verifyJwt } from './jwt.js';
-import { runHeadlessCommand, runShellCommand } from './launch.js';
+import {
+  buildSchedulerSystemPrompt,
+  buildSystemPrompt,
+  runHeadlessCommand,
+  runShellCommand,
+  SCHEDULER_TRIGGER_PROMPT,
+} from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
 import { listRemoteSessions, startRemoteSession } from './remote-session.js';
+import { startSchedulers, type SchedulerRegistry } from './scheduler.js';
 import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
@@ -809,11 +818,27 @@ function handleGetManifest(config: Config, res: ServerResponse): void {
       commands: listPathCommands(config, name),
       hosted: listHostedSummaries(config, name),
     })),
+    schedulers: listSchedulers(config),
   });
+}
+
+function handleGetSchedulers(config: Config, res: ServerResponse): void {
+  sendJson(res, 200, { schedulers: listSchedulers(config) });
 }
 
 interface ConfigState {
   current: Config;
+}
+
+interface SchedulerState {
+  registry: SchedulerRegistry;
+}
+
+function restartSchedulers(db: DatabaseSync, schedulerState: SchedulerState, config: Config): void {
+  schedulerState.registry.stop();
+  schedulerState.registry = startSchedulers(config.schedulers, (scheduler) => {
+    triggerScheduler(db, config, scheduler);
+  });
 }
 
 const USAGE_CACHE_TTL_MS = 60_000;
@@ -840,9 +865,15 @@ async function handleGetUsage(cache: UsageCacheState, res: ServerResponse): Prom
  * Ausnahme: databaseDirectory - die offene SQLite-Verbindung wird nicht neu geoeffnet, dafuer ist
  * ein Neustart noetig (sonst wuerde die Versionshistorie unter sich selbst wegwechseln).
  */
-function applyConfigReload(configState: ConfigState, newConfig: Config): { warning?: string } {
+function applyConfigReload(
+  db: DatabaseSync,
+  configState: ConfigState,
+  schedulerState: SchedulerState,
+  newConfig: Config,
+): { warning?: string } {
   const previousDatabaseDirectory = configState.current.databaseDirectory;
   configState.current = newConfig;
+  restartSchedulers(db, schedulerState, newConfig);
   if (newConfig.databaseDirectory !== previousDatabaseDirectory) {
     return {
       warning:
@@ -863,6 +894,7 @@ function parsePutConfigBody(raw: unknown): Config {
 function handlePutConfig(
   db: DatabaseSync,
   configState: ConfigState,
+  schedulerState: SchedulerState,
   res: ServerResponse,
   bodyText: string,
 ): void {
@@ -884,7 +916,7 @@ function handlePutConfig(
 
   const version = insertConfigVersion(db, JSON.stringify(newConfig));
   setConfigPointer(db, version.id);
-  const { warning } = applyConfigReload(configState, newConfig);
+  const { warning } = applyConfigReload(db, configState, schedulerState, newConfig);
   sendJson(res, 200, {
     versionId: version.id,
     createdAt: version.createdAt,
@@ -942,6 +974,7 @@ function parseConfigPointerBody(raw: unknown): ConfigPointerBody {
 function handlePutConfigPointer(
   db: DatabaseSync,
   configState: ConfigState,
+  schedulerState: SchedulerState,
   res: ServerResponse,
   bodyText: string,
 ): void {
@@ -976,7 +1009,7 @@ function handlePutConfigPointer(
   }
 
   setConfigPointer(db, body.versionId);
-  const { warning } = applyConfigReload(configState, newConfig);
+  const { warning } = applyConfigReload(db, configState, schedulerState, newConfig);
   sendJson(res, 200, { versionId: body.versionId, config: newConfig, warning });
 }
 
@@ -1584,6 +1617,79 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
     });
 }
 
+function triggerScheduler(db: DatabaseSync, config: Config, scheduler: SchedulerConfig): void {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, scheduler.path);
+  } catch (error) {
+    console.error(
+      `Scheduler "${scheduler.name}": Pfad "${scheduler.path}" wurde in config.json nicht gefunden.`,
+      error instanceof Error ? error.message : error,
+    );
+    return;
+  }
+
+  let systemPrompt: string;
+  try {
+    systemPrompt = buildSchedulerSystemPrompt(scheduler);
+  } catch (error) {
+    console.error(
+      `Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`,
+      error instanceof Error ? error.message : error,
+    );
+    return;
+  }
+
+  const id = randomUUID();
+  insertCommand(db, {
+    id,
+    agent: `scheduler:${scheduler.name}`,
+    model: scheduler.model,
+    command: SCHEDULER_TRIGGER_PROMPT,
+    path: pathEntry.path,
+  });
+  publishCommandState(db, id);
+
+  const outputPublisher = createOutputPublisher(db, id);
+  runHeadlessCommand(
+    systemPrompt,
+    scheduler.model,
+    SCHEDULER_TRIGGER_PROMPT,
+    pathEntry.path,
+    (output) => {
+      outputPublisher.push(output);
+    },
+    scheduler.permissions,
+    (child) => {
+      runningProcesses.set(id, child);
+    },
+  )
+    .then((result) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
+      completeCommand(
+        db,
+        id,
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
+        result.exitCode,
+        result.output,
+      );
+      publishCommandState(db, id);
+      triggerOnLastAgentFinishHook(db, pathEntry);
+    })
+    .catch((error: unknown) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
+      const message = error instanceof Error ? error.message : String(error);
+      completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
+      triggerOnLastAgentFinishHook(db, pathEntry);
+      console.error(`Scheduler "${scheduler.name}" fehlgeschlagen:`, message);
+    });
+}
+
 function handlePostCommand(
   db: DatabaseSync,
   config: Config,
@@ -1634,7 +1740,7 @@ function handlePostCommand(
 
   const outputPublisher = createOutputPublisher(db, id);
   runHeadlessCommand(
-    agent,
+    buildSystemPrompt(agent),
     model,
     body.command,
     cwd,
@@ -1674,6 +1780,7 @@ function handlePostCommand(
 async function handleRequest(
   db: DatabaseSync,
   configState: ConfigState,
+  schedulerState: SchedulerState,
   usageCache: UsageCacheState,
   req: IncomingMessage,
   res: ServerResponse,
@@ -1754,7 +1861,7 @@ async function handleRequest(
       handleGetConfig(config, res);
     } else if (method === 'PUT' && segments.length === 1 && segments[0] === 'config') {
       bodyText = await readRequestBody(req);
-      handlePutConfig(db, configState, res, bodyText);
+      handlePutConfig(db, configState, schedulerState, res, bodyText);
     } else if (
       method === 'GET' &&
       segments.length === 2 &&
@@ -1783,7 +1890,9 @@ async function handleRequest(
       segments[1] === 'pointer'
     ) {
       bodyText = await readRequestBody(req);
-      handlePutConfigPointer(db, configState, res, bodyText);
+      handlePutConfigPointer(db, configState, schedulerState, res, bodyText);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'schedulers') {
+      handleGetSchedulers(config, res);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
       handleGetCommands(
         db,
@@ -1919,6 +2028,9 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  POST ${base}/state/:id/stop    (beendet einen laufenden Command)`);
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
+  console.log(
+    `  GET  ${base}/schedulers          (name, description, cron, path je konfiguriertem Scheduler)`,
+  );
   console.log(`  GET  ${base}/config`);
   console.log(
     `  PUT  ${base}/config                 (neue Version speichern, Zeiger setzen, sofort aktiv)`,
@@ -1987,9 +2099,14 @@ export function startServer(
   }
   const configState: ConfigState = { current: effectiveConfig };
   const usageCache: UsageCacheState = {};
+  const schedulerState: SchedulerState = {
+    registry: startSchedulers(effectiveConfig.schedulers, (scheduler) => {
+      triggerScheduler(db, configState.current, scheduler);
+    }),
+  };
 
   const server = createServer((req, res) => {
-    handleRequest(db, configState, usageCache, req, res).catch((error: unknown) => {
+    handleRequest(db, configState, schedulerState, usageCache, req, res).catch((error: unknown) => {
       console.error(error instanceof Error ? error.message : error);
     });
   });
@@ -2011,6 +2128,7 @@ export function startServer(
   const close = async (): Promise<void> => {
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
+    schedulerState.registry.stop();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {

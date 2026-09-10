@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import type { AgentDefinition } from './config.js';
+import type { AgentDefinition, SchedulerConfig } from './config.js';
 import {
   buildClaudeArgs,
+  buildSchedulerSystemPrompt,
   buildSystemPrompt,
   runHeadlessCommand,
   runShellCommand,
@@ -129,7 +130,57 @@ test('buildSystemPrompt: verkettet alle Contexts eines Agents mit doppeltem Newl
   }
 });
 
-const testAgent: AgentDefinition = { description: 'x', model: 'sonnet', contexts: [] };
+test('buildSchedulerSystemPrompt: eigener scheduler-Context zuerst, danach die zusaetzlichen contexts', () => {
+  const fixture = createFixtureRoot({
+    contexts: { extra: 'Extra Context' },
+    schedulerContexts: { 'nightly-sync': 'Nightly Sync Context' },
+  });
+  const previous = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  try {
+    const scheduler: SchedulerConfig = {
+      name: 'nightly-sync',
+      description: 'x',
+      cron: '0 0 3 * * *',
+      path: 'default',
+      model: 'sonnet',
+      contexts: ['extra'],
+    };
+    assert.equal(buildSchedulerSystemPrompt(scheduler), 'Nightly Sync Context\n\nExtra Context');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previous;
+    }
+    fixture.cleanup();
+  }
+});
+
+test('buildSchedulerSystemPrompt: ohne zusaetzliche contexts nur der eigene scheduler-Context', () => {
+  const fixture = createFixtureRoot({
+    schedulerContexts: { 'nightly-sync': 'Nightly Sync Context' },
+  });
+  const previous = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  try {
+    const scheduler: SchedulerConfig = {
+      name: 'nightly-sync',
+      description: 'x',
+      cron: '0 0 3 * * *',
+      path: 'default',
+      model: 'sonnet',
+    };
+    assert.equal(buildSchedulerSystemPrompt(scheduler), 'Nightly Sync Context');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previous;
+    }
+    fixture.cleanup();
+  }
+});
 
 test('runHeadlessCommand: sammelt Output und liefert Exit-Code 0', async () => {
   const mock = createMockClaude({ outputChunks: ['hello '], exitCode: 0 });
@@ -138,7 +189,7 @@ test('runHeadlessCommand: sammelt Output und liefert Exit-Code 0', async () => {
   try {
     const chunks: string[] = [];
     const result = await runHeadlessCommand(
-      testAgent,
+      '',
       'sonnet',
       'irgendein prompt',
       process.cwd(),
@@ -174,7 +225,7 @@ test('runHeadlessCommand: gibt permissions als --allowedTools an claude weiter',
   process.env.PATH = pathWithMock(mock.binDir);
   try {
     const result = await runHeadlessCommand(
-      testAgent,
+      '',
       'sonnet',
       'irgendein prompt',
       process.cwd(),
@@ -209,7 +260,7 @@ test('runHeadlessCommand: onChunk erhaelt kumulierten Output bei mehreren Chunks
   process.env.PATH = pathWithMock(mock.binDir);
   try {
     const chunks: string[] = [];
-    const result = await runHeadlessCommand(testAgent, 'sonnet', 'p', process.cwd(), (output) => {
+    const result = await runHeadlessCommand('', 'sonnet', 'p', process.cwd(), (output) => {
       chunks.push(output);
     });
     assert.ok(chunks.length >= 1);
@@ -232,13 +283,7 @@ test('runHeadlessCommand: liefert nicht-null Exit-Code bei Fehlschlag', async ()
   const previousPath = process.env.PATH;
   process.env.PATH = pathWithMock(mock.binDir);
   try {
-    const result = await runHeadlessCommand(
-      testAgent,
-      'sonnet',
-      'p',
-      process.cwd(),
-      () => undefined,
-    );
+    const result = await runHeadlessCommand('', 'sonnet', 'p', process.cwd(), () => undefined);
     assert.equal(result.exitCode, 3);
   } finally {
     process.env.PATH = previousPath;
@@ -252,7 +297,7 @@ test('runHeadlessCommand: rejected wenn "claude" nicht im PATH gefunden wird', a
   process.env.PATH = empty.binDir;
   try {
     await assert.rejects(() =>
-      runHeadlessCommand(testAgent, 'sonnet', 'p', process.cwd(), () => undefined),
+      runHeadlessCommand('', 'sonnet', 'p', process.cwd(), () => undefined),
     );
   } finally {
     process.env.PATH = previousPath;
@@ -288,7 +333,7 @@ test('runHeadlessCommand: onSpawn erhaelt das Kind-Prozess-Handle vor Abschluss'
   try {
     let spawnedPid: number | undefined;
     await runHeadlessCommand(
-      testAgent,
+      '',
       'sonnet',
       'p',
       process.cwd(),
@@ -316,7 +361,7 @@ test('runHeadlessCommand: SIGTERM ueber das onSpawn-Handle beendet den Prozess v
   try {
     const started = Date.now();
     const result = await runHeadlessCommand(
-      testAgent,
+      '',
       'sonnet',
       'p',
       process.cwd(),
@@ -326,7 +371,10 @@ test('runHeadlessCommand: SIGTERM ueber das onSpawn-Handle beendet den Prozess v
         setTimeout(() => child.kill('SIGTERM'), 100);
       },
     );
-    assert.ok(Date.now() - started < 900, 'Prozess sollte lange vor Ablauf aller 5 Chunks beendet worden sein');
+    assert.ok(
+      Date.now() - started < 900,
+      'Prozess sollte lange vor Ablauf aller 5 Chunks beendet worden sein',
+    );
     assert.notEqual(result.exitCode, 0);
   } finally {
     process.env.PATH = previousPath;
@@ -344,6 +392,9 @@ test('runShellCommand: onSpawn erhaelt das Kind-Prozess-Handle, SIGTERM beendet 
       setTimeout(() => child.kill('SIGTERM'), 100);
     },
   );
-  assert.ok(Date.now() - started < 4000, 'Prozess sollte lange vor Ablauf der 5s beendet worden sein');
+  assert.ok(
+    Date.now() - started < 4000,
+    'Prozess sollte lange vor Ablauf der 5s beendet worden sein',
+  );
   assert.notEqual(result.exitCode, 0);
 });

@@ -1,10 +1,26 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 
-import { resolveAgent, resolveContext, type TaskConfig } from './config.js';
+import {
+  resolveAgent,
+  resolveContext,
+  resolveSchedulerContext,
+  type SchedulerConfig,
+  type TaskConfig,
+} from './config.js';
 
 export function buildSystemPrompt(entity: { contexts: string[] }): string {
   return entity.contexts.map((name) => resolveContext(name)).join('\n\n');
 }
+
+/** Eigener scheduler/<name>.md-Context immer zuerst, danach die zusaetzlich referenzierten contexts (wie bei Agents/Tasks). */
+export function buildSchedulerSystemPrompt(scheduler: SchedulerConfig): string {
+  const ownContext = resolveSchedulerContext(scheduler.name);
+  const extraContexts = (scheduler.contexts ?? []).map((name) => resolveContext(name));
+  return [ownContext, ...extraContexts].join('\n\n');
+}
+
+export const SCHEDULER_TRIGGER_PROMPT =
+  'Fuehre den geplanten Lauf jetzt aus, gemaess dem im System-Prompt beschriebenen Auftrag.';
 
 export function buildClaudeArgs(
   model: string,
@@ -67,7 +83,7 @@ export interface HeadlessCommandResult {
 }
 
 export async function runHeadlessCommand(
-  entity: { contexts: string[] },
+  systemPrompt: string,
   model: string,
   command: string,
   cwd: string,
@@ -75,7 +91,7 @@ export async function runHeadlessCommand(
   permissions?: string[],
   onSpawn?: (child: ChildProcess) => void,
 ): Promise<HeadlessCommandResult> {
-  const args = buildClaudeArgs(model, buildSystemPrompt(entity), command, undefined, permissions);
+  const args = buildClaudeArgs(model, systemPrompt, command, undefined, permissions);
 
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });

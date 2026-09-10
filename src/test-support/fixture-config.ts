@@ -44,6 +44,16 @@ export interface FixtureTask {
   permissions?: string[];
 }
 
+export interface FixtureScheduler {
+  name: string;
+  description?: string;
+  cron: string;
+  path: string;
+  model?: string;
+  contexts?: string[];
+  permissions?: string[];
+}
+
 export interface FixtureTicketAgent {
   model?: string;
   task?: string;
@@ -63,6 +73,8 @@ export interface FixtureConfigOptions {
   paths?: FixturePathEntry[];
   defaultCommands?: FixturePathCommandEntry[];
   tasks?: FixtureTask[];
+  schedulers?: FixtureScheduler[];
+  schedulerContexts?: Record<string, string>;
   ticketAgent?: FixtureTicketAgent;
   contentPath?: string;
   collection?: FixtureCollectionEntry[];
@@ -99,6 +111,11 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
       startCommand: 'mach was',
       ...task,
     })),
+    schedulers: (options.schedulers ?? []).map((scheduler) => ({
+      description: 'Test-Scheduler',
+      model: 'sonnet',
+      ...scheduler,
+    })),
     ticketAgent: {
       model: 'haiku',
       task: 'Test-Ticket-Agent-Aufgabe',
@@ -112,6 +129,18 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
   const contexts = options.contexts ?? { main: '# Test-Main-Context\n' };
   for (const [name, content] of Object.entries(contexts)) {
     const filePath = join(rootDir, 'contexts', `${name}.md`);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, content);
+  }
+
+  const schedulerContexts = {
+    ...Object.fromEntries(
+      (options.schedulers ?? []).map((scheduler) => [scheduler.name, '# Test-Scheduler-Context\n']),
+    ),
+    ...options.schedulerContexts,
+  };
+  for (const [name, content] of Object.entries(schedulerContexts)) {
+    const filePath = join(rootDir, 'scheduler', `${name}.md`);
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, content);
   }

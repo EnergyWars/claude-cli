@@ -4,7 +4,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 import { getConfigPointer, getConfigVersion, insertConfigVersion, setConfigPointer } from './db.js';
-import { EMBEDDED_CONFIG, EMBEDDED_CONTEXTS } from './generated/embedded-context.js';
+import {
+  EMBEDDED_CONFIG,
+  EMBEDDED_CONTEXTS,
+  EMBEDDED_SCHEDULER_CONTEXTS,
+} from './generated/embedded-context.js';
 
 export interface AgentDefinition {
   description: string;
@@ -57,6 +61,23 @@ export interface TaskConfig extends TaskDefinition {
   name: string;
 }
 
+export interface SchedulerDefinition {
+  description: string;
+  /** Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld), der bestimmt, wann dieser Scheduler ausgefuehrt wird. */
+  cron: string;
+  /** Name eines Eintrags aus config.json "paths" - cwd des headless claude-Laufs. */
+  path: string;
+  model: string;
+  /** Zusaetzlich zum eigenen scheduler/<name>.md-Context eingebundene Contexts, wie bei Agents/Tasks. */
+  contexts?: string[];
+  /** Default-Permissions (gleiche Syntax wie settings.json permissions.allow), als --allowedTools an claude uebergeben. */
+  permissions?: string[];
+}
+
+export interface SchedulerConfig extends SchedulerDefinition {
+  name: string;
+}
+
 export interface TicketAgentConfig {
   model: string;
   task: string;
@@ -77,6 +98,7 @@ export interface Config {
   /** Commands, die zusaetzlich zu den commands eines PathEntry in jedem Pfad ausfuehrbar sind. Ein commands-Eintrag mit gleichem key ueberschreibt den Default fuer diesen Pfad. */
   defaultCommands?: PathCommandEntry[];
   tasks: TaskConfig[];
+  schedulers: SchedulerConfig[];
   ticketAgent: TicketAgentConfig;
   contentPath: string;
   collection: CollectionEntry[];
@@ -221,6 +243,33 @@ function isTaskConfig(value: unknown): value is TaskConfig {
   return typeof record.name === 'string' && isTaskDefinition(value);
 }
 
+function isSchedulerDefinition(value: unknown): value is SchedulerDefinition {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.description === 'string' &&
+    typeof record.cron === 'string' &&
+    record.cron.trim() !== '' &&
+    typeof record.path === 'string' &&
+    record.path.trim() !== '' &&
+    typeof record.model === 'string' &&
+    (record.contexts === undefined ||
+      (Array.isArray(record.contexts) &&
+        record.contexts.every((entry) => typeof entry === 'string'))) &&
+    isOptionalPermissions(record.permissions)
+  );
+}
+
+function isSchedulerConfig(value: unknown): value is SchedulerConfig {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.name === 'string' && isSchedulerDefinition(value);
+}
+
 function isTicketAgentConfig(value: unknown): value is TicketAgentConfig {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -266,6 +315,8 @@ function isConfig(value: unknown): value is Config {
         record.defaultCommands.every(isPathCommandEntry))) &&
     Array.isArray(record.tasks) &&
     record.tasks.every(isTaskConfig) &&
+    Array.isArray(record.schedulers) &&
+    record.schedulers.every(isSchedulerConfig) &&
     isTicketAgentConfig(record.ticketAgent) &&
     typeof record.contentPath === 'string' &&
     Array.isArray(record.collection) &&
@@ -287,7 +338,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, path, model, contexts?, permissions? }, wobei path der Name eines Eintrags aus "paths" ist), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -460,6 +511,35 @@ export function resolveTask(config: Config, name: string): TaskConfig {
     throw new Error(`Task "${name}" wurde in config.json nicht gefunden.`);
   }
   return task;
+}
+
+/** Loest den dedizierten scheduler/<name>.md-Context auf (lokal-first, embedded-fallback wie resolveContext). */
+export function resolveSchedulerContext(name: string): string {
+  const local = readLocalFile(join('scheduler', `${name}.md`));
+  if (local !== undefined) {
+    return local;
+  }
+  const embedded = EMBEDDED_SCHEDULER_CONTEXTS[name];
+  if (embedded === undefined) {
+    throw new Error(`Scheduler-Context "${name}" wurde nicht gefunden (scheduler/${name}.md).`);
+  }
+  return embedded;
+}
+
+export interface SchedulerSummary {
+  name: string;
+  description: string;
+  cron: string;
+  path: string;
+}
+
+export function listSchedulers(config: Config): SchedulerSummary[] {
+  return config.schedulers.map((scheduler) => ({
+    name: scheduler.name,
+    description: scheduler.description,
+    cron: scheduler.cron,
+    path: scheduler.path,
+  }));
 }
 
 /**

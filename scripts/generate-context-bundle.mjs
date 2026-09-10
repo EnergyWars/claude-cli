@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const contextsDir = join(rootDir, 'contexts');
+const schedulerDir = join(rootDir, 'scheduler');
 const configPath = join(rootDir, 'config.json');
 const outDir = join(rootDir, 'src', 'generated');
 const outFile = join(outDir, 'embedded-context.ts');
@@ -35,10 +36,13 @@ function collectNamedFiles(dir) {
 
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 const contexts = collectNamedFiles(contextsDir);
+const schedulerContexts = collectNamedFiles(schedulerDir);
 
 const body = `export const EMBEDDED_CONFIG: unknown = ${JSON.stringify(config)};
 
 export const EMBEDDED_CONTEXTS: Record<string, string> = ${JSON.stringify(contexts)};
+
+export const EMBEDDED_SCHEDULER_CONTEXTS: Record<string, string> = ${JSON.stringify(schedulerContexts)};
 `;
 
 mkdirSync(outDir, { recursive: true });

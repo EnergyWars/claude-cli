@@ -13,6 +13,7 @@ import {
   listAgents,
   listPathCommands,
   listPathNames,
+  listSchedulers,
   listTasks,
   loadConfig,
   loadPathsOverride,
@@ -129,6 +130,23 @@ function formatServerAgentsHelp(): string {
   );
 }
 
+function formatSchedulersHelp(): string {
+  return formatConfigHelp('Scheduler', (config) => {
+    const schedulers = listSchedulers(config);
+    if (schedulers.length === 0) {
+      return 'Scheduler (aus config.json):\n  Keine Scheduler konfiguriert.';
+    }
+    const width = Math.max(...schedulers.map((scheduler) => scheduler.name.length));
+    const lines = schedulers.map(
+      (scheduler) =>
+        `  ${scheduler.name.padEnd(width + 2)}"${scheduler.cron}" in Pfad "${scheduler.path}": ${scheduler.description}`,
+    );
+    return ['Scheduler (aus config.json, cron-gesteuerte headless claude-Laeufe):', ...lines].join(
+      '\n',
+    );
+  });
+}
+
 function formatPathsHelp(): string {
   return formatConfigHelp('Pfade', (config) => {
     if (config.paths.length === 0) {
@@ -214,7 +232,10 @@ program
     '-P, --paths-file <file>',
     'Pfad zu einer JSON-Datei mit nur { "paths": [...] } (gleiche Form wie paths in config.json) - ersetzt die paths aus config.json fuer diesen Serverlauf vollstaendig.',
   )
-  .addHelpText('after', () => `\n${formatServerAgentsHelp()}\n\n${formatPathsHelp()}\n`)
+  .addHelpText(
+    'after',
+    () => `\n${formatServerAgentsHelp()}\n\n${formatPathsHelp()}\n\n${formatSchedulersHelp()}\n`,
+  )
   .action((options: { port: string; pathsFile?: string }) => {
     const port = Number(options.port);
     if (!Number.isInteger(port) || port < 0) {
