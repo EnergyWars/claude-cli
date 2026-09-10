@@ -201,24 +201,40 @@
   "schedulers": [
     {
       "name": "cli-endpoints-00",
-      "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um Mitternacht.",
-      "cron": "0 0 0 * * *",
+      "description": "Daily Usability-Review",
+      "cron": "0 0 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-00-security",
+      "description": "Daily security audit",
+      "cron": "0 0 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-00-suggestions",
+      "description": "3-Daily suggestion check",
+      "cron": "0 0 * * 5,1",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
       "name": "cli-endpoints-05",
-      "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um 5 Uhr.",
-      "cron": "0 0 5 * * *",
+      "description": "Daily Code-Review",
+      "cron": "0 5 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
       "name": "cli-endpoints-10",
-      "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um 10 Uhr.",
-      "cron": "0 0 10 * * *",
+      "description": "Daily periodical-referenzen Entferner",
+      "cron": "0 10 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
@@ -226,7 +242,7 @@
     {
       "name": "cli-endpoints-15",
       "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um 15 Uhr.",
-      "cron": "0 0 15 * * *",
+      "cron": "0 15 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]

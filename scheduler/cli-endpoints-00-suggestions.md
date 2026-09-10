@@ -1,0 +1,1 @@
+/goal Verstehe die Struktur und den Sinn dieser App. Schaue dir alle Module an und überprüfe sie auf usability. Kann man noch Features hinzufügen? Kann man noch Dinge verbessern? Fühlt sich etwas komisch an? Gibt es noch Features oder Module, die man der App hinzufügen könnte? Dokumentiere alles in suggestions.md. Das Ziel ist erreicht, wenn alles in suggestions.md erreicht ist.
