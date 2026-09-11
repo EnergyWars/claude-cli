@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -13,6 +14,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
 import { loadConfig } from './config.js';
+import { insertCommand, openDatabase, setCommandPid } from './db.js';
 import { startServer, type RunningServer } from './server.js';
 import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
@@ -303,6 +305,80 @@ test('POST /state/<id>/stop: 409 wenn der Command bereits abgeschlossen ist', as
 test('POST /state/<id>/stop: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/state/unknown-id/stop`, { method: 'POST' });
   assert.equal(res.status, 401);
+});
+
+test('startServer: raeumt beim Start verwaiste "running"-Commands mit toter PID auf, laesst noch lebende PIDs unangetastet', async () => {
+  const orphanFixture = createFixtureRoot({});
+  const dbDir = join(orphanFixture.rootDir, 'db');
+
+  const deadPid = await new Promise<number>((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', '']);
+    child.on('error', reject);
+    child.on('exit', () => {
+      if (child.pid === undefined) {
+        reject(new Error('Kindprozess ohne PID'));
+        return;
+      }
+      resolve(child.pid);
+    });
+  });
+
+  const seedDb = openDatabase(dbDir);
+  insertCommand(seedDb, {
+    id: 'orphan-dead',
+    agent: 'remote',
+    model: 'sonnet',
+    command: 'x',
+    path: orphanFixture.rootDir,
+  });
+  setCommandPid(seedDb, 'orphan-dead', deadPid);
+  insertCommand(seedDb, {
+    id: 'orphan-alive',
+    agent: 'remote',
+    model: 'sonnet',
+    command: 'x',
+    path: orphanFixture.rootDir,
+  });
+  setCommandPid(seedDb, 'orphan-alive', process.pid);
+  seedDb.close();
+
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = orphanFixture.rootDir;
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const token = confirmBody.token;
+
+    const deadRes = await fetch(`${url}/state/orphan-dead`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const deadState = (await deadRes.json()) as { status: string };
+    assert.equal(deadState.status, 'stopped');
+
+    const aliveRes = await fetch(`${url}/state/orphan-alive`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const aliveState = (await aliveRes.json()) as { status: string };
+    assert.equal(aliveState.status, 'running');
+  } finally {
+    await server.close();
+    orphanFixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
 });
 
 test('GET /unbekannte-route: 404', async () => {

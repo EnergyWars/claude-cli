@@ -1,1 +1,2 @@
-/goal Die App muss lauffähig sein und darf beim Start nicht abstürzen und muss kompilieren. Alle Tests müssen laufen.
+Mache ein review und teste alle funktionalitäten der app. Wenn du der Meinung bist, dass etwas nicht funktioniert, verbessere es.
+Schaue auch nach, ob alle Features in der App enthalten sind, die man sich wünschen könnte als Nutzer. Ergänze fehlende.

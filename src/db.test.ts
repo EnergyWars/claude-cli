@@ -25,9 +25,11 @@ import {
   listAllTickets,
   listCommands,
   listFeedback,
+  listRunningCommandsWithPid,
   listTickets,
   logAccess,
   openDatabase,
+  setCommandPid,
   setPendingTotpSecret,
   updateCommandOutput,
   updateFeedback,
@@ -191,8 +193,100 @@ test('insertCommand + getCommand: Roundtrip mit status "running"', () => {
   assert.equal(row.status, 'running');
   assert.equal(row.output, '');
   assert.equal(row.exitCode, null);
+  assert.equal(row.pid, null);
   assert.equal(typeof row.createdAt, 'string');
   assert.equal(row.createdAt, row.updatedAt);
+});
+
+test('openDatabase: ergaenzt fehlende Spalte "pid" in einer alten t_commands-Tabelle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-migration-pid-'));
+  try {
+    const legacyDb = new DatabaseSync(join(dir, 'commands.db'));
+    legacyDb.exec(`
+      CREATE TABLE t_commands (
+        id TEXT PRIMARY KEY,
+        agent TEXT NOT NULL,
+        model TEXT NOT NULL,
+        command TEXT NOT NULL,
+        path TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    legacyDb.close();
+
+    const migratedDb = openDatabase(dir);
+    try {
+      insertCommand(migratedDb, {
+        id: 'legacy-pid-cmd',
+        agent: 'main',
+        model: 'sonnet',
+        command: 'x',
+        path: '/tmp',
+      });
+      const row = getCommand(migratedDb, 'legacy-pid-cmd');
+      assert.ok(row);
+      assert.equal(row.pid, null);
+    } finally {
+      migratedDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setCommandPid: setzt die PID, sichtbar ueber getCommand und listCommands', () => {
+  insertCommand(db, {
+    id: 'cmd-pid-1',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'x',
+    path: '/pid-test',
+  });
+  setCommandPid(db, 'cmd-pid-1', 12345);
+  const row = getCommand(db, 'cmd-pid-1');
+  assert.ok(row);
+  assert.equal(row.pid, 12345);
+
+  const [summary] = listCommands(db, '/pid-test');
+  assert.ok(summary);
+  assert.equal(summary.pid, 12345);
+});
+
+test('listRunningCommandsWithPid: nur "running"-Commands mit gesetzter PID', () => {
+  insertCommand(db, {
+    id: 'rwp-no-pid',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'x',
+    path: '/rwp-test',
+  });
+  insertCommand(db, {
+    id: 'rwp-with-pid',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'x',
+    path: '/rwp-test',
+  });
+  setCommandPid(db, 'rwp-with-pid', 999);
+  insertCommand(db, {
+    id: 'rwp-completed',
+    agent: 'main',
+    model: 'sonnet',
+    command: 'x',
+    path: '/rwp-test',
+  });
+  setCommandPid(db, 'rwp-completed', 888);
+  completeCommand(db, 'rwp-completed', 'completed', 0, '');
+
+  const rows = listRunningCommandsWithPid(db);
+  assert.deepEqual(
+    rows.filter((row) => row.id.startsWith('rwp-')),
+    [{ id: 'rwp-with-pid', pid: 999 }],
+  );
 });
 
 test('getCommand: undefined fuer unbekannte ID', () => {

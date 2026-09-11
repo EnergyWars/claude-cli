@@ -14,6 +14,7 @@ export interface CommandRow {
   status: CommandStatus;
   output: string;
   exitCode: number | null;
+  pid: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,7 +64,10 @@ export function openDatabase(directory: string): DatabaseSync {
       updated_at TEXT NOT NULL
     )
   `);
-  ensureColumns(db, 't_commands', [{ name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" }]);
+  ensureColumns(db, 't_commands', [
+    { name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" },
+    { name: 'pid', definition: 'pid INTEGER' },
+  ]);
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_totp (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -184,6 +188,11 @@ export function insertCommand(
   ).run(row.id, row.agent, row.model, row.command, row.path, 'running', '', null, now, now);
 }
 
+/** Persistiert die PID des zum Command gehoerenden Kindprozesses, sobald er gespawnt wurde - Grundlage fuer {@link listRunningCommandsWithPid}. */
+export function setCommandPid(db: DatabaseSync, id: string, pid: number): void {
+  db.prepare('UPDATE t_commands SET pid = ? WHERE id = ?').run(pid, id);
+}
+
 export function updateCommandOutput(db: DatabaseSync, id: string, output: string): void {
   db.prepare('UPDATE t_commands SET output = ?, updated_at = ? WHERE id = ?').run(
     output,
@@ -214,6 +223,7 @@ function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
     status: String(row.status) as CommandStatus,
     output: String(row.output),
     exitCode: row.exit_code === null ? null : Number(row.exit_code),
+    pid: row.pid === null || row.pid === undefined ? null : Number(row.pid),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -230,6 +240,7 @@ function toCommandSummaryRow(row: Record<string, SQLOutputValue>): CommandRow {
     status: String(row.status) as CommandStatus,
     output: '',
     exitCode: row.exit_code === null ? null : Number(row.exit_code),
+    pid: row.pid === null || row.pid === undefined ? null : Number(row.pid),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -255,7 +266,7 @@ export function listCommands(
   path: string,
   options?: { limit?: number; offset?: number },
 ): CommandRow[] {
-  const columns = 'id, agent, model, command, path, status, exit_code, created_at, updated_at';
+  const columns = 'id, agent, model, command, path, status, exit_code, pid, created_at, updated_at';
   if (options?.limit === undefined) {
     const rows = db
       .prepare(
@@ -277,6 +288,14 @@ export function countCommands(db: DatabaseSync, path: string): number {
     count: number;
   };
   return row.count;
+}
+
+/** Auf "running" stehende Commands mit bekannter PID - Grundlage fuer die Reconciliation verwaister Eintraege beim Serverstart. */
+export function listRunningCommandsWithPid(db: DatabaseSync): { id: string; pid: number }[] {
+  const rows = db
+    .prepare("SELECT id, pid FROM t_commands WHERE status = 'running' AND pid IS NOT NULL")
+    .all();
+  return rows.map((row) => ({ id: String(row.id), pid: Number(row.pid) }));
 }
 
 export const DEFAULT_STATS_WINDOW_HOURS = 24;

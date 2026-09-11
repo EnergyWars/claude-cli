@@ -244,7 +244,7 @@
   ],
   "schedulers": [
     {
-      "name": "cli-endpoints-0000-security",
+      "name": "periodical-0000",
       "description": "Daily security audit",
       "cron": "0 0 * * *",
       "path": "periodical",
@@ -252,7 +252,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0030-legal",
+      "name": "periodical-0030",
       "description": "Daily legal review",
       "cron": "30 0 * * *",
       "path": "periodical",
@@ -260,7 +260,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0100-appstore",
+      "name": "periodical-0100",
       "description": "Daily App-Store review",
       "cron": "0 1 * * *",
       "path": "periodical",
@@ -268,7 +268,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0130-architecture",
+      "name": "periodical-0130",
       "description": "Daily architecture review",
       "cron": "30 1 * * *",
       "path": "periodical",
@@ -276,7 +276,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0200-inconsistencies",
+      "name": "periodical-0200",
       "description": "Daily inconsistency check",
       "cron": "0 2 * * *",
       "path": "periodical",
@@ -284,7 +284,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0230-suggestions",
+      "name": "periodical-0230",
       "description": "3-Daily suggestion check",
       "cron": "30 2 * * 5,1",
       "path": "periodical",
@@ -292,7 +292,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0300-todo",
+      "name": "periodical-0300",
       "description": "Daily todo.md cleanup",
       "cron": "0 3 * * *",
       "path": "periodical",
@@ -300,7 +300,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0330-local-review",
+      "name": "periodical-0330",
       "description": "Daily local-changes review",
       "cron": "30 3 * * *",
       "path": "periodical",
@@ -308,7 +308,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-05",
+      "name": "periodical-0500",
       "description": "Daily Code-Review",
       "cron": "0 5 * * *",
       "path": "periodical",
@@ -316,7 +316,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-10",
+      "name": "periodical-1000",
       "description": "Daily periodical-referenzen Entferner",
       "cron": "0 10 * * *",
       "path": "periodical",
@@ -324,7 +324,7 @@
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-15",
+      "name": "periodical-1500",
       "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um 15 Uhr.",
       "cron": "0 15 * * *",
       "path": "periodical",

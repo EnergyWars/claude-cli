@@ -39,9 +39,11 @@ import {
   listCommands,
   listConfigVersions,
   listFeedback,
+  listRunningCommandsWithPid,
   listTickets,
   logAccess,
   openDatabase,
+  setCommandPid,
   setConfigPointer,
   setPendingTotpSecret,
   TICKET_STATUSES,
@@ -536,6 +538,41 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
 
 /** Laufende Subprozesse je Command-ID, damit `POST /state/:id/stop` sie gezielt beenden kann. */
 const runningProcesses = new Map<string, ChildProcess>();
+
+/** true, wenn unter dieser PID noch ein Prozess existiert (Signal 0 sendet nichts, prueft nur). */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/**
+ * Raeumt beim Serverstart Commands auf, die von einem frueheren Server-Prozess als "running" hinterlassen
+ * wurden: `runningProcesses` ist In-Memory und geht bei jedem Neustart verloren, daher kann `POST /state/:id/stop`
+ * solche Zeilen nie erreichen und sie blieben sonst fuer immer auf "running" stehen. Die beim Spawnen
+ * persistierte PID (siehe {@link setCommandPid}) macht sie hier ueberpruefbar: Ist der Prozess laut PID nicht
+ * mehr da, wird der Command auf "stopped" gesetzt. Ist er noch da (z. B. ein Scheduler-Lauf, der den Neustart
+ * ueberlebt hat), bleibt er unangetastet auf "running" - er ist dann zwar noch nicht wieder ueber die API
+ * stoppbar, wird aber beim naechsten Neustart erneut geprueft.
+ */
+function reconcileOrphanedCommands(db: DatabaseSync): void {
+  for (const { id, pid } of listRunningCommandsWithPid(db)) {
+    if (isProcessAlive(pid)) {
+      continue;
+    }
+    const row = getCommand(db, id);
+    completeCommand(
+      db,
+      id,
+      'stopped',
+      null,
+      `${row?.output ?? ''}\n\n[System] Als verwaist erkannt (Prozess ${String(pid)} nach Server-Neustart nicht mehr aktiv) und automatisch auf "stopped" gesetzt.`,
+    );
+  }
+}
 
 /** IDs, deren Stop bereits angefordert wurde - der `exit`-Handler in `handlePostCommand`/`handlePostPathCommand` markiert den Command dann als "stopped" statt "failed", obwohl SIGTERM einen non-zero/null Exit-Code erzeugt. */
 const stopRequestedIds = new Set<string>();
@@ -1057,6 +1094,9 @@ function handlePostPathCommand(
     },
     (child) => {
       runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
     },
   )
     .then((result) => {
@@ -1588,6 +1628,9 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
     },
     (child) => {
       runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
     },
   )
     .then((result) => {
@@ -1662,6 +1705,9 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
     scheduler.permissions,
     (child) => {
       runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
     },
   )
     .then((result) => {
@@ -1750,6 +1796,9 @@ function handlePostCommand(
     permissions,
     (child) => {
       runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
     },
   )
     .then((result) => {
@@ -2093,6 +2142,7 @@ export function startServer(
 ): RunningServer {
   const db = openDatabase(config.databaseDirectory);
   ensureConfigBootstrapped(db);
+  reconcileOrphanedCommands(db);
   let effectiveConfig = resolveEffectiveConfig(db);
   if (pathsOverride) {
     effectiveConfig = applyPathsOverride(effectiveConfig, pathsOverride);
