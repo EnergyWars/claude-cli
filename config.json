@@ -200,64 +200,64 @@
   ],
   "schedulers": [
     {
-      "name": "cli-endpoints-0000-local-review",
-      "description": "Daily local-changes review",
+      "name": "cli-endpoints-0000-security",
+      "description": "Daily security audit",
       "cron": "0 0 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0030-security",
-      "description": "Daily security audit",
+      "name": "cli-endpoints-0030-legal",
+      "description": "Daily legal review",
       "cron": "30 0 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0100-legal",
-      "description": "Daily legal review",
+      "name": "cli-endpoints-0100-appstore",
+      "description": "Daily App-Store review",
       "cron": "0 1 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0130-appstore",
-      "description": "Daily App-Store review",
+      "name": "cli-endpoints-0130-architecture",
+      "description": "Daily architecture review",
       "cron": "30 1 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0200-architecture",
-      "description": "Daily architecture review",
+      "name": "cli-endpoints-0200-inconsistencies",
+      "description": "Daily inconsistency check",
       "cron": "0 2 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0230-inconsistencies",
-      "description": "Daily inconsistency check",
-      "cron": "30 2 * * *",
-      "path": "periodical",
-      "model": "sonnet",
-      "contexts": ["main", "dev/code"]
-    },
-    {
-      "name": "cli-endpoints-0300-suggestions",
+      "name": "cli-endpoints-0230-suggestions",
       "description": "3-Daily suggestion check",
-      "cron": "0 3 * * 5,1",
+      "cron": "30 2 * * 5,1",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-0330-todo",
+      "name": "cli-endpoints-0300-todo",
       "description": "Daily todo.md cleanup",
+      "cron": "0 3 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0330-local-review",
+      "description": "Daily local-changes review",
       "cron": "30 3 * * *",
       "path": "periodical",
       "model": "sonnet",
