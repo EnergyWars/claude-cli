@@ -55,6 +55,44 @@
       }
     },
     {
+      "name": "chordutil",
+      "path": "/home/simon/IdeaProjects/chordutil",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/chordutil.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
+      "name": "gardener",
+      "path": "/home/simon/IdeaProjects/gardener",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/gardener.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
       "name": "base-project",
       "path": "/home/simon/IdeaProjects/base-project",
       "hosted": [
@@ -87,7 +125,10 @@
           "path": "app/build/outputs/apk/release/therapyfinder.apk",
           "type": "file"
         }
-      ]
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
     },
     {
       "name": "carfinder",
@@ -103,7 +144,10 @@
           "path": "app/build/outputs/apk/release/carfinder.apk",
           "type": "file"
         }
-      ]
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
     },
     {
       "name": "commander",
@@ -298,6 +342,16 @@
       "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "allinonecalendar",
       "path": "periodical"
+    },
+    {
+      "sourcePath": "/home/simon/IdeaProjects/chordutil/app/build/outputs/apk/debug/app-debug.apk",
+      "targetName": "chordutil",
+      "path": "chordutil"
+    },
+    {
+      "sourcePath": "/home/simon/IdeaProjects/gardener/app/build/outputs/apk/debug/app-debug.apk",
+      "targetName": "gardener",
+      "path": "gardener"
     },
     {
       "sourcePath": "/home/simon/IdeaProjects/base-project/app/build/outputs/apk/debug/app-debug.apk",
