@@ -139,7 +139,7 @@ function formatSchedulersHelp(): string {
     const width = Math.max(...schedulers.map((scheduler) => scheduler.name.length));
     const lines = schedulers.map(
       (scheduler) =>
-        `  ${scheduler.name.padEnd(width + 2)}"${scheduler.cron}" in Pfad "${scheduler.path}": ${scheduler.description}`,
+        `  ${scheduler.name.padEnd(width + 2)}"${scheduler.cron}" in Pfad(en) "${scheduler.paths.join('", "')}": ${scheduler.description}`,
     );
     return ['Scheduler (aus config.json, cron-gesteuerte headless claude-Laeufe):', ...lines].join(
       '\n',

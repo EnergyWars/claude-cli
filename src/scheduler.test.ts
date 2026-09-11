@@ -10,7 +10,7 @@ function makeScheduler(overrides: Partial<SchedulerConfig> = {}): SchedulerConfi
     name: 'test-scheduler',
     description: 'x',
     cron: '* * * * * *',
-    path: 'default',
+    paths: ['default'],
     model: 'sonnet',
     ...overrides,
   };

@@ -244,114 +244,98 @@
   ],
   "schedulers": [
     {
-      "name": "periodical-0000",
+      "name": "security-audit-0000",
       "description": "Daily security audit",
       "cron": "0 0 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0030",
+      "name": "legal-review-0030",
       "description": "Daily legal review",
       "cron": "30 0 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0100",
+      "name": "app-store-review-0100",
       "description": "Daily App-Store review",
       "cron": "0 1 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0130",
+      "name": "architecture-review-0130",
       "description": "Daily architecture review",
       "cron": "30 1 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0200",
+      "name": "inconsistency-check-0200",
       "description": "Daily inconsistency check",
       "cron": "0 2 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0230",
+      "name": "suggestion-check-0230",
       "description": "3-Daily suggestion check",
       "cron": "30 2 * * 5,1",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0300",
+      "name": "todo-cleanup-0300",
       "description": "Daily todo.md cleanup",
       "cron": "0 3 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0330",
+      "name": "local-changes-review-0330",
       "description": "Daily local-changes review",
       "cron": "30 3 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-0500",
+      "name": "code-review-0500",
       "description": "Daily Code-Review",
       "cron": "0 5 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-1000",
+      "name": "periodical-referenzen-entferner-1000",
       "description": "Daily periodical-referenzen Entferner",
       "cron": "0 10 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "periodical-1500",
+      "name": "cli-endpunkte-1500",
       "description": "Aufgaben zu den neuen CLI-Endpunkten, Lauf um 15 Uhr.",
       "cron": "0 15 * * *",
-      "path": "periodical",
+      "paths": ["periodical"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "chordutil-0505",
+      "name": "code-review-0505",
       "description": "Daily Code-Review",
       "cron": "5 5 * * *",
-      "path": "chordutil",
-      "model": "sonnet",
-      "contexts": ["main", "dev/code"]
-    },
-    {
-      "name": "gardener-0505",
-      "description": "Daily Code-Review",
-      "cron": "5 5 * * *",
-      "path": "gardener",
-      "model": "sonnet",
-      "contexts": ["main", "dev/code"]
-    },
-    {
-      "name": "carfinder-0505",
-      "description": "Daily Code-Review",
-      "cron": "5 5 * * *",
-      "path": "carfinder",
+      "paths": ["chordutil", "gardener", "carfinder"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     }

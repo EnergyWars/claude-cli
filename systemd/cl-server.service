@@ -1,0 +1,45 @@
+[Unit]
+Description=claude-cli Server (cl server) - HTTP-API fuer Agents/Scheduler/Tasks
+Documentation=https://github.com/anthropics/claude-code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=simon
+Group=simon
+WorkingDirectory=/home/simon/IdeaProjects/claude-cli
+
+# Sorgt dafuer, dass config.json/contexts/scheduler live aus dem Repo gelesen werden statt aus dem
+# beim letzten "npm run deploy" eingebackenen embedded-Fallback (siehe context.md, "Config/Context-System").
+Environment=CL_ROOT_DIR=/home/simon/IdeaProjects/claude-cli
+
+# PATH fuer alles, was "cl server" als Subprozess spawnt (claude, git, gradlew/java, adb bei cl inst/instr).
+# Falls Node auf diesem Server ueber nvm statt systemweit installiert ist, hier zusaetzlich den
+# nvm-bin-Pfad ergaenzen - ~/.bashrc/~/.zshrc wird von systemd-Services nie geladen. Siehe README.md.
+Environment=PATH=/home/simon/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ExecStart=/home/simon/.local/bin/cl server
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cl-server
+
+# Leichte Haertung ohne Einschraenkung des Dateisystemzugriffs (der Server liest/schreibt bewusst in
+# beliebigen, per config.json konfigurierten Projektverzeichnissen - ReadWritePaths/ProtectHome wuerden
+# bei jedem neuen "paths"-Eintrag in config.json separat gepflegt werden muessen).
+NoNewPrivileges=true
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

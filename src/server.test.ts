@@ -83,7 +83,7 @@ before(async () => {
         name: 'nightly-sync',
         description: 'Sync ueber Nacht',
         cron: '0 0 1 1 *',
-        path: 'default',
+        paths: ['default'],
         model: 'sonnet',
       },
     ],
@@ -398,14 +398,19 @@ test('GET /paths: 401 ohne Authorization-Header', async () => {
   assert.equal(res.status, 401);
 });
 
-test('GET /schedulers: listet name, description, cron und path aus config.json', async () => {
+test('GET /schedulers: listet name, description, cron und paths aus config.json', async () => {
   const res = await fetch(`${baseUrl()}/schedulers`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
-    schedulers: { name: string; description: string; cron: string; path: string }[];
+    schedulers: { name: string; description: string; cron: string; paths: string[] }[];
   };
   assert.deepEqual(body.schedulers, [
-    { name: 'nightly-sync', description: 'Sync ueber Nacht', cron: '0 0 1 1 *', path: 'default' },
+    {
+      name: 'nightly-sync',
+      description: 'Sync ueber Nacht',
+      cron: '0 0 1 1 *',
+      paths: ['default'],
+    },
   ]);
 });
 
@@ -424,7 +429,7 @@ test('GET /manifest: liefert Agents, Paths (inkl. Commands/Hosted) und Scheduler
       commands: { key: string }[];
       hosted: { name: string; type: string; timestamp: string | null }[];
     }[];
-    schedulers: { name: string; description: string; cron: string; path: string }[];
+    schedulers: { name: string; description: string; cron: string; paths: string[] }[];
   };
   assert.deepEqual(body.agents, [
     { command: 'cl', description: 'Main' },
@@ -433,7 +438,12 @@ test('GET /manifest: liefert Agents, Paths (inkl. Commands/Hosted) und Scheduler
   ]);
   assert.ok(!('tasks' in body));
   assert.deepEqual(body.schedulers, [
-    { name: 'nightly-sync', description: 'Sync ueber Nacht', cron: '0 0 1 1 *', path: 'default' },
+    {
+      name: 'nightly-sync',
+      description: 'Sync ueber Nacht',
+      cron: '0 0 1 1 *',
+      paths: ['default'],
+    },
   ]);
   assert.equal(body.paths.length, 4);
   const [defaultPath] = body.paths;
@@ -465,7 +475,7 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
         name: 'ticker',
         description: 'Laeuft jede Sekunde',
         cron: '* * * * * *',
-        path: 'default',
+        paths: ['default'],
         model: 'sonnet',
       },
     ],
@@ -516,6 +526,76 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
   }
 });
 
+test('Scheduler: ein Scheduler mit mehreren "paths" startet in jedem Pfad einen eigenen Lauf', async () => {
+  const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
+  const alphaDir = mkdtempSync(join(tmpdir(), 'cl-scheduler-alpha-'));
+  const betaDir = mkdtempSync(join(tmpdir(), 'cl-scheduler-beta-'));
+  const schedulerFixture = createFixtureRoot({
+    paths: [
+      { name: 'alpha', path: alphaDir },
+      { name: 'beta', path: betaDir },
+    ],
+    schedulers: [
+      {
+        name: 'ticker-multi',
+        description: 'Laeuft jede Sekunde auf mehreren Pfaden',
+        cron: '* * * * * *',
+        paths: ['alpha', 'beta'],
+        model: 'sonnet',
+      },
+    ],
+    schedulerContexts: { 'ticker-multi': '# Ticker-Multi-Context\n' },
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  const previousPath = process.env.PATH;
+  process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
+  process.env.PATH = pathWithMock(schedulerMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const token = confirmBody.token;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    await sleep(1300);
+
+    for (const pathName of ['alpha', 'beta']) {
+      const commandsRes = await fetch(`${url}/commands/${pathName}`, { headers });
+      const commandsBody = (await commandsRes.json()) as {
+        commands: { agent: string; model: string }[];
+      };
+      const schedulerRuns = commandsBody.commands.filter(
+        (entry) => entry.agent === 'scheduler:ticker-multi',
+      );
+      assert.ok(
+        schedulerRuns.length >= 1,
+        `erwartete mindestens einen scheduler-Lauf im Pfad "${pathName}"`,
+      );
+    }
+  } finally {
+    await server.close();
+    schedulerMock.cleanup();
+    schedulerFixture.cleanup();
+    rmSync(alphaDir, { recursive: true, force: true });
+    rmSync(betaDir, { recursive: true, force: true });
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+    process.env.PATH = previousPath;
+  }
+});
+
 test('Scheduler: PUT /config/pointer auf "embedded" beendet alle konfigurierten Scheduler-Laeufe', async () => {
   const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
   const schedulerFixture = createFixtureRoot({
@@ -524,7 +604,7 @@ test('Scheduler: PUT /config/pointer auf "embedded" beendet alle konfigurierten 
         name: 'ticker',
         description: 'Laeuft jede Sekunde',
         cron: '* * * * * *',
-        path: 'default',
+        paths: ['default'],
         model: 'sonnet',
       },
     ],

@@ -142,7 +142,7 @@ test('buildSchedulerSystemPrompt: eigener scheduler-Context zuerst, danach die z
       name: 'nightly-sync',
       description: 'x',
       cron: '0 0 3 * * *',
-      path: 'default',
+      paths: ['default'],
       model: 'sonnet',
       contexts: ['extra'],
     };
@@ -168,7 +168,7 @@ test('buildSchedulerSystemPrompt: ohne zusaetzliche contexts nur der eigene sche
       name: 'nightly-sync',
       description: 'x',
       cron: '0 0 3 * * *',
-      path: 'default',
+      paths: ['default'],
       model: 'sonnet',
     };
     assert.equal(buildSchedulerSystemPrompt(scheduler), 'Nightly Sync Context');

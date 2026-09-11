@@ -48,7 +48,7 @@ export interface FixtureScheduler {
   name: string;
   description?: string;
   cron: string;
-  path: string;
+  paths: string[];
   model?: string;
   contexts?: string[];
   permissions?: string[];

@@ -65,8 +65,8 @@ export interface SchedulerDefinition {
   description: string;
   /** Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld), der bestimmt, wann dieser Scheduler ausgefuehrt wird. */
   cron: string;
-  /** Name eines Eintrags aus config.json "paths" - cwd des headless claude-Laufs. */
-  path: string;
+  /** Namen von Eintraegen aus config.json "paths" - je einer ein eigener headless claude-Lauf (eigene cwd). */
+  paths: string[];
   model: string;
   /** Zusaetzlich zum eigenen scheduler/<name>.md-Context eingebundene Contexts, wie bei Agents/Tasks. */
   contexts?: string[];
@@ -252,8 +252,9 @@ function isSchedulerDefinition(value: unknown): value is SchedulerDefinition {
     typeof record.description === 'string' &&
     typeof record.cron === 'string' &&
     record.cron.trim() !== '' &&
-    typeof record.path === 'string' &&
-    record.path.trim() !== '' &&
+    Array.isArray(record.paths) &&
+    record.paths.length > 0 &&
+    record.paths.every((entry) => typeof entry === 'string' && entry.trim() !== '') &&
     typeof record.model === 'string' &&
     (record.contexts === undefined ||
       (Array.isArray(record.contexts) &&
@@ -338,7 +339,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, path, model, contexts?, permissions? }, wobei path der Name eines Eintrags aus "paths" ist), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, paths, model, contexts?, permissions? }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist - ein eigener headless claude-Lauf je Pfad), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -530,7 +531,7 @@ export interface SchedulerSummary {
   name: string;
   description: string;
   cron: string;
-  path: string;
+  paths: string[];
 }
 
 export function listSchedulers(config: Config): SchedulerSummary[] {
@@ -538,7 +539,7 @@ export function listSchedulers(config: Config): SchedulerSummary[] {
     name: scheduler.name,
     description: scheduler.description,
     cron: scheduler.cron,
-    path: scheduler.path,
+    paths: scheduler.paths,
   }));
 }
 

@@ -57,7 +57,7 @@ function validRawConfig(): unknown {
         name: 'nightly-sync',
         description: 'Nightly Sync',
         cron: '0 0 3 * * *',
-        path: 'myapp',
+        paths: ['myapp'],
         model: 'sonnet',
       },
     ],
@@ -272,16 +272,29 @@ test('parseConfig: wirft wenn ein Scheduler-Eintrag "cron" leer ist', () => {
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
-test('parseConfig: wirft wenn ein Scheduler-Eintrag "path" fehlt', () => {
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "paths" fehlt', () => {
   const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
-  delete raw.schedulers[0]?.path;
+  delete raw.schedulers[0]?.paths;
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
-test('parseConfig: wirft wenn ein Scheduler-Eintrag "path" leer ist', () => {
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "paths" ein leeres Array ist', () => {
   const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
-  raw.schedulers[0] = { ...raw.schedulers[0], path: '   ' };
+  raw.schedulers[0] = { ...raw.schedulers[0], paths: [] };
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Scheduler-Eintrag "paths" einen leeren String enthaelt', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], paths: ['myapp', '   '] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert einen Scheduler-Eintrag mit mehreren "paths"', () => {
+  const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
+  raw.schedulers[0] = { ...raw.schedulers[0], paths: ['myapp', 'other'] };
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.schedulers[0]?.paths, ['myapp', 'other']);
 });
 
 test('parseConfig: wirft wenn ein Scheduler-Eintrag "model" fehlt', () => {
@@ -878,7 +891,7 @@ test('loadConfig: bricht bei reserviertem Agent-Namen in lokaler config.json ab'
 
 test('resolveSchedulerContext: lokal-first ueber CL_ROOT_DIR-Fixture, wirft bei unbekanntem Namen', () => {
   const fixture = createFixtureRoot({
-    schedulers: [{ name: 'nightly-sync', cron: '0 0 3 * * *', path: 'myapp' }],
+    schedulers: [{ name: 'nightly-sync', cron: '0 0 3 * * *', paths: ['myapp'] }],
     schedulerContexts: { 'nightly-sync': '# Nightly Sync Context\n' },
   });
   const previous = process.env.CL_ROOT_DIR;
@@ -899,7 +912,7 @@ test('resolveSchedulerContext: lokal-first ueber CL_ROOT_DIR-Fixture, wirft bei 
   }
 });
 
-test('listSchedulers: jeder Scheduler mit name, description, cron und path', () => {
+test('listSchedulers: jeder Scheduler mit name, description, cron und paths', () => {
   const config: Config = {
     main: { description: 'm', contexts: [], model: 'sonnet' },
     agents: [],
@@ -911,7 +924,7 @@ test('listSchedulers: jeder Scheduler mit name, description, cron und path', () 
         name: 'nightly-sync',
         description: 'Sync ueber Nacht',
         cron: '0 0 3 * * *',
-        path: 'myapp',
+        paths: ['myapp'],
         model: 'sonnet',
       },
     ],
@@ -920,7 +933,12 @@ test('listSchedulers: jeder Scheduler mit name, description, cron und path', () 
     collection: [],
   };
   assert.deepEqual(listSchedulers(config), [
-    { name: 'nightly-sync', description: 'Sync ueber Nacht', cron: '0 0 3 * * *', path: 'myapp' },
+    {
+      name: 'nightly-sync',
+      description: 'Sync ueber Nacht',
+      cron: '0 0 3 * * *',
+      paths: ['myapp'],
+    },
   ]);
 });
 

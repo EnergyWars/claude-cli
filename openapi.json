@@ -275,7 +275,7 @@
     },
     "/schedulers": {
       "get": {
-        "summary": "Listet alle konfigurierten Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfad)",
+        "summary": "Listet alle konfigurierten Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfade)",
         "description": "Scheduler aus config.json (schedulers[]) fuehren periodisch einen headless claude-Lauf aus (Cron-Ausdruck in croner-Syntax, inkl. optionalem Sekunden-Feld). Diese Route liefert nur die Metadaten (nicht die Contexts/Permissions). Jeder Lauf erscheint wie ein normaler Agent-Lauf unter agent: \"scheduler:<name>\" in GET /commands/:pathName und GET /state/:id.",
         "operationId": "listSchedulers",
         "responses": {
@@ -299,7 +299,7 @@
     "/manifest": {
       "get": {
         "summary": "Liefert alle Agents, Pfade und Scheduler (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
-        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description), alle Pfade mit deren Commands (globale defaultCommands[] zusammengefuehrt mit den pfadeigenen paths[].commands[]) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade), und Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfad). Tasks sind nicht enthalten - sie sind ausschliesslich per CLI ('cl task <name>', immer interaktiv) nutzbar, niemals ueber die API. Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands/Scheduler anzeigen kann.",
+        "description": "Aggregierte Sicht der gesamten in config.json definierten Oberflaeche, gedacht fuer eine remote steuerbare App: Agents (name-lose 'cl'-Befehle mit description), alle Pfade mit deren Commands (globale defaultCommands[] zusammengefuehrt mit den pfadeigenen paths[].commands[]) sowie Hosted-Eintraegen (nur name + type, ohne Dateisystem-Pfade), und Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfade). Tasks sind nicht enthalten - sie sind ausschliesslich per CLI ('cl task <name>', immer interaktiv) nutzbar, niemals ueber die API. Ersetzt keinen der bestehenden Detail-Endpunkte, sondern buendelt deren Daten fuer eine dynamische UI, die ohne Codeaenderung neue Agents/Paths/Commands/Scheduler anzeigen kann.",
         "operationId": "getManifest",
         "responses": {
           "200": {
@@ -1606,7 +1606,7 @@
       },
       "Scheduler": {
         "type": "object",
-        "required": ["name", "description", "cron", "path"],
+        "required": ["name", "description", "cron", "paths"],
         "properties": {
           "name": { "type": "string", "description": "Name des Schedulers (schedulers[].name)." },
           "description": { "type": "string" },
@@ -1614,9 +1614,10 @@
             "type": "string",
             "description": "Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld), der bestimmt, wann dieser Scheduler ausgefuehrt wird."
           },
-          "path": {
-            "type": "string",
-            "description": "Name eines Eintrags aus config.json paths[].name - cwd des headless claude-Laufs."
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Namen von Eintraegen aus config.json paths[].name - je einer ein eigener headless claude-Lauf (eigene cwd)."
           }
         }
       },
@@ -2217,16 +2218,17 @@
       },
       "ConfigSchedulerDefinition": {
         "type": "object",
-        "required": ["description", "cron", "path", "model"],
+        "required": ["description", "cron", "paths", "model"],
         "properties": {
           "description": { "type": "string" },
           "cron": {
             "type": "string",
             "description": "Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld)."
           },
-          "path": {
-            "type": "string",
-            "description": "Name eines Eintrags aus config.json paths[].name - cwd des headless claude-Laufs."
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Namen von Eintraegen aus config.json paths[].name - je einer ein eigener headless claude-Lauf (eigene cwd)."
           },
           "model": { "type": "string" },
           "contexts": {

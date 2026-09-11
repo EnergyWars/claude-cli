@@ -1660,29 +1660,12 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
     });
 }
 
-function triggerScheduler(db: DatabaseSync, config: Config, scheduler: SchedulerConfig): void {
-  let pathEntry: PathEntry;
-  try {
-    pathEntry = resolvePathEntry(config, scheduler.path);
-  } catch (error) {
-    console.error(
-      `Scheduler "${scheduler.name}": Pfad "${scheduler.path}" wurde in config.json nicht gefunden.`,
-      error instanceof Error ? error.message : error,
-    );
-    return;
-  }
-
-  let systemPrompt: string;
-  try {
-    systemPrompt = buildSchedulerSystemPrompt(scheduler);
-  } catch (error) {
-    console.error(
-      `Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`,
-      error instanceof Error ? error.message : error,
-    );
-    return;
-  }
-
+function triggerSchedulerForPath(
+  db: DatabaseSync,
+  scheduler: SchedulerConfig,
+  pathEntry: PathEntry,
+  systemPrompt: string,
+): void {
   const id = randomUUID();
   insertCommand(db, {
     id,
@@ -1732,8 +1715,35 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
       triggerOnLastAgentFinishHook(db, pathEntry);
-      console.error(`Scheduler "${scheduler.name}" fehlgeschlagen:`, message);
+      console.error(`Scheduler "${scheduler.name}" fehlgeschlagen (Pfad "${pathEntry.name}"):`, message);
     });
+}
+
+function triggerScheduler(db: DatabaseSync, config: Config, scheduler: SchedulerConfig): void {
+  let systemPrompt: string;
+  try {
+    systemPrompt = buildSchedulerSystemPrompt(scheduler);
+  } catch (error) {
+    console.error(
+      `Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`,
+      error instanceof Error ? error.message : error,
+    );
+    return;
+  }
+
+  for (const pathName of scheduler.paths) {
+    let pathEntry: PathEntry;
+    try {
+      pathEntry = resolvePathEntry(config, pathName);
+    } catch (error) {
+      console.error(
+        `Scheduler "${scheduler.name}": Pfad "${pathName}" wurde in config.json nicht gefunden.`,
+        error instanceof Error ? error.message : error,
+      );
+      continue;
+    }
+    triggerSchedulerForPath(db, scheduler, pathEntry, systemPrompt);
+  }
 }
 
 function handlePostCommand(
@@ -2078,7 +2088,7 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
   console.log(
-    `  GET  ${base}/schedulers          (name, description, cron, path je konfiguriertem Scheduler)`,
+    `  GET  ${base}/schedulers          (name, description, cron, paths je konfiguriertem Scheduler)`,
   );
   console.log(`  GET  ${base}/config`);
   console.log(
