@@ -346,6 +346,14 @@
       "path": "gardener",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "carfinder-0505",
+      "description": "Daily Code-Review",
+      "cron": "5 5 * * *",
+      "path": "carfinder",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
     }
   ],
   "ticketAgent": {
