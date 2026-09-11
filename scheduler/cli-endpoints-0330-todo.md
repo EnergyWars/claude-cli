@@ -1,0 +1,1 @@
+/goal Die todo.md-Datei soll geprüft werden, ob sie noch Dinge enthäklt, die bereits erledigt wurden. Falls ja, entferne sie.

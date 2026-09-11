@@ -200,25 +200,65 @@
   ],
   "schedulers": [
     {
-      "name": "cli-endpoints-00",
-      "description": "Daily Usability-Review",
+      "name": "cli-endpoints-0000-local-review",
+      "description": "Daily local-changes review",
       "cron": "0 0 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-00-security",
+      "name": "cli-endpoints-0030-security",
       "description": "Daily security audit",
-      "cron": "0 0 * * *",
+      "cron": "30 0 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
     {
-      "name": "cli-endpoints-00-suggestions",
+      "name": "cli-endpoints-0100-legal",
+      "description": "Daily legal review",
+      "cron": "0 1 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0130-appstore",
+      "description": "Daily App-Store review",
+      "cron": "30 1 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0200-architecture",
+      "description": "Daily architecture review",
+      "cron": "0 2 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0230-inconsistencies",
+      "description": "Daily inconsistency check",
+      "cron": "30 2 * * *",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0300-suggestions",
       "description": "3-Daily suggestion check",
-      "cron": "0 0 * * 5,1",
+      "cron": "0 3 * * 5,1",
+      "path": "periodical",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "cli-endpoints-0330-todo",
+      "description": "Daily todo.md cleanup",
+      "cron": "30 3 * * *",
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]

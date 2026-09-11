@@ -37,6 +37,9 @@ export function openDatabase(directory: string): DatabaseSync {
   mkdirSync(directory, { recursive: true });
   const db = new DatabaseSync(join(directory, 'commands.db'));
   db.exec('PRAGMA journal_mode = WAL');
+  // t_config_pointer.version_id absichtlich nicht DB-seitig erzwungen: resolveEffectiveConfig()
+  // validiert das selbst und wirft eine sprechende Fehlermeldung statt eines FK-Constraint-Fehlers.
+  db.exec('PRAGMA foreign_keys = OFF');
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_access_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
