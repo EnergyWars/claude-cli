@@ -1,0 +1,1 @@
+/goal Die App muss lauffähig sein und darf beim Start nicht abstürzen und muss kompilieren. Alle Tests müssen laufen.

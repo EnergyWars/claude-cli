@@ -330,6 +330,22 @@
       "path": "periodical",
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "chordutil-0505",
+      "description": "Daily Code-Review",
+      "cron": "5 5 * * *",
+      "path": "chordutil",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
+      "name": "gardener-0505",
+      "description": "Daily Code-Review",
+      "cron": "5 5 * * *",
+      "path": "gardener",
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
     }
   ],
   "ticketAgent": {
