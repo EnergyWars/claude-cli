@@ -2,6 +2,7 @@ package com.wafflehq.commander.ui.setup
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,8 +26,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
+import com.wafflehq.commander.ui.components.AppChip
 import com.wafflehq.commander.ui.components.AppTextField
 import com.wafflehq.commander.ui.components.ButtonVariant
+import com.wafflehq.commander.ui.components.ChipVariant
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
@@ -38,7 +41,10 @@ fun SetupScreen(
     viewModel: SetupViewModel = hiltViewModel(),
 ) {
     val host by viewModel.host.collectAsStateWithLifecycle()
-    val port by viewModel.port.collectAsStateWithLifecycle()
+    val hostHistory by viewModel.hostHistory.collectAsStateWithLifecycle()
+    val hostInputVisible by viewModel.hostInputVisible.collectAsStateWithLifecycle()
+    val portOption by viewModel.portOption.collectAsStateWithLifecycle()
+    val customPort by viewModel.customPort.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
     val checking = status is SetupStatus.Checking
     val discovering = status is SetupStatus.Discovering
@@ -68,20 +74,66 @@ fun SetupScreen(
                 color = AppTheme.colors.onSurfaceVariant,
             )
 
-            AppTextField(
-                value = host,
-                onValueChange = viewModel::onHostChange,
-                label = stringResource(R.string.setup_host_label),
-                role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppTextField(
-                value = port,
-                onValueChange = viewModel::onPortChange,
-                label = stringResource(R.string.setup_port_label),
-                role = AppRole.Primary,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (hostHistory.isNotEmpty()) {
+                SectionLabel(stringResource(R.string.setup_host_known))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                ) {
+                    hostHistory.forEach { known ->
+                        AppChip(
+                            label = known,
+                            role = AppRole.Primary,
+                            variant = ChipVariant.Filter,
+                            selected = !hostInputVisible && known == host,
+                            onClick = { viewModel.onHostSelected(known) },
+                        )
+                    }
+                    AppChip(
+                        label = stringResource(R.string.setup_host_new),
+                        role = AppRole.Secondary,
+                        variant = ChipVariant.Filter,
+                        selected = hostInputVisible,
+                        onClick = viewModel::onNewHostSelected,
+                    )
+                }
+            }
+
+            if (hostInputVisible) {
+                AppTextField(
+                    value = host,
+                    onValueChange = viewModel::onHostChange,
+                    label = stringResource(R.string.setup_host_label),
+                    role = AppRole.Primary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            SectionLabel(stringResource(R.string.setup_port_label))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+            ) {
+                PortOption.entries.forEach { option ->
+                    AppChip(
+                        label = stringResource(option.labelRes),
+                        role = AppRole.Primary,
+                        variant = ChipVariant.Filter,
+                        selected = option == portOption,
+                        onClick = { viewModel.onPortOptionChange(option) },
+                    )
+                }
+            }
+            if (portOption == PortOption.Custom) {
+                AppTextField(
+                    value = customPort,
+                    onValueChange = viewModel::onCustomPortChange,
+                    label = stringResource(R.string.setup_port_custom_label),
+                    role = AppRole.Primary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             AppButton(
                 text = stringResource(R.string.setup_discover),
                 role = AppRole.Secondary,
@@ -93,7 +145,14 @@ fun SetupScreen(
 
             val error = status as? SetupStatus.Error
             if (error != null) {
-                AppBanner(title = stringResource(R.string.setup_error_title), body = error.message, role = AppRole.Error)
+                AppBanner(
+                    title = stringResource(R.string.setup_error_title),
+                    body = when (val message = error.message) {
+                        is SetupErrorMessage.Text -> message.value
+                        is SetupErrorMessage.Resource -> stringResource(message.id)
+                    },
+                    role = AppRole.Error,
+                )
             }
 
             if (busy) {
@@ -115,4 +174,13 @@ fun SetupScreen(
             )
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = AppTheme.colors.onSurfaceVariant,
+    )
 }

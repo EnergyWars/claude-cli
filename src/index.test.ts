@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -17,6 +18,25 @@ import {
   type MockClaude,
 } from './test-support/mock-claude.js';
 import { runCli } from './test-support/run-cli.js';
+
+async function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.listen(0, () => {
+      const address = probe.address();
+      if (address === null || typeof address !== 'object') {
+        probe.close();
+        reject(new Error('Kein freier Port ermittelbar.'));
+        return;
+      }
+      const { port } = address;
+      probe.close(() => {
+        resolve(port);
+      });
+    });
+    probe.on('error', reject);
+  });
+}
 
 async function setupAndConfirmTotp(baseUrl: string): Promise<string> {
   const setupRes = await fetch(`${baseUrl}/auth/setup`, { method: 'POST' });
@@ -219,6 +239,70 @@ test('cl server: startet, druckt Endpunkte, beantwortet Requests, beendet sich a
     await new Promise((resolve) => {
       child.on('exit', resolve);
     });
+    serverFixture.cleanup();
+  }
+});
+
+test('cl server: PORT aus der Umgebung bestimmt den Listen-Port', async () => {
+  const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const tsxBin = join(projectRoot, 'node_modules', '.bin', 'tsx');
+  const entryPoint = join(projectRoot, 'src', 'index.ts');
+
+  const serverFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc', model: 'sonnet' },
+    contexts: { main: '# Main-Context\n' },
+  });
+  const port = await findFreePort();
+
+  const child = spawn(tsxBin, [entryPoint, 'server'], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      CL_ROOT_DIR: serverFixture.rootDir,
+      PATH: pathWithMock(mock.binDir),
+    },
+  });
+
+  let stdout = '';
+  const readyPromise = new Promise<void>((resolve) => {
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+      if (stdout.includes('Endpunkte:')) {
+        resolve();
+      }
+    });
+  });
+
+  try {
+    await readyPromise;
+    assert.match(stdout, new RegExp(`http://localhost:${String(port)}\\b`));
+    const res = await fetch(`http://localhost:${String(port)}/health`);
+    assert.equal(res.status, 200);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => {
+      child.on('exit', resolve);
+    });
+    serverFixture.cleanup();
+  }
+});
+
+test('cl server: ungueltiges PORT bricht mit Fehler ab', async () => {
+  const serverFixture = createFixtureRoot({
+    main: { description: 'Main-Agent-Desc', model: 'sonnet' },
+    contexts: { main: '# Main-Context\n' },
+  });
+  try {
+    const result = await runCli(['server'], {
+      env: {
+        PORT: 'abc',
+        CL_ROOT_DIR: serverFixture.rootDir,
+        PATH: pathWithMock(mock.binDir),
+      },
+    });
+    assert.notEqual(result.exitCode, 0);
+    assert.match(result.stderr, /Ungueltiger Port: "abc"/);
+  } finally {
     serverFixture.cleanup();
   }
 });

@@ -12,7 +12,6 @@ import com.wafflehq.commander.data.download.DownloadOutcome
 import com.wafflehq.commander.data.download.DownloadTarget
 import com.wafflehq.commander.data.download.DownloadVersion
 import com.wafflehq.commander.data.download.HostedFileDownloader
-import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

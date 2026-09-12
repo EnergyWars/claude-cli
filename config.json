@@ -25,11 +25,11 @@
       "permissions": ["Bash(gradle *)", "Bash(./gradlew *)", "Bash(gradlew *)"]
     }
   ],
-  "databaseDirectory": "/home/simon/commands",
+  "databaseDirectory": "/home/sklein/commands",
   "paths": [
     {
       "name": "claude-cli",
-      "path": "/home/simon/IdeaProjects/claude-cli",
+      "path": "/home/sklein/IdeaProjects/claude-cli",
       "hosted": [
         { "name": "config", "path": "config.json", "type": "file" },
         { "name": "project", "path": ".", "type": "path" }
@@ -37,7 +37,7 @@
     },
     {
       "name": "periodical",
-      "path": "/home/simon/IdeaProjects/periodical",
+      "path": "/home/sklein/IdeaProjects/periodical",
       "hosted": [
         {
           "name": "debug-apk",
@@ -56,7 +56,7 @@
     },
     {
       "name": "chordutil",
-      "path": "/home/simon/IdeaProjects/chordutil",
+      "path": "/home/sklein/IdeaProjects/chordutil",
       "hosted": [
         {
           "name": "debug-apk",
@@ -75,7 +75,7 @@
     },
     {
       "name": "gardener",
-      "path": "/home/simon/IdeaProjects/gardener",
+      "path": "/home/sklein/IdeaProjects/gardener",
       "hosted": [
         {
           "name": "debug-apk",
@@ -94,7 +94,7 @@
     },
     {
       "name": "base-project",
-      "path": "/home/simon/IdeaProjects/base-project",
+      "path": "/home/sklein/IdeaProjects/base-project",
       "hosted": [
         {
           "name": "debug-apk",
@@ -113,7 +113,7 @@
     },
     {
       "name": "therapy",
-      "path": "/home/simon/IdeaProjects/therapy",
+      "path": "/home/sklein/IdeaProjects/therapy",
       "hosted": [
         {
           "name": "debug-apk",
@@ -132,7 +132,7 @@
     },
     {
       "name": "carfinder",
-      "path": "/home/simon/IdeaProjects/carfinder",
+      "path": "/home/sklein/IdeaProjects/carfinder",
       "hosted": [
         {
           "name": "debug-apk",
@@ -151,7 +151,7 @@
     },
     {
       "name": "commander",
-      "path": "/home/simon/IdeaProjects/claude-cli/commander",
+      "path": "/home/sklein/IdeaProjects/claude-cli/commander",
       "hosted": [
         {
           "name": "debug-apk",
@@ -167,7 +167,7 @@
     },
     {
       "name": "app-getter",
-      "path": "/home/simon/IdeaProjects/claude-cli/app-getter",
+      "path": "/home/sklein/IdeaProjects/claude-cli/app-getter",
       "hosted": [
         {
           "name": "debug-apk",
@@ -344,25 +344,25 @@
     "model": "haiku",
     "task": "Du bekommst einen kurzen, oft unklaren Text zu einem Software-Projekt. Untersuche das Projekt im aktuellen Arbeitsverzeichnis (Dateien, README, CLAUDE.md, context.md, Code, Architektur), um zu verstehen, was der Text im Kontext dieses Projekts bedeuten könnte. Erstelle daraus ein extrem kurz gehaltenes Ticket."
   },
-  "contentPath": "/home/simon/collected",
+  "contentPath": "/home/sklein/collected",
   "collection": [
     {
-      "sourcePath": "/home/simon/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
+      "sourcePath": "/home/sklein/IdeaProjects/periodical/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "allinonecalendar",
       "path": "periodical"
     },
     {
-      "sourcePath": "/home/simon/IdeaProjects/chordutil/app/build/outputs/apk/debug/app-debug.apk",
+      "sourcePath": "/home/sklein/IdeaProjects/chordutil/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "chordutil",
       "path": "chordutil"
     },
     {
-      "sourcePath": "/home/simon/IdeaProjects/gardener/app/build/outputs/apk/debug/app-debug.apk",
+      "sourcePath": "/home/sklein/IdeaProjects/gardener/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "gardener",
       "path": "gardener"
     },
     {
-      "sourcePath": "/home/simon/IdeaProjects/base-project/app/build/outputs/apk/debug/app-debug.apk",
+      "sourcePath": "/home/sklein/IdeaProjects/base-project/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "base-project",
       "path": "base-project"
     }

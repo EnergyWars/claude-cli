@@ -2,11 +2,19 @@
 
 ## Verbindungsaufbau (Setup)
 
-Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Felder für Host/IP und Port (Default `8787`), Button „Automatisch suchen", Button „Verbinden". Prüft Erreichbarkeit (`GET /health`) und Pairing-Status; richtet bei Bedarf einen Authenticator ein oder verifiziert ein bestehendes Secret. Nach Erfolg wird die Verbindung gespeichert und zum Login gewechselt.
+Erster Start (keine gespeicherte Verbindung) zeigt den Setup-Screen: Host-Auswahl, Port-Auswahl, Button „Automatisch suchen", Button „Verbinden". Prüft Erreichbarkeit (`GET /health`) und Pairing-Status; richtet bei Bedarf einen Authenticator ein oder verifiziert ein bestehendes Secret. Nach Erfolg wird die Verbindung gespeichert und zum Login gewechselt.
+
+### Port-Auswahl
+
+Statt eines freien Port-Feldes stehen drei Chips zur Wahl: **Test (8787)** (Default), **Service (7765)** – der Port, unter dem `cl server` als systemd-Dienst läuft – und **Eigener**. Nur bei „Eigener" erscheint ein zusätzliches Eingabefeld, das ausschließlich Ziffern (max. 5) annimmt und beim Verbinden/Suchen auf den gültigen Bereich `1–65535` geprüft wird; ein leerer oder ungültiger Wert liefert „Gültigen Port angeben (1-65535)." statt eines Verbindungsversuchs.
+
+### Gemerkte Adressen
+
+Jede erfolgreich verbundene Host-Adresse merkt sich die App dauerhaft (bis zu 8, neueste zuerst, Duplikate case-insensitiv zusammengefasst). Beim nächsten Setup erscheinen sie als auswählbare Chips zusammen mit einem Chip **Neu**; die zuletzt benutzte Adresse ist vorausgewählt. „Neu" leert die Auswahl und blendet stattdessen das Host-Eingabefeld ein (das auch die einzige Anzeige ist, solange noch keine Adresse gemerkt wurde). Die Liste überlebt „Verbindung trennen" – nur die aktive Verbindung und die Session werden dabei gelöscht.
 
 ### Automatische Server-Suche (Auto-Discovery)
 
-Button „Automatisch suchen": ermittelt die eigene IPv4-Adresse im verbundenen Wi-Fi-Netzwerk (auch wenn gleichzeitig Mobilfunk oder ein VPN aktiv ist), scannt parallel das `/24`-Subnetz nach `GET /status` und übernimmt die erste antwortende Adresse ins Host-Feld. Der Nutzer muss danach weiterhin selbst „Verbinden" tippen. Ist kein Wi-Fi verbunden, liefert die Suche „Kein Server im lokalen Netz gefunden." – die IP kann dann weiterhin manuell eingetragen werden.
+Button „Automatisch suchen": ermittelt die eigene IPv4-Adresse im verbundenen Wi-Fi-Netzwerk (auch wenn gleichzeitig Mobilfunk oder ein VPN aktiv ist), scannt parallel das `/24`-Subnetz nach `GET /status` und übernimmt die erste antwortende Adresse ins Host-Feld (schaltet dafür automatisch auf „Neu"). Der Nutzer muss danach weiterhin selbst „Verbinden" tippen. Ist kein Wi-Fi verbunden, liefert die Suche „Kein Server im lokalen Netz gefunden." – die IP kann dann weiterhin manuell eingetragen werden.
 
 ## Login
 

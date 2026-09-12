@@ -63,6 +63,10 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            it.maxHeapSize = "2g"
+            it.setForkEvery(5L)
+        }
     }
 
     ksp {

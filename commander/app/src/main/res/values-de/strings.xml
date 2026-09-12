@@ -14,6 +14,16 @@
     <string name="setup_discover">Automatisch suchen</string>
     <string name="setup_discovering">Suche im lokalen Netz…</string>
     <string name="setup_error_title">Fehler</string>
+    <string name="setup_port_test">Test (8787)</string>
+    <string name="setup_port_service">Service (7765)</string>
+    <string name="setup_port_custom">Eigener</string>
+    <string name="setup_port_custom_label">Eigener Port</string>
+    <string name="setup_host_known">Bekannte Adressen</string>
+    <string name="setup_host_new">Neu</string>
+    <string name="setup_error_host_missing">Host angeben.</string>
+    <string name="setup_error_port_invalid">Gültigen Port angeben (1-65535).</string>
+    <string name="setup_error_not_found">Kein Server im lokalen Netz gefunden.</string>
+    <string name="setup_error_unknown">Unbekannter Fehler.</string>
 
     <string name="login_lede">Öffne %1$s im Browser in diesem Netzwerk, scanne den QR-Code mit deiner Authenticator-App und gib dann den aktuellen Code ein.</string>
     <string name="login_code_label">6-stelliger Code</string>

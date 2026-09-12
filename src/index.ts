@@ -40,6 +40,7 @@ import {
 } from './db.js';
 import { buildAndInstall, findLatestBuildTimestamp, runUnitTests } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
+import { DEFAULT_SERVER_PORT, resolveServerPort } from './server-port.js';
 import { startServer } from './server.js';
 import { runTicketAgent } from './ticket.js';
 import { getUsageLimits } from './usage.js';
@@ -48,8 +49,6 @@ import { VERSION } from './version.js';
 const AGENT_ARGUMENT_DESCRIPTION =
   'Name eines Agents aus config.json (agents[].name). Ohne Angabe wird der "main"-Agent verwendet.';
 const TASK_ARGUMENT_DESCRIPTION = 'Name eines Tasks aus config.json (tasks[].name).';
-
-const DEFAULT_SERVER_PORT = 8787;
 
 const HEADLESS_OPTION_FLAGS = '-h, --headless [prompt]';
 const HEADLESS_OPTION_DESCRIPTION =
@@ -227,7 +226,10 @@ program
   .description(
     'Startet einen HTTP-Server: POST / (main-Agent) bzw. POST /<agent> starten headless Commands, GET /state/<id> liefert Status/Output. Alle Endpunkte ausser /health, /status und /auth/* verlangen den Header Authorization: Bearer <jwt> (via POST /auth/setup/confirm bzw. POST /auth/login erhalten, 1h gueltig).',
   )
-  .option('-p, --port <port>', 'Port fuer den HTTP-Server', String(DEFAULT_SERVER_PORT))
+  .option(
+    '-p, --port <port>',
+    `Port fuer den HTTP-Server. Ohne Angabe gilt die Umgebungsvariable PORT (z. B. "PORT=7765 cl server"), sonst ${String(DEFAULT_SERVER_PORT)}.`,
+  )
   .option(
     '-P, --paths-file <file>',
     'Pfad zu einer JSON-Datei mit nur { "paths": [...] } (gleiche Form wie paths in config.json) - ersetzt die paths aus config.json fuer diesen Serverlauf vollstaendig.',
@@ -236,20 +238,15 @@ program
     'after',
     () => `\n${formatServerAgentsHelp()}\n\n${formatPathsHelp()}\n\n${formatSchedulersHelp()}\n`,
   )
-  .action((options: { port: string; pathsFile?: string }) => {
-    const port = Number(options.port);
-    if (!Number.isInteger(port) || port < 0) {
-      console.error(`Ungueltiger Port: "${options.port}"`);
-      process.exitCode = 1;
-      return;
-    }
-    const config = loadConfig();
-    if (options.pathsFile === undefined) {
-      startServer(config, port);
-      return;
-    }
+  .action((options: { port?: string; pathsFile?: string }) => {
     try {
-      startServer(config, port, loadPathsOverride(options.pathsFile));
+      const port = resolveServerPort(options.port);
+      const config = loadConfig();
+      startServer(
+        config,
+        port,
+        options.pathsFile === undefined ? undefined : loadPathsOverride(options.pathsFile),
+      );
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

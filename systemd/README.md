@@ -1,60 +1,82 @@
 # systemd-Service: cl-server
 
-`cl-server.service` startet `cl server` dauerhaft im Hintergrund - inkl. automatischem Neustart bei
-Absturz (`Restart=always`) und automatischem Start beim Booten (`WantedBy=multi-user.target`). Gedacht
-zur Installation auf einem dedizierten Ubuntu-26.04-Server. Diese Datei wird **nicht** automatisch
-installiert oder gestartet - das ist bewusst ein manueller Schritt auf dem Zielserver.
+`cl-server.service` startet `cl server` dauerhaft als **System-Service** (nicht als User-Service):
+laeuft unabhaengig davon, ob der Nutzer eingeloggt ist, startet bei jedem Boot automatisch und wird
+nach jedem Absturz sofort neu gestartet.
 
-## Voraussetzungen auf dem Zielserver
+## Quelle der Unit-Datei
 
-1. **Node.js >= 20 systemweit installiert**, nicht nur per `nvm` im Nutzerprofil - systemd-Services
-   laden kein `.bashrc`/`.zshrc`, ein reiner `nvm`-Pfad im Nutzerprofil ist fuer den Service unsichtbar
-   und `cl` (Shebang `#!/usr/bin/env node`) wuerde beim Start mit "node: command not found" scheitern.
-   Empfohlen: Ubuntu-Paket (`apt install nodejs`) oder das NodeSource-Repo.
-2. Dieses Repository unter `/home/simon/IdeaProjects/claude-cli` (Pfade im Unit-File anpassen, falls
-   Nutzername/Verzeichnis auf dem Zielserver abweichen: `User=`, `Group=`, `WorkingDirectory=`,
-   `Environment=CL_ROOT_DIR=...`, `Environment=PATH=...`, `ExecStart=...`).
-3. Einmalig `npm ci && npm run release` ausgefuehrt (baut `dist/` und deployt das gebuendelte Binary
-   nach `~/.local/bin/cl`, siehe `scripts/deploy.sh`).
-4. `config.json` (inkl. `databaseDirectory`, `paths[].path`, `contentPath`) passt zu den tatsaechlichen
-   Verzeichnissen auf diesem Server.
-5. Falls Pfad-Commands/Hooks/`cl inst`/`cl instr` genutzt werden: die dafuer noetigen Tools (Java fuer
-   Gradle, `adb` fuer Android-Installs, ...) muessen auf dem Server installiert und ueber den `PATH=`
-   im Unit-File erreichbar sein - sonst schlagen nur diese einzelnen Commands fehl, der Server selbst
-   laeuft trotzdem weiter.
+Die Unit-Datei wird **nicht** von Hand gepflegt, sondern aus `src/service-unit.ts`
+(`renderServiceUnit()`) erzeugt – dadurch sind Nutzer, Pfade, Node-Verzeichnis und Port immer die
+der Maschine, auf der deployed wird, und der Inhalt ist durch `src/service-unit.test.ts` abgedeckt.
+`scripts/render-service-unit.ts` schreibt sie nach `dist/cl-server.service`,
+`scripts/deploy-service.sh` installiert sie nach `/etc/systemd/system/cl-server.service`.
 
-## Installation (auf dem Zielserver, als root/sudo)
+## Deployment
 
-    sudo cp systemd/cl-server.service /etc/systemd/system/cl-server.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now cl-server
+    make deploy-service
+
+Das macht in dieser Reihenfolge:
+
+1. Build + Bundle nach `~/.local/bin/cl` (identisch zu `make release`),
+2. Ermittlung eines Node mit `node:sqlite` (siehe unten),
+3. Rendern der Unit-Datei nach `dist/cl-server.service`,
+4. Stoppen des laufenden Service (falls aktiv),
+5. `sudo install` nach `/etc/systemd/system/`, `daemon-reload`, `enable`, `start` – der neue
+   Prozess laeuft also garantiert mit dem gerade gebauten `~/.local/bin/cl`,
+6. Pruefung, dass der Service laeuft (sonst Abbruch mit Exit-Code 1 und `systemctl status`),
+7. Ausgabe von `systemctl status`.
+
+`make release-service` ist ein Alias fuer `make deploy-service`.
+
+## Voraussetzungen
+
+- **Node >= 22.5, empfohlen 24** – `src/db.ts` nutzt `node:sqlite`. `scripts/deploy-service.sh`
+  prueft das aktive `node` und faellt sonst automatisch auf die hoechste passende Version unter
+  `~/.nvm/versions/node/*/bin/node` zurueck; mit `CL_SERVICE_NODE=/pfad/zu/node` laesst sich ein
+  bestimmtes Binary erzwingen. Das gefundene Verzeichnis wird als erster Eintrag in `Environment=PATH=`
+  der Unit eingetragen – systemd laedt kein `~/.bashrc`/`nvm`, ohne diesen Eintrag wuerde der Service
+  das (zu alte) System-Node verwenden.
+- `config.json` (`databaseDirectory`, `paths[].path`, `contentPath`) muss zu den Verzeichnissen der
+  Maschine passen – falsche Pfade lassen den Service in einer Restart-Schleife laufen
+  (`EACCES: permission denied, mkdir ...` im Journal).
+
+## Port
+
+Der Service startet mit `Environment=PORT=7765` (Default aus `DEFAULT_SERVICE_PORT` in
+`src/service-unit.ts`). `cl server` liest `PORT` aus der Umgebung, `PORT=7765 cl server` verhaelt sich
+also identisch. Anderer Port beim Deployen: `PORT=9000 make deploy-service`.
+Prioritaet: `-p/--port` > `PORT` > `8787` (`src/server-port.ts`).
+
+## Robustheit
+
+- `Restart=always`, `RestartSec=1` (Backoff bis `RestartMaxDelaySec=15`) – Neustart nach jedem Ende,
+  egal ob Absturz, `kill -9` oder Exit 0.
+- `StartLimitIntervalSec=0` – kein Rate-Limit, systemd gibt niemals dauerhaft auf.
+- `WantedBy=multi-user.target` + `After=network.target` (bewusst **nicht** `network-online.target`) –
+  startet so frueh wie moeglich im Boot, ohne auf eine fertig konfigurierte Netzwerkverbindung zu warten.
+- `OOMPolicy=continue` + `OOMScoreAdjust=-500` – der Kernel waehlt den Server als OOM-Opfer zuletzt;
+  wird ein Kindprozess (z. B. `claude`) OOM-gekillt, stirbt der Service nicht mit.
+- `LimitNOFILE=65536` – genug Filedeskriptoren fuer viele parallele SSE-Verbindungen.
 
 ## Verwaltung
 
-    sudo systemctl status cl-server
-    sudo systemctl restart cl-server     # z. B. nach "npm run release" fuer eine neue Version
+    systemctl status cl-server
+    sudo systemctl restart cl-server
     sudo systemctl stop cl-server
-    sudo journalctl -u cl-server -f      # Live-Logs (stdout/stderr laufen ins journal)
+    journalctl -u cl-server -f
 
 ## Nach Code-Aenderungen
 
-Der Service startet ausschliesslich das bereits gebuendelte `~/.local/bin/cl` - nach jeder Code-Aenderung
-muss neu deployed und der Service neu gestartet werden:
-
-    npm run release
-    sudo systemctl restart cl-server
-
-`config.json`/`contexts/*.md`/`scheduler/*.md` werden dagegen dank `CL_ROOT_DIR` live aus dem Repo
-gelesen (kein Rebuild fuer reine Prompt-/Scheduler-Textaenderungen noetig) - **mit einer Ausnahme**:
-Aenderungen an `config.json` wirken sich nach dem allerersten Start **nicht** mehr automatisch aus, da
-danach die Datenbank die alleinige Quelle der aktiven Config ist (siehe `context.md`, Abschnitt
-"Config/Context-System"). Neue `config.json`-Werte muessen ueber `PUT /config` eingespielt werden,
-sonst reicht ein einfacher `systemctl restart`.
+Der Service fuehrt das gebuendelte `~/.local/bin/cl` aus, nicht das Repo – nach Code-Aenderungen also
+`make deploy-service`, das den Build selbst mitmacht.
+`contexts/*.md` und `scheduler/*.md` werden dank `CL_ROOT_DIR` live aus dem Repo gelesen.
+Aenderungen an `config.json` wirken nach dem allerersten Start nicht mehr automatisch, da danach die
+Datenbank die aktive Config haelt (siehe `context.md`, "Config/Context-System") – dafuer `PUT /config`
+nutzen.
 
 ## Neustart und laufende Commands
 
-Ein `systemctl restart`/`stop` beendet den `cl server`-Prozess und damit i. d. R. auch dessen laufende
-`claude`-Subprozesse. Seit der PID-Persistenz in `t_commands` (siehe `context.md`) erkennt der Server
-beim naechsten Start automatisch alle durch den Neustart verwaisten "running"-Eintraege (Prozess laut
-gespeicherter PID nicht mehr vorhanden) und setzt sie auf `stopped` - sie bleiben also nicht dauerhaft
-faelschlich als laufend stehen.
+`systemctl restart`/`stop` beendet den `cl server`-Prozess und dessen `claude`-Subprozesse. Beim
+naechsten Start erkennt der Server verwaiste "running"-Eintraege in `t_commands` anhand der
+gespeicherten PID und setzt sie auf `stopped`.

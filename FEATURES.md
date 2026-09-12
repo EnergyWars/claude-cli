@@ -111,7 +111,9 @@ Implementiert in `src/scheduler.ts` (`startSchedulers(schedulers, onTrigger)` �
 
 ## HTTP-Server (`cl server`)
 
-`cl server` startet einen langlebigen HTTP-Server (`node:http`, Default-Port `8787`, überschreibbar mit `-p, --port`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
+`cl server` startet einen langlebigen HTTP-Server (`node:http`), der alle Agents aus `config.json` als headless Endpunkte exposed. Alle Aufrufe sind **immer headless** (kein interaktiver Modus über HTTP). Spezifikation: `openapi.json`.
+
+Der Listen-Port wird in dieser Reihenfolge bestimmt: `-p, --port <port>` > Umgebungsvariable `PORT` > Default `8787`. `PORT=7765 cl server` startet den Server also auf Port `7765`, `cl server -p 9000` gewinnt auch dann, wenn `PORT` gesetzt ist. Ungültige Werte (keine ganze Zahl, negativ, > 65535) brechen mit `Ungueltiger Port: "<wert>"` und Exit-Code != 0 ab; ein leerer Wert zählt als "nicht gesetzt" und fällt auf die nächste Stufe zurück. Port `0` wählt einen freien Port (für Tests).
 
 **Alle Endpunkte sind per JWT geschützt** (ausgestellt gegen einen Google-Authenticator-TOTP-Code) – Ausnahme sind ausschließlich `GET /health`, `GET /status` und die `/auth/*`-Endpunkte (`setup`, `setup/confirm`, `login`, `refresh`, `status`). Details siehe Abschnitte "Google-Authenticator-Schutz (TOTP) + JWT-Login", "Erreichbarkeits-Check (`GET /health`)" und "Discovery-Check (`GET /status`)" weiter unten.
 
@@ -260,7 +262,7 @@ Hier löst `readme` zu `/my/path/README.md` und `reports` zu `/my/path/reports` 
 
 Der Download setzt `Content-Type` anhand der Dateiendung (kleine eingebaute MIME-Tabelle, Fallback `application/octet-stream`) sowie `Content-Disposition: attachment`. Bei `GET /files/<pathName>/<hostedName>/<fileName>` wird der aufgelöste Dateipfad zusätzlich gegen das Verzeichnis des hosted-Eintrags geprüft (muss darin liegen), um Pfad-Traversal zu verhindern.
 
-**Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus `config.json`s `databaseDirectory` (aktuell `/home/simon/commands`), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
+**Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus `config.json`s `databaseDirectory` (aktuell `/home/sklein/commands`), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
 
 Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Responses) und `src/db.ts` (SQLite-Zugriff über Node's eingebautes `node:sqlite`). `runHeadlessCommand()` in `src/launch.ts` ist die Server-Variante von `launchAgent()`: `stdio: ['ignore', 'pipe', 'pipe']` statt `'inherit'`, Output wird eingesammelt statt direkt ans Terminal durchgereicht, kein `process.exit()` (der Server läuft weiter).
 
@@ -350,7 +352,7 @@ Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `hooks`-Objekt de
 ```json
 {
   "name": "periodical",
-  "path": "/home/simon/IdeaProjects/periodical",
+  "path": "/home/sklein/IdeaProjects/periodical",
   "hooks": {
     "onLastAgentFinish": "cl inst"
   }
@@ -511,6 +513,31 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 - `npm run deploy` – bündelt `dist/index.js` per `esbuild` (alle Dependencies wie `commander` werden eingebettet, da am Zielort kein `node_modules` existiert) und kopiert das Ergebnis nach `~/.local/bin/cl` (ausführbar).
 - `npm run release` – führt `build` und `deploy` nacheinander aus.
 - `npm run dev` – führt `src/index.ts` direkt über `tsx` aus, ohne vorherigen Compile-Schritt.
+- `npm run deploy-service` / `make deploy-service` – Vollständiges Service-Deployment: Build + Bundle (wie `release`), dann Stoppen des laufenden Service und Start des neuen mit der frisch gebauten `cl` (siehe nächster Abschnitt).
+- `npm run release-service` / `make release-service` – Alias für `deploy-service`.
+
+## Dauerbetrieb als systemd-Service (`cl-server.service`, `make deploy-service`)
+
+`cl server` läuft im Dauerbetrieb als **System-Service** – unabhängig davon, ob ein Nutzer eingeloggt ist, automatisch bei jedem Boot und mit automatischem Neustart nach jedem Beenden.
+
+**Deployment:** `make deploy-service` ist ein vollständiger Deploy in einem Schritt: Build + Bundle nach `~/.local/bin/cl` (identisch zu `make release`) → Rendern der Unit-Datei → Stoppen des laufenden Service (falls aktiv) → `sudo install` nach `/etc/systemd/system/cl-server.service` → `systemctl daemon-reload`/`enable`/`start`. Der neue Prozess läuft damit garantiert mit dem gerade gebauten Bundle statt mit dem alten Binary. Abschließend prüft das Skript per `systemctl is-active`, dass der Service wirklich läuft, und bricht sonst mit Exit-Code 1 und `systemctl status` ab. `make release-service` ist ein Alias für denselben Ablauf.
+
+**Erzeugte statt eingecheckte Unit-Datei:** Der Inhalt kommt aus `renderServiceUnit()` (`src/service-unit.ts`) und wird beim Deploy aus Nutzer, Home-Verzeichnis, Repo-Pfad, Node-Verzeichnis und Port der aktuellen Maschine gerendert (`scripts/render-service-unit.ts` → `dist/cl-server.service`). Dadurch enthält das Repo keine maschinenspezifischen Pfade und der Unit-Inhalt ist durch Tests abgedeckt.
+
+**Port:** Der Service startet mit `Environment=PORT=7765` (`DEFAULT_SERVICE_PORT`), führt also effektiv `PORT=7765 cl server` aus. Anderer Port: `PORT=9000 make deploy-service`.
+
+**Robustheit:**
+
+- `Restart=always` + `RestartSec=1` (Backoff bis `RestartMaxDelaySec=15`) – Neustart nach Absturz, `kill -9` und auch nach sauberem Exit.
+- `StartLimitIntervalSec=0` – kein Start-Rate-Limit, systemd gibt nie dauerhaft auf.
+- `WantedBy=multi-user.target` + `After=network.target` (bewusst nicht `network-online.target`) – Start so früh wie möglich im Boot, ohne auf eine fertig konfigurierte Netzwerkverbindung zu warten.
+- `OOMPolicy=continue` + `OOMScoreAdjust=-500` – der Server wird vom OOM-Killer zuletzt gewählt und stirbt nicht mit, wenn ein Kindprozess (z. B. `claude`) OOM-gekillt wird.
+- `LimitNOFILE=65536` – ausreichend Filedeskriptoren für viele parallele SSE-Verbindungen.
+- Hardening ohne Einschränkung des Dateisystemzugriffs: `NoNewPrivileges`, `ProtectClock`, `ProtectKernelModules`/`-Tunables`/`-Logs`, `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality`.
+
+**Node-Auswahl:** `src/db.ts` nutzt `node:sqlite` und braucht damit Node >= 22.5 (empfohlen 24), während systemd weder `~/.bashrc` noch `nvm` lädt. `scripts/deploy-service.sh` prüft deshalb das aktive `node` per `require("node:sqlite")`, fällt sonst auf die höchste passende Version unter `~/.nvm/versions/node/*/bin/node` zurück (`CL_SERVICE_NODE=<pfad>` erzwingt ein bestimmtes Binary) und trägt dessen Verzeichnis als ersten Eintrag in `Environment=PATH=` der Unit ein. Findet sich kein passendes Node, bricht das Deployment mit einer klaren Meldung ab, statt einen Service zu installieren, der in eine Restart-Schleife läuft.
+
+Bedienung (`systemctl status`/`restart`/`stop`, `journalctl -u cl-server -f`) und Voraussetzungen: `systemd/README.md`.
 
 ## Config/Context-System
 
@@ -518,7 +545,7 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
-- `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/simon/commands`.
+- `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/sklein/commands`.
 - `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[], commands?: { key: string, command: string, displayName: string, description: string }[], hooks?: { onLastAgentFinish?: string } }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut. Das optionale `commands`-Array definiert vordefinierte Shell-Befehle, auslösbar über `POST /paths/<pathName>/commands/<key>` (siehe "Pfad-Commands (paths[].commands)"). Das optionale `hooks`-Objekt definiert Bash-Befehle, die bei bestimmten Ereignissen in diesem Pfad automatisch ausgelöst werden (siehe "Pfad-Hooks (paths[].hooks)").
 - `defaultCommands` – optionales Array derselben Form wie `paths[].commands`, aber auf Root-Ebene: jeder Eintrag ist in **jedem** Pfad zusätzlich ausführbar, ohne ihn dort einzeln eintragen zu müssen. Ein `paths[].commands`-Eintrag mit gleichem `key` überschreibt den Default für genau diesen Pfad (siehe "Pfad-Commands (paths[].commands)").
 - `tasks` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string, startCommand: string }`, erreichbar ausschließlich über `cl task <name>` (immer interaktiv, siehe "Task-Ausführung (cl task <name>)") – nie über `cl server`.
@@ -624,7 +651,7 @@ Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-, `context`- 
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 490 Tests über 16 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 513 Tests über 18 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-/`hooks`-/`schedulers`-Einträge, optionales `permissions`-Feld bei Agents/Tasks/Schedulern: akzeptiert/verwirft), `listAgents`, `listSchedulers`, `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveSchedulerContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt`/`buildSchedulerSystemPrompt` (reine Funktionen, inkl. `--allowedTools` bei gesetzten/leeren `permissions` und eigener scheduler-Context vor zusätzlichen `contexts`) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt, Weitergabe von `permissions` als `--allowedTools`, `onSpawn`-Callback erhaelt das Kind-Prozess-Handle und `child.kill('SIGTERM')` darueber beendet den Prozess vorzeitig).
@@ -634,10 +661,12 @@ Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-, `context`- 
 - **`src/ticket.test.ts`** – `parseTicketAgentOutput` (reine Funktion: sauberes JSON, Markdown-Codebloecke, Prosa davor/danach, mehrere Objekte, fehlende/leere/falsch typisierte Felder, kaputtes JSON) sowie `runTicketAgent` gegen ein Fake-`claude`-Binary (Erfolg, nicht-null Exit-Code, unparsebare Antwort trotz Exit-Code 0, `claude` fehlt im `PATH`).
 - **`src/usage.test.ts`** – `parseUsageResult`/`extractUsageResultText` (reine Funktionen: mehrere Limit-Zeilen, Zeilen ohne Treffer-Muster, leerer Text, Prosa/Warnungen vor dem JSON, fehlendes/falsches `type`-Feld) sowie `getUsageLimits` gegen ein Fake-`claude`-Binary (Erfolg, nicht-null Exit-Code, `claude` fehlt im `PATH`).
 - **`src/totp.test.ts`** – Base32-En-/Decoding-Rundreise, `generateTotp`/`verifyTotp` (gültiger Code, Zeitfenster-Toleranz, falsches Secret/Format), `buildOtpAuthUrl`.
+- **`src/server-port.test.ts`** – `resolveServerPort` (reine Funktion: Default ohne Angabe, `PORT` aus der Umgebung, `--port` schlägt `PORT`, leere Werte fallen auf die nächste Stufe zurück, Port `0`, getrimmte Werte, ungültige Werte werfen).
+- **`src/service-unit.test.ts`** – `renderServiceUnit` (reine Funktion: Nutzer/Gruppe/Pfade/Port/Node-Verzeichnis landen in der Unit, `Restart=always`+`RestartSec=1`+`StartLimitIntervalSec=0`+`WantedBy=multi-user.target`, kein `network-online.target`, leere Parameter und ungültige Ports werfen).
 - **`src/network.test.ts`** – `isLocalNetworkAddress` gegen Loopback, RFC1918-Bereiche, IPv6-ULA/Link-Local, öffentliche Adressen, IPv4-mapped IPv6.
 - **`src/server.test.ts`** – `cl server`s HTTP-Endpunkte per echtem `fetch()` gegen einen in-process gestarteten Server (Erfolg, Validierungsfehler, 404s, 401 ohne/mit ungültigem `Authorization: Bearer <jwt>`, Live-Status `running` → `completed`, Model-Override, `permissions`-Default aus `config.json` sowie Override + Validierung (400 bei falschem Typ) per Request-Body, hosted-Datei-Download, hosted-Verzeichnis-Listing, Pfad-Commands, `GET /commands/<pathName>` (Pfad-Filter, neueste zuerst, 404 bei unbekanntem Pfad, 401 ohne Auth), `GET /health` ohne Auth, `GET /tickets` (global) sowie alle `/tickets/<pathName>/...`-Endpunkte inkl. Status-Filter, sofortiges `201` im Status `"generating"` gefolgt vom Hintergrund-Uebergang auf `"open"`/`"rejected"` und 404 bei pfadfremder Ticket-ID), `GET /state/<id>/stream` (401/404, Live-Events per SSE bis Abschluss inkl. vollständigem Output im letzten Event, sofortiges Einzel-Event + Verbindungsschluss bei bereits abgeschlossenem Command), `POST /state/<id>/stop` (beendet einen laufenden Command und setzt `status: "stopped"`, 404 bei unbekannter ID, 409 bei bereits abgeschlossenem Command, 401 ohne Auth), `POST /collect/<pathName>` (401, sammelt nur die Eintraege des Pfads, leeres Ergebnis ohne zugeordnete Eintraege, 404 bei unbekanntem Pfad), `POST /feedback`s automatische `path`-Ableitung aus `section` (Treffer/kein Treffer/keine `section`), `GET /feedback/<pathName>` (401, 404 bei unbekanntem Pfad, filtert auf zugehoerige Eintraege), `GET /usage` (401, erfolgreicher Abruf inkl. Parsing, Caching-Verhalten, 500 bei fehlgeschlagenem `claude`-Aufruf), `onLastAgentFinish`-Hook (`paths[].hooks`) feuert nach Abschluss des einzigen laufenden Agenten in diesem Pfad und erscheint dabei selbst als eigener Eintrag (`agent: "hook:<pathName>:onLastAgentFinish"`) in `GET /commands/<pathName>`, `GET /schedulers`/`GET /manifest` liefern die konfigurierten Scheduler, ein sekundengenauer Cron-Scheduler (eigene, isolierte Fixture/Server-Instanz) triggert automatisch headless `claude`-Läufe die als `agent: "scheduler:<name>"` im Verlauf erscheinen, und ein `PUT /config` mit geleertem `schedulers`-Array beendet alle laufenden Scheduler-Cron-Jobs sofort (Hot-Reload).
 - **`src/server-auth.test.ts`** – die vollständige TOTP-Setup-Lebensdauer (unbestätigt → 401, Setup → Confirm → aktiv, `409` bei erneutem Setup-Versuch, Code-Wiederverwendbarkeit im selben Zeitfenster) inkl. `GET /auth/status` bei jedem Zwischenschritt (`{active:false,pending:false}` → `{active:false,pending:true}` → `{active:true,pending:false}`), `POST /auth/login` sowie `POST /auth/refresh` (401 ohne/mit ungültigem Token, 200 mit nutzbarem frischem Token, ~2h-Gültigkeit des ausgestellten Tokens).
-- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, Agent-`permissions` haengen `--allowedTools` an, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server`/`cl task` (inkl. Task-`permissions` haengen `--allowedTools` an)/`cl totp remove`/`cl inst`/`cl instr`/`cl ticket from|get|list|list-all|update|delete` End-to-End inkl. `SIGTERM`-Shutdown).
+- **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, Agent-`permissions` haengen `--allowedTools` an, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server` (inkl. `PORT` aus der Umgebung als Listen-Port und Abbruch bei ungültigem `PORT`)/`cl task` (inkl. Task-`permissions` haengen `--allowedTools` an)/`cl totp remove`/`cl inst`/`cl instr`/`cl ticket from|get|list|list-all|update|delete` End-to-End inkl. `SIGTERM`-Shutdown).
 - **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `formatInstallSummary` (Singular/Plural/leer), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden, Gerätenamen + Abschluss-Zusammenfassung) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 - **`src/collect.test.ts`** – `collectAll`/`collectOne`/`collectForPath`/`listCollectedFiles`/`resolveCollectedFilePath`/`resolveCollectionPathForFileName` (reine fs-Logik gegen echte temporäre Verzeichnisse: Extension-Anhängen, keine doppelte Extension, fehlende `sourcePath` landet in `errors` statt Abbruch, unbekannter `targetName`/`pathName` wirft, Pfad-Traversal wird abgelehnt, `collectForPath` sammelt nur Eintraege des angegebenen `path`, `resolveCollectionPathForFileName` findet/verfehlt den zugehoerigen `path` ueber den resultierenden Dateinamen).
 

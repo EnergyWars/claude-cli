@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-LOCK_DIR="/home/simon/.gradlew-locks"
+LOCK_DIR="$HOME/.gradlew-locks"
 mkdir -p "$LOCK_DIR"
 
 while :; do

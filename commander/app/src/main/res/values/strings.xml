@@ -14,6 +14,16 @@
     <string name="setup_discover">Auto discover</string>
     <string name="setup_discovering">Scanning local network…</string>
     <string name="setup_error_title">Error</string>
+    <string name="setup_port_test">Test (8787)</string>
+    <string name="setup_port_service">Service (7765)</string>
+    <string name="setup_port_custom">Custom</string>
+    <string name="setup_port_custom_label">Custom port</string>
+    <string name="setup_host_known">Known addresses</string>
+    <string name="setup_host_new">New</string>
+    <string name="setup_error_host_missing">Enter a host.</string>
+    <string name="setup_error_port_invalid">Enter a valid port (1-65535).</string>
+    <string name="setup_error_not_found">No server found on the local network.</string>
+    <string name="setup_error_unknown">Unknown error.</string>
 
     <string name="login_lede">Open %1$s in a browser on this network, scan the QR code with your authenticator app, then enter the current code below.</string>
     <string name="login_code_label">6-digit code</string>

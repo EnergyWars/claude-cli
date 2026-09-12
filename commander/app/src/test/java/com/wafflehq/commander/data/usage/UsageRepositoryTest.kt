@@ -3,7 +3,6 @@ package com.wafflehq.commander.data.usage
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.UsageLimit
-import io.mockk.coAnswers
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest

@@ -11,10 +11,33 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private val Context.connectionDataStore by preferencesDataStore(name = "connection")
+
+private val hostHistoryJson = Json { ignoreUnknownKeys = true }
+
+const val MAX_HOST_HISTORY = 8
+
+fun decodeHostHistory(raw: String?): List<String> =
+    if (raw.isNullOrBlank()) {
+        emptyList()
+    } else {
+        runCatching { hostHistoryJson.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+    }
+
+fun encodeHostHistory(hosts: List<String>): String = hostHistoryJson.encodeToString(hosts)
+
+/** Stellt [host] an den Anfang der zuletzt benutzten Adressen, entfernt das Duplikat und kappt auf [max] Eintraege. */
+fun applyHostHistory(current: List<String>, host: String, max: Int = MAX_HOST_HISTORY): List<String> {
+    val trimmed = host.trim()
+    if (trimmed.isEmpty()) return current
+    return (listOf(trimmed) + current.filterNot { it.equals(trimmed, ignoreCase = true) }).take(max)
+}
 
 data class Connection(
     val host: String,
@@ -51,6 +74,11 @@ class ConnectionRepository @Inject constructor(
     private val portKey = intPreferencesKey("port")
     private val tokenEncryptedKey = stringPreferencesKey("token_encrypted")
     private val tokenExpiresAtEpochSecondsKey = longPreferencesKey("token_expires_at_epoch_seconds")
+    private val hostHistoryKey = stringPreferencesKey("host_history")
+
+    val hostHistory: Flow<List<String>> = context.connectionDataStore.data.map { prefs ->
+        decodeHostHistory(prefs[hostHistoryKey])
+    }
 
     override val session: Flow<Session?> = context.connectionDataStore.data.map { prefs ->
         val host = prefs[hostKey]
@@ -73,6 +101,7 @@ class ConnectionRepository @Inject constructor(
         context.connectionDataStore.edit { prefs ->
             prefs[hostKey] = host
             prefs[portKey] = port
+            prefs[hostHistoryKey] = encodeHostHistory(applyHostHistory(decodeHostHistory(prefs[hostHistoryKey]), host))
             prefs.remove(tokenEncryptedKey)
             prefs.remove(tokenExpiresAtEpochSecondsKey)
         }
@@ -93,6 +122,10 @@ class ConnectionRepository @Inject constructor(
     }
 
     suspend fun clear() {
-        context.connectionDataStore.edit { prefs -> prefs.clear() }
+        context.connectionDataStore.edit { prefs ->
+            val history = prefs[hostHistoryKey]
+            prefs.clear()
+            if (history != null) prefs[hostHistoryKey] = history
+        }
     }
 }
