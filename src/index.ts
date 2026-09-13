@@ -38,6 +38,7 @@ import {
   type TicketRow,
   type TicketStatus,
 } from './db.js';
+import { loadEnv, resolveDatabaseDirectory } from './env.js';
 import { buildAndInstall, findLatestBuildTimestamp, runUnitTests } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { DEFAULT_SERVER_PORT, resolveServerPort } from './server-port.js';
@@ -228,7 +229,7 @@ program
   )
   .option(
     '-p, --port <port>',
-    `Port fuer den HTTP-Server. Ohne Angabe gilt die Umgebungsvariable PORT (z. B. "PORT=7765 cl server"), sonst ${String(DEFAULT_SERVER_PORT)}.`,
+    `Port fuer den HTTP-Server. Ohne Angabe gilt die Umgebungsvariable PORT (z. B. "PORT=7765 cl server" oder ein Eintrag PORT=7765 in der .env-Datei im Projekt-Root), sonst ${String(DEFAULT_SERVER_PORT)}.`,
   )
   .option(
     '-P, --paths-file <file>',
@@ -240,10 +241,8 @@ program
   )
   .action((options: { port?: string; pathsFile?: string }) => {
     try {
-      const port = resolveServerPort(options.port);
-      const config = loadConfig();
+      const port = resolveServerPort(options.port, loadEnv());
       startServer(
-        config,
         port,
         options.pathsFile === undefined ? undefined : loadPathsOverride(options.pathsFile),
       );
@@ -277,8 +276,7 @@ totpCommand
     'Entfernt den aktuell aktiven/ausstehenden Google Authenticator aus der Datenbank. Danach sind alle Server-Endpunkte (ausser den Setup-Endpunkten) wieder gesperrt, bis ein neuer eingerichtet und bestaetigt wurde.',
   )
   .action(() => {
-    const config = loadConfig();
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     const removed = deleteTotpSecret(db);
     db.close();
     console.log(
@@ -344,7 +342,7 @@ ticketCommand
     if (!pathEntry) {
       return;
     }
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       const output = await runTicketAgent(pathEntry.path, config.ticketAgent, text);
       const ticket = insertTicket(db, { pathName, originalRequest: text, ...output });
@@ -369,7 +367,7 @@ ticketCommand
     if (!resolveTicketPathOrExit(config, pathName)) {
       return;
     }
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       if (idArg === undefined) {
         console.log(JSON.stringify(listTickets(db, pathName, 'open'), null, 2));
@@ -408,7 +406,7 @@ ticketCommand
       process.exitCode = 1;
       return;
     }
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       console.log(JSON.stringify(listTickets(db, pathName, options.status), null, 2));
     } finally {
@@ -423,7 +421,6 @@ ticketCommand
   )
   .option('-s, --status <status>', TICKET_STATUS_OPTION_DESCRIPTION)
   .action((options: { status?: string }) => {
-    const config = loadConfig();
     if (options.status !== undefined && !isTicketStatus(options.status)) {
       console.error(
         `Ungueltiger Status: "${options.status}". Erlaubt: ${TICKET_STATUSES.join(', ')}`,
@@ -431,7 +428,7 @@ ticketCommand
       process.exitCode = 1;
       return;
     }
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       console.log(JSON.stringify(listAllTickets(db, options.status), null, 2));
     } finally {
@@ -491,7 +488,7 @@ ticketCommand
         process.exitCode = 1;
         return;
       }
-      const db = openDatabase(config.databaseDirectory);
+      const db = openDatabase(resolveDatabaseDirectory());
       try {
         const existing = getTicketInPathOrExit(db, pathName, id, idArg);
         if (existing === undefined) {
@@ -541,7 +538,7 @@ ticketCommand
     if (id === undefined) {
       return;
     }
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       const existing = getTicketInPathOrExit(db, pathName, id, idArg);
       if (existing === undefined) {
@@ -614,7 +611,7 @@ program
       return;
     }
     const config = loadConfig();
-    const db = openDatabase(config.databaseDirectory);
+    const db = openDatabase(resolveDatabaseDirectory());
     try {
       if (pathName === undefined) {
         console.log(

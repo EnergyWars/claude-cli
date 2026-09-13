@@ -101,7 +101,6 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
       model: 'sonnet',
       ...agent,
     })),
-    databaseDirectory: options.databaseDirectory ?? join(rootDir, 'db'),
     paths: options.paths ?? [{ name: 'default', path: rootDir }],
     defaultCommands: options.defaultCommands ?? [],
     tasks: (options.tasks ?? []).map((task) => ({
@@ -125,6 +124,9 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
     collection: options.collection ?? [],
   };
   writeFileSync(join(rootDir, 'config.json'), JSON.stringify(config, null, 2));
+
+  const databaseDirectory = options.databaseDirectory ?? join(rootDir, 'db');
+  writeFileSync(join(rootDir, '.env'), `CL_DATABASE_DIR=${databaseDirectory}\n`);
 
   const contexts = options.contexts ?? { main: '# Test-Main-Context\n' };
   for (const [name, content] of Object.entries(contexts)) {

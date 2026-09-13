@@ -1366,7 +1366,7 @@
       },
       "put": {
         "summary": "Speichert eine neue Config-Version und aktiviert sie sofort",
-        "description": "Body ist die vollstaendige neue config.json (gleiche Form wie GET /config liefert). Wird validiert (gleiche Regeln wie die lokale config.json), als neue Version in der Datenbank historisiert und der Zeiger sofort darauf gesetzt. Wirkt im laufenden Server ohne Neustart - ausser bei einer Aenderung von databaseDirectory, die erst nach einem Server-Neustart aktiv wird (Antwort enthaelt dann ein warning-Feld).",
+        "description": "Body ist die vollstaendige neue config.json (gleiche Form wie GET /config liefert). Wird validiert (gleiche Regeln wie die lokale config.json), als neue Version in der Datenbank historisiert und der Zeiger sofort darauf gesetzt. Wirkt im laufenden Server sofort ohne Neustart.",
         "operationId": "putConfig",
         "requestBody": {
           "required": true,
@@ -1481,7 +1481,7 @@
       },
       "put": {
         "summary": "Setzt den Zeiger auf eine bestehende Version (Rollback) oder auf die fest reinkompilierte Version",
-        "description": "Body entweder { \"versionId\": number } (Rollback auf eine bestehende, historisierte Version) oder { \"embedded\": true } (aktiviert die fest reinkompilierte Version). Wirkt im laufenden Server sofort ohne Neustart, mit der gleichen databaseDirectory-Ausnahme wie PUT /config.",
+        "description": "Body entweder { \"versionId\": number } (Rollback auf eine bestehende, historisierte Version) oder { \"embedded\": true } (aktiviert die fest reinkompilierte Version). Wirkt im laufenden Server sofort ohne Neustart.",
         "operationId": "putConfigPointer",
         "requestBody": {
           "required": true,
@@ -2277,7 +2277,6 @@
         "required": [
           "main",
           "agents",
-          "databaseDirectory",
           "paths",
           "tasks",
           "schedulers",
@@ -2291,7 +2290,6 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/ConfigAgent" }
           },
-          "databaseDirectory": { "type": "string" },
           "paths": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ConfigPathEntry" }

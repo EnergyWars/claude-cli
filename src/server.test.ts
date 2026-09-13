@@ -13,7 +13,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
-import { loadConfig } from './config.js';
 import { insertCommand, openDatabase, setCommandPid } from './db.js';
 import { startServer, type RunningServer } from './server.js';
 import { generateTotp } from './totp.js';
@@ -100,7 +99,7 @@ before(async () => {
   process.env.CL_ROOT_DIR = fixture.rootDir;
   process.env.PATH = pathWithMock(mock.binDir);
 
-  running = startServer(loadConfig(), 0);
+  running = startServer(0);
   await running.ready;
 
   const setupRes = await fetch(`${baseUrl()}/auth/setup`, { method: 'POST' });
@@ -344,7 +343,7 @@ test('startServer: raeumt beim Start verwaiste "running"-Commands mit toter PID 
 
   const previousRoot = process.env.CL_ROOT_DIR;
   process.env.CL_ROOT_DIR = orphanFixture.rootDir;
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -485,7 +484,7 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
   const previousPath = process.env.PATH;
   process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
   process.env.PATH = pathWithMock(schedulerMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -550,7 +549,7 @@ test('Scheduler: ein Scheduler mit mehreren "paths" startet in jedem Pfad einen 
   const previousPath = process.env.PATH;
   process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
   process.env.PATH = pathWithMock(schedulerMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -614,7 +613,7 @@ test('Scheduler: PUT /config/pointer auf "embedded" beendet alle konfigurierten 
   const previousPath = process.env.PATH;
   process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
   process.env.PATH = pathWithMock(schedulerMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -877,7 +876,7 @@ test('GET /usage: liefert die aus "claude --print /usage" geparsten Limits', asy
   });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(usageMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(`http://localhost:${server.port.toString()}/usage`, {
@@ -909,7 +908,7 @@ test('GET /usage: gecacht - ein zweiter Aufruf innerhalb der TTL liefert weiterh
   });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(firstMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}/usage`;
@@ -941,7 +940,7 @@ test('GET /usage: 500 wenn "claude --print /usage" fehlschlaegt', async () => {
   const failMock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(failMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(`http://localhost:${server.port.toString()}/usage`, {
@@ -1282,7 +1281,7 @@ test('GET /paths/default/remote-sessions: liefert die von "claude agents --json"
   });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(sessionsMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(
@@ -1318,7 +1317,7 @@ test('POST /paths/default/remote-sessions: startet eine Remote-Control-Session u
   });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(startMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(
@@ -1348,7 +1347,7 @@ test('POST /paths/default/remote-sessions: uebergibt "name" als "--remote-contro
   });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(startMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(
@@ -1393,7 +1392,7 @@ test('POST /paths/default/remote-sessions: 500 wenn "claude --bg --remote-contro
   const failMock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
   const previous = process.env.PATH;
   process.env.PATH = pathWithMock(failMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const res = await fetch(
@@ -2122,8 +2121,7 @@ test('PUT /config: neue Version wird gespeichert und ist sofort (ohne Neustart) 
     body: JSON.stringify({ ...current, main: { ...current.main, description: 'Geaendert' } }),
   });
   assert.equal(putRes.status, 200);
-  const putBody = (await putRes.json()) as { versionId: number; warning?: string };
-  assert.equal(putBody.warning, undefined);
+  const putBody = (await putRes.json()) as { versionId: number };
   const newVersionId = putBody.versionId;
   assert.ok(newVersionId > 1);
 
@@ -2146,28 +2144,6 @@ test('PUT /config: neue Version wird gespeichert und ist sofort (ohne Neustart) 
       body: JSON.stringify({ versionId: 1 }),
     });
   }
-});
-
-test('PUT /config: Wechsel von databaseDirectory liefert eine Warnung (Reload greift erst nach Neustart)', async () => {
-  const currentRes = await fetch(`${baseUrl()}/config`, { headers: authHeaders() });
-  const current = (await currentRes.json()) as Record<string, unknown> & {
-    databaseDirectory: string;
-  };
-
-  const putRes = await fetch(`${baseUrl()}/config`, {
-    method: 'PUT',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ ...current, databaseDirectory: `${current.databaseDirectory}-andere` }),
-  });
-  assert.equal(putRes.status, 200);
-  const putBody = (await putRes.json()) as { warning?: string };
-  assert.match(putBody.warning ?? '', /Server-Neustart/);
-
-  await fetch(`${baseUrl()}/config/pointer`, {
-    method: 'PUT',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ versionId: 1 }),
-  });
 });
 
 test('PUT /config/pointer: {embedded:true} aktiviert die fest reinkompilierte Version, Rollback per versionId', async () => {

@@ -18,7 +18,6 @@ function baseConfig(overrides: Partial<Config> = {}): Config {
   return {
     main: { description: 'm', contexts: [], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [],
     schedulers: [],

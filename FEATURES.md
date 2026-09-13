@@ -262,7 +262,7 @@ Hier löst `readme` zu `/my/path/README.md` und `reports` zu `/my/path/reports` 
 
 Der Download setzt `Content-Type` anhand der Dateiendung (kleine eingebaute MIME-Tabelle, Fallback `application/octet-stream`) sowie `Content-Disposition: attachment`. Bei `GET /files/<pathName>/<hostedName>/<fileName>` wird der aufgelöste Dateipfad zusätzlich gegen das Verzeichnis des hosted-Eintrags geprüft (muss darin liegen), um Pfad-Traversal zu verhindern.
 
-**Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus `config.json`s `databaseDirectory` (aktuell `/home/sklein/commands`), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
+**Protokollierung (SQLite):** Jeder Zugriff auf jeden Endpunkt (Erfolg wie Fehler, GET wie POST) wird in `t_access_log` geloggt (Zeitpunkt, Methode, Pfad, finaler Status-Code, bei POST der rohe Request-Body). Das ist eine **eigene** Tabelle, getrennt von `t_commands` (die ausschließlich den Command-Lifecycle inkl. Live-Output trackt). Die Datenbank-Datei (`commands.db`, WAL-Modus) liegt im Verzeichnis aus der Umgebungsvariable `CL_DATABASE_DIR` (siehe "Umgebungskonfiguration (.env)"), wird beim Serverstart automatisch angelegt, falls nicht vorhanden.
 
 Implementiert in `src/server.ts` (Routing, Body-Parsing mit 1-MB-Limit, JSON-Responses) und `src/db.ts` (SQLite-Zugriff über Node's eingebautes `node:sqlite`). `runHeadlessCommand()` in `src/launch.ts` ist die Server-Variante von `launchAgent()`: `stdio: ['ignore', 'pipe', 'pipe']` statt `'inherit'`, Output wird eingesammelt statt direkt ans Terminal durchgereicht, kein `process.exit()` (der Server läuft weiter).
 
@@ -352,7 +352,7 @@ Jeder Eintrag in `config.json`s `paths[]` kann zusätzlich ein `hooks`-Objekt de
 ```json
 {
   "name": "periodical",
-  "path": "/home/sklein/IdeaProjects/periodical",
+  "path": "/home/simon/IdeaProjects/periodical",
   "hooks": {
     "onLastAgentFinish": "cl inst"
   }
@@ -466,7 +466,7 @@ Implementiert in `src/usage.ts` (`getUsageLimits`, `parseUsageResult`, `extractU
 
 ## Config-Editierung + Versionshistorie (`/config`, `/config/versions`, `/config/pointer`)
 
-`cl server` erlaubt es, `config.json` remote über die HTTP-API zu editieren, ohne die lokale Datei anzufassen. Jede gespeicherte Version landet vollständig in der SQLite-Datenbank (`databaseDirectory/commands.db`, Tabelle `t_config_versions`); ein Zeiger (`t_config_pointer`) bestimmt, welche Version gerade aktiv ist – entweder eine gespeicherte Version-ID oder explizit `null` für die fest reinkompilierte Version (`EMBEDDED_CONFIG`, gebündelt beim Build). Jede Änderung des Zeigers **reloaded sofort alles ohne Server-Neustart**, da `config` im Server nicht mehr einmalig fixiert ist, sondern bei jedem Request aus dem aktuellen Zeiger-Stand gelesen wird (Agents, Pfade, Commands, Scheduler, `ticketAgent`, `contentPath`, `collection`, Permissions) – Scheduler werden dabei zusätzlich aktiv neu registriert: alle laufenden Cron-Jobs werden gestoppt und aus `schedulers[]` der neuen Config neu gestartet (siehe "Scheduler (config.json schedulers[], scheduler/<name>.md)"). Einzige Ausnahme: `databaseDirectory` selbst – die offene SQLite-Verbindung wird nicht automatisch neu geöffnet (das würde die Versionshistorie unter sich selbst wegwechseln), dafür ist ein Neustart nötig; die Response enthält dann ein `warning`-Feld.
+`cl server` erlaubt es, `config.json` remote über die HTTP-API zu editieren, ohne die lokale Datei anzufassen. Jede gespeicherte Version landet vollständig in der SQLite-Datenbank (unter `CL_DATABASE_DIR/commands.db`, Tabelle `t_config_versions`); ein Zeiger (`t_config_pointer`) bestimmt, welche Version gerade aktiv ist – entweder eine gespeicherte Version-ID oder explizit `null` für die fest reinkompilierte Version (`EMBEDDED_CONFIG`, gebündelt beim Build). Jede Änderung des Zeigers **reloaded sofort alles ohne Server-Neustart**, da `config` im Server nicht mehr einmalig fixiert ist, sondern bei jedem Request aus dem aktuellen Zeiger-Stand gelesen wird (Agents, Pfade, Commands, Scheduler, `ticketAgent`, `contentPath`, `collection`, Permissions) – Scheduler werden dabei zusätzlich aktiv neu registriert: alle laufenden Cron-Jobs werden gestoppt und aus `schedulers[]` der neuen Config neu gestartet (siehe "Scheduler (config.json schedulers[], scheduler/<name>.md)"). `CL_DATABASE_DIR` ist keine `config.json`-editierbare Einstellung mehr, sondern eine Umgebungsvariable (siehe "Umgebungskonfiguration (.env)") – ein Server-Neustart ist fuer einen Wechsel der Datenbank also ohnehin immer noetig, unabhaengig von der Versionshistorie.
 
 **Bootstrap:** Beim allerersten Start (noch kein Zeiger in der DB) wird die bis dahin geltende Config (lokale `config.json`, sonst embedded – identisch zum bisherigen `loadConfig()`-Verhalten) automatisch als Version 1 übernommen und der Zeiger darauf gesetzt. Ab dann ist die DB alleinige Quelle für den laufenden Server; die physische `config.json`-Datei wird vom Server nie mehr geschrieben, nur noch von CLI-Befehlen außerhalb von `cl server` gelesen (`loadConfig()`, unverändert).
 
@@ -545,7 +545,6 @@ Bedienung (`systemctl status`/`restart`/`stop`, `journalctl -u cl-server -f`) un
 
 - `main` – ein Objekt `{ description: string, contexts: string[], model: string }`, der Default-Agent für `cl` ohne Argument.
 - `agents` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string }`, erreichbar über `cl <name>`.
-- `databaseDirectory` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"), aktuell `/home/sklein/commands`.
 - `paths` – ein Array benannter Arbeitsverzeichnisse `{ name: string, path: string, hosted?: { name: string, path: string, type: "path" | "file" }[], commands?: { key: string, command: string, displayName: string, description: string }[], hooks?: { onLastAgentFinish?: string } }` (z. B. `{ "name": "myapp", "path": "/my/path" }`), aus dem `cl server`s POST-Routen über den `path`-Namen im Request-Body das Arbeitsverzeichnis (`cwd`) für den `claude`-Prozess auflösen (siehe "HTTP-Server (cl server)"). Das optionale `hosted`-Array definiert benannte Datei-/Verzeichnis-Freigaben, herunterladbar über `GET /files/...` (siehe "HTTP-Server (cl server)") – `hosted[].path` ist relativ zum `path` des Eintrags, nicht absolut. Das optionale `commands`-Array definiert vordefinierte Shell-Befehle, auslösbar über `POST /paths/<pathName>/commands/<key>` (siehe "Pfad-Commands (paths[].commands)"). Das optionale `hooks`-Objekt definiert Bash-Befehle, die bei bestimmten Ereignissen in diesem Pfad automatisch ausgelöst werden (siehe "Pfad-Hooks (paths[].hooks)").
 - `defaultCommands` – optionales Array derselben Form wie `paths[].commands`, aber auf Root-Ebene: jeder Eintrag ist in **jedem** Pfad zusätzlich ausführbar, ohne ihn dort einzeln eintragen zu müssen. Ein `paths[].commands`-Eintrag mit gleichem `key` überschreibt den Default für genau diesen Pfad (siehe "Pfad-Commands (paths[].commands)").
 - `tasks` – ein Array benannter Objekte `{ name: string, description: string, contexts: string[], model: string, startCommand: string }`, erreichbar ausschließlich über `cl task <name>` (immer interaktiv, siehe "Task-Ausführung (cl task <name>)") – nie über `cl server`.
@@ -568,6 +567,17 @@ Aufgelöst über `src/config.ts` (`loadConfig()`, `resolveAgent(name)`, `resolve
 - Bei jedem `dev`/`build` wird die eingebettete Kopie (`src/generated/embedded-context.ts`) frisch aus dem aktuellen Stand von `config.json` + `contexts/**/*.md` + `scheduler/**/*.md` generiert.
 
 Wird vom Agent-Start (`cl` / `cl <name>`) genutzt, um Model und System-Prompt des jeweiligen Agents aufzulösen.
+
+## Umgebungskonfiguration (`.env`)
+
+Maschinenspezifische Einstellungen, die **nicht** in `config.json` (und damit nicht in der Versionshistorie/`t_config_versions`, siehe "Config-Editierung + Versionshistorie") liegen, sondern über echte Umgebungsvariablen oder eine `.env`-Datei im Projekt-Root:
+
+- `CL_DATABASE_DIR` – Verzeichnis für die SQLite-Datenbank von `cl server` (siehe "HTTP-Server (cl server)"). Pflicht: `cl server` (und jeder andere Command, der die Datenbank öffnet) bricht ohne gesetzten Wert mit einer Fehlermeldung ab.
+- `PORT` – Port für `cl server`, siehe "HTTP-Server (cl server)" (`-p, --port` überschreibt ihn pro Lauf). Ohne Wert Default `8787`.
+
+Aufgelöst über `src/env.ts` (`loadEnv()`, `resolveDatabaseDirectory()`) nach demselben Lokal-first-Prinzip wie `config.json`/`contexts/*.md` (`src/config.ts`): eine lokale `.env` im Projekt-Root ersetzt die beim Build eingebettete `.env` vollständig (kein Feld-Merge), echte Prozess-Umgebungsvariablen überschreiben in jedem Fall beide. Die eingebettete Kopie (`EMBEDDED_ENV_FILE` in `src/generated/embedded-context.ts`) wird bei jedem `dev`/`build` frisch aus der aktuellen `.env` generiert (`scripts/generate-context-bundle.mjs`) – so funktioniert auch das deployte `cl`-Binary in `~/.local/bin` ohne eine begleitende `.env`-Datei. `.env` ist git-ignoriert (enthält maschinenspezifische Pfade).
+
+Implementiert in `src/env.ts` (`parseEnvFile`, `loadEnv`, `resolveDatabaseDirectory`), `scripts/generate-context-bundle.mjs`, `src/server.ts`/`src/index.ts` (`openDatabase(resolveDatabaseDirectory())`), `src/index.ts` (`resolveServerPort(options.port, loadEnv())`). Getestet in `src/env.test.ts`.
 
 ## Android-Build+Install (`cl inst` / `cl instr`)
 
@@ -617,7 +627,7 @@ Ein leichtgewichtiger, pro Pfad-Eintrag (`config.json`s `paths[].name`) gefuehrt
 - **`cl ticket update <path> <id> [--original-request] [--summary] [--instruction] [--category] [--status]`** – bearbeitet ein Ticket (mindestens eine Option erforderlich).
 - **`cl ticket delete <path> <id>`** – loescht ein Ticket.
 
-Persistenz: `t_tickets`-Tabelle in derselben SQLite-Datenbank wie `t_commands`/`t_totp` (`config.json`s `databaseDirectory`) – `insertTicket` (Status immer `"open"`, genutzt von `cl ticket from`)/`insertGeneratingTicket` (leeres Ticket, Status `"generating"`, genutzt von `POST /tickets/<pathName>`)/`getTicket`/`listTickets`/`listAllTickets`/`updateTicket`/`deleteTicket` in `src/db.ts`, `TICKET_STATUSES` als Single-Source-of-Truth fuer gueltige Status-Werte (von CLI und Server importiert). `migrateLegacyTicketColumns()` hebt beim Start (`openDatabase()`) eine DB im fruehen Schema (Spalten `title`/`description`/`task`, Status `"closed"`) auf das aktuelle Schema und droppt danach die alten Spalten (sie waren `NOT NULL` ohne `DEFAULT` und liessen sonst jedes neue `INSERT` mit "NOT NULL constraint failed" scheitern).
+Persistenz: `t_tickets`-Tabelle in derselben SQLite-Datenbank wie `t_commands`/`t_totp` (Verzeichnis aus `CL_DATABASE_DIR`, siehe "Umgebungskonfiguration (.env)") – `insertTicket` (Status immer `"open"`, genutzt von `cl ticket from`)/`insertGeneratingTicket` (leeres Ticket, Status `"generating"`, genutzt von `POST /tickets/<pathName>`)/`getTicket`/`listTickets`/`listAllTickets`/`updateTicket`/`deleteTicket` in `src/db.ts`, `TICKET_STATUSES` als Single-Source-of-Truth fuer gueltige Status-Werte (von CLI und Server importiert). `migrateLegacyTicketColumns()` hebt beim Start (`openDatabase()`) eine DB im fruehen Schema (Spalten `title`/`description`/`task`, Status `"closed"`) auf das aktuelle Schema und droppt danach die alten Spalten (sie waren `NOT NULL` ohne `DEFAULT` und liessen sonst jedes neue `INSERT` mit "NOT NULL constraint failed" scheitern).
 
 Implementiert in `src/ticket.ts` (Agent-Ausfuehrung + Antwort-Parsing), `src/db.ts` (`t_tickets`), `src/server.ts` (Routing/Validierung), `src/index.ts` (`ticket`-Subcommand-Gruppe), `openapi.json`. Getestet in `src/ticket.test.ts` (reine Funktionen `extractJsonObjects`/`parseTicketAgentOutput` inkl. vieler Edge-Cases, `runTicketAgent` gegen das Fake-`claude`-Binary), `src/db.test.ts` (CRUD, `listAllTickets`, Legacy-Migration), `src/server.test.ts` (alle Endpunkte inkl. Fehlerfaelle) und `src/index.test.ts` (alle Subcommands als CLI-Subprozess).
 

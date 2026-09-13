@@ -41,7 +41,6 @@ function validRawConfig(): unknown {
   return {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [{ name: 'dev', description: 'Dev', contexts: ['main'], model: 'sonnet' }],
-    databaseDirectory: '/tmp/does-not-matter',
     paths: [{ name: 'myapp', path: '/my/path' }],
     tasks: [
       {
@@ -72,7 +71,6 @@ test('parseConfig: akzeptiert ein vollstaendiges gueltiges Objekt', () => {
   assert.equal(parsed.main.description, 'Main');
   assert.equal(parsed.agents.length, 1);
   assert.equal(parsed.agents[0]?.name, 'dev');
-  assert.equal(parsed.databaseDirectory, '/tmp/does-not-matter');
 });
 
 test('parseConfig: wirft ohne Feld "main"', () => {
@@ -84,12 +82,6 @@ test('parseConfig: wirft ohne Feld "main"', () => {
 test('parseConfig: wirft ohne Feld "agents"', () => {
   const raw = validRawConfig() as Record<string, unknown>;
   delete raw.agents;
-  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
-});
-
-test('parseConfig: wirft ohne Feld "databaseDirectory"', () => {
-  const raw = validRawConfig() as Record<string, unknown>;
-  delete raw.databaseDirectory;
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -495,7 +487,6 @@ test('listAgents: main + jeder Agent als "cl <name>" mit description', () => {
       { name: 'dev', description: 'Dev-Desc', contexts: ['main'], model: 'sonnet' },
       { name: 'iwan', description: 'Iwan-Desc', contexts: ['main'], model: 'opus' },
     ],
-    databaseDirectory: '/tmp/x',
     paths: [],
     tasks: [],
     schedulers: [],
@@ -555,7 +546,6 @@ test('listHostedNames/resolveHostedEntry: liefert Hosted-Eintraege eines Pfads',
   const config: Config = {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/x',
     paths: [
       {
         name: 'myapp',
@@ -600,7 +590,6 @@ test('listHostedSummaries: liefert Name + Typ + Timestamp der Hosted-Eintraege e
   const config: Config = {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/x',
     paths: [
       {
         name: 'myapp',
@@ -637,7 +626,6 @@ test('listHostedSummaries: liefert die mtime der Datei als Timestamp fuer type "
     const config: Config = {
       main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
       agents: [],
-      databaseDirectory: '/tmp/x',
       paths: [
         { name: 'myapp', path: dir, hosted: [{ name: 'notes', path: 'notes.txt', type: 'file' }] },
       ],
@@ -660,7 +648,6 @@ test('listPathCommands/resolvePathCommand: liefert Commands eines Pfads', () => 
   const config: Config = {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/x',
     paths: [
       {
         name: 'myapp',
@@ -709,7 +696,6 @@ test('listPathCommands/resolvePathCommand: defaultCommands gelten in jedem Pfad,
   const config: Config = {
     main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/x',
     paths: [
       {
         name: 'myapp',
@@ -857,7 +843,6 @@ test('loadPathsOverride/applyPathsOverride: liest Datei und ersetzt config.paths
     const config: Config = {
       main: { description: 'Main', contexts: ['main'], model: 'sonnet' },
       agents: [],
-      databaseDirectory: '/tmp/x',
       paths: [{ name: 'original', path: '/original' }],
       tasks: [],
       schedulers: [],
@@ -916,7 +901,6 @@ test('listSchedulers: jeder Scheduler mit name, description, cron und paths', ()
   const config: Config = {
     main: { description: 'm', contexts: [], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [],
     schedulers: [
@@ -946,7 +930,6 @@ test('listTasks: jeder Task als "cl task <name>" mit description', () => {
   const config: Config = {
     main: { description: 'm', contexts: [], model: 'sonnet' },
     agents: [],
-    databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [
       { name: 'a', description: 'A-Desc', contexts: [], model: 'sonnet', startCommand: 'x' },
@@ -967,7 +950,6 @@ test('resolveAgentFrom: liefert main ohne Namen, Agent per Namen, wirft bei unbe
   const config: Config = {
     main: { description: 'Main-Desc', contexts: [], model: 'sonnet' },
     agents: [{ name: 'dev', description: 'Dev-Desc', contexts: [], model: 'sonnet' }],
-    databaseDirectory: '/tmp/db',
     paths: [],
     tasks: [],
     schedulers: [],

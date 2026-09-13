@@ -37,9 +37,11 @@ Das macht in dieser Reihenfolge:
   bestimmtes Binary erzwingen. Das gefundene Verzeichnis wird als erster Eintrag in `Environment=PATH=`
   der Unit eingetragen – systemd laedt kein `~/.bashrc`/`nvm`, ohne diesen Eintrag wuerde der Service
   das (zu alte) System-Node verwenden.
-- `config.json` (`databaseDirectory`, `paths[].path`, `contentPath`) muss zu den Verzeichnissen der
-  Maschine passen – falsche Pfade lassen den Service in einer Restart-Schleife laufen
-  (`EACCES: permission denied, mkdir ...` im Journal).
+- `config.json` (`paths[].path`, `contentPath`) und die `.env`-Datei (`CL_DATABASE_DIR`, siehe
+  "Umgebungskonfiguration (.env)" in `FEATURES.md`) muessen zu den Verzeichnissen der Maschine
+  passen – falsche Pfade lassen den Service in einer Restart-Schleife laufen
+  (`EACCES: permission denied, mkdir ...` im Journal). Ohne lokale `.env` neben dem deployten
+  `cl`-Binary greift die beim letzten `npm run build`/`deploy-service` eingebettete `.env`.
 
 ## Port
 

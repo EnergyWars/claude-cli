@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 
-import { loadConfig } from './config.js';
 import { startServer, type RunningServer } from './server.js';
 import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
@@ -26,7 +25,7 @@ before(async () => {
   process.env.CL_ROOT_DIR = fixture.rootDir;
   process.env.PATH = pathWithMock(mock.binDir);
 
-  running = startServer(loadConfig(), 0);
+  running = startServer(0);
   await running.ready;
 });
 
@@ -246,7 +245,7 @@ test('GET /auth/setup: zeigt QR-Code (SVG) + Secret, solange noch kein Authentic
   });
   const previousRoot = process.env.CL_ROOT_DIR;
   process.env.CL_ROOT_DIR = fixtureForSetup.rootDir;
-  const setupServer = startServer(loadConfig(), 0);
+  const setupServer = startServer(0);
   await setupServer.ready;
   try {
     const res = await fetch(`http://localhost:${setupServer.port.toString()}/auth/setup`);

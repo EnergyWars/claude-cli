@@ -79,6 +79,7 @@ import {
   resolvePathCommand,
   resolvePathEntry,
 } from './config.js';
+import { resolveDatabaseDirectory } from './env.js';
 import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
 import { findLatestBuildTimestamp } from './gradle-install.js';
 import { signJwt, verifyJwt } from './jwt.js';
@@ -899,25 +900,15 @@ async function handleGetUsage(cache: UsageCacheState, res: ServerResponse): Prom
 /**
  * Aktualisiert die effektive Config im laufenden Server sofort, sodass ab dem naechsten Request
  * ueberall gelesen wird (Agents, Paths, Tasks, ticketAgent, contentPath, collection, Permissions).
- * Ausnahme: databaseDirectory - die offene SQLite-Verbindung wird nicht neu geoeffnet, dafuer ist
- * ein Neustart noetig (sonst wuerde die Versionshistorie unter sich selbst wegwechseln).
  */
 function applyConfigReload(
   db: DatabaseSync,
   configState: ConfigState,
   schedulerState: SchedulerState,
   newConfig: Config,
-): { warning?: string } {
-  const previousDatabaseDirectory = configState.current.databaseDirectory;
+): void {
   configState.current = newConfig;
   restartSchedulers(db, schedulerState, newConfig);
-  if (newConfig.databaseDirectory !== previousDatabaseDirectory) {
-    return {
-      warning:
-        'databaseDirectory wurde geaendert - fuer den Wechsel der Datenbank ist ein Server-Neustart noetig, die aktuelle Verbindung bleibt bis dahin bestehen.',
-    };
-  }
-  return {};
 }
 
 function handleGetConfig(config: Config, res: ServerResponse): void {
@@ -953,12 +944,11 @@ function handlePutConfig(
 
   const version = insertConfigVersion(db, JSON.stringify(newConfig));
   setConfigPointer(db, version.id);
-  const { warning } = applyConfigReload(db, configState, schedulerState, newConfig);
+  applyConfigReload(db, configState, schedulerState, newConfig);
   sendJson(res, 200, {
     versionId: version.id,
     createdAt: version.createdAt,
     config: newConfig,
-    warning,
   });
 }
 
@@ -1046,8 +1036,8 @@ function handlePutConfigPointer(
   }
 
   setConfigPointer(db, body.versionId);
-  const { warning } = applyConfigReload(db, configState, schedulerState, newConfig);
-  sendJson(res, 200, { versionId: body.versionId, config: newConfig, warning });
+  applyConfigReload(db, configState, schedulerState, newConfig);
+  sendJson(res, 200, { versionId: body.versionId, config: newConfig });
 }
 
 function handleGetPathCommands(config: Config, res: ServerResponse, pathName: string): void {
@@ -2145,12 +2135,8 @@ export interface RunningServer {
   close: () => Promise<void>;
 }
 
-export function startServer(
-  config: Config,
-  port: number,
-  pathsOverride?: PathEntry[],
-): RunningServer {
-  const db = openDatabase(config.databaseDirectory);
+export function startServer(port: number, pathsOverride?: PathEntry[]): RunningServer {
+  const db = openDatabase(resolveDatabaseDirectory());
   ensureConfigBootstrapped(db);
   reconcileOrphanedCommands(db);
   let effectiveConfig = resolveEffectiveConfig(db);

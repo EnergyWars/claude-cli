@@ -93,7 +93,6 @@ export interface CollectionEntry {
 export interface Config {
   main: AgentDefinition;
   agents: AgentConfig[];
-  databaseDirectory: string;
   paths: PathEntry[];
   /** Commands, die zusaetzlich zu den commands eines PathEntry in jedem Pfad ausfuehrbar sind. Ein commands-Eintrag mit gleichem key ueberschreibt den Default fuer diesen Pfad. */
   defaultCommands?: PathCommandEntry[];
@@ -127,7 +126,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
 const defaultRootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Overridable via CL_ROOT_DIR (tests only) to point local-file resolution at a fixture directory. */
-function getRootDir(): string {
+export function getRootDir(): string {
   return process.env.CL_ROOT_DIR ?? defaultRootDir;
 }
 
@@ -308,7 +307,6 @@ function isConfig(value: unknown): value is Config {
     isAgentDefinition(record.main) &&
     Array.isArray(record.agents) &&
     record.agents.every(isAgentConfig) &&
-    typeof record.databaseDirectory === 'string' &&
     Array.isArray(record.paths) &&
     record.paths.every(isPathEntry) &&
     (record.defaultCommands === undefined ||
@@ -339,7 +337,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "databaseDirectory" (String), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, paths, model, contexts?, permissions? }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist - ein eigener headless claude-Lauf je Pfad), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, paths, model, contexts?, permissions? }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist - ein eigener headless claude-Lauf je Pfad), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
