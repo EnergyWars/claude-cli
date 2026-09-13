@@ -525,6 +525,124 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
   }
 });
 
+test('Scheduler: Verlauf speichert den tatsaechlichen Auftrag (description + Context) statt eines generischen Platzhaltersatzes', async () => {
+  const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
+  const schedulerFixture = createFixtureRoot({
+    schedulers: [
+      {
+        name: 'ticker',
+        description: 'Laeuft jede Sekunde',
+        cron: '* * * * * *',
+        paths: ['default'],
+        model: 'sonnet',
+      },
+    ],
+    schedulerContexts: { ticker: '# Ticker-Context\n' },
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  const previousPath = process.env.PATH;
+  process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
+  process.env.PATH = pathWithMock(schedulerMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const token = confirmBody.token;
+
+    await sleep(1300);
+
+    const commandsRes = await fetch(`${url}/commands/default`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const commandsBody = (await commandsRes.json()) as {
+      commands: { agent: string; command: string }[];
+    };
+    const schedulerRun = commandsBody.commands.find((entry) => entry.agent === 'scheduler:ticker');
+    assert.ok(schedulerRun !== undefined, 'erwartete mindestens einen scheduler-Lauf im Verlauf');
+    assert.match(schedulerRun.command, /Laeuft jede Sekunde/);
+    assert.match(schedulerRun.command, /Ticker-Context/);
+  } finally {
+    await server.close();
+    schedulerMock.cleanup();
+    schedulerFixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+    process.env.PATH = previousPath;
+  }
+});
+
+test('Scheduler: fehlender scheduler-Context landet als fehlgeschlagener Eintrag im Verlauf statt nur in der Server-Konsole', async () => {
+  const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
+  const schedulerFixture = createFixtureRoot({
+    schedulers: [
+      {
+        name: 'broken',
+        description: 'Fehlt der Context',
+        cron: '* * * * * *',
+        paths: ['default'],
+        model: 'sonnet',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  const previousPath = process.env.PATH;
+  process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
+  process.env.PATH = pathWithMock(schedulerMock.binDir);
+  const server = startServer(loadConfig(), 0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const token = confirmBody.token;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    await sleep(1300);
+
+    const commandsRes = await fetch(`${url}/commands/default`, { headers });
+    const commandsBody = (await commandsRes.json()) as {
+      commands: { id: string; agent: string; status: string; command: string }[];
+    };
+    const failedRun = commandsBody.commands.find((entry) => entry.agent === 'scheduler:broken');
+    assert.ok(failedRun !== undefined, 'erwartete einen Verlaufseintrag fuer den fehlgeschlagenen Scheduler');
+    assert.equal(failedRun.status, 'failed');
+    assert.equal(failedRun.command, 'Fehlt der Context');
+
+    const stateRes = await fetch(`${url}/state/${failedRun.id}`, { headers });
+    const stateBody = (await stateRes.json()) as { output: string };
+    assert.match(stateBody.output, /Scheduler-Context "broken" wurde nicht gefunden/);
+  } finally {
+    await server.close();
+    schedulerMock.cleanup();
+    schedulerFixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+    process.env.PATH = previousPath;
+  }
+});
+
 test('Scheduler: ein Scheduler mit mehreren "paths" startet in jedem Pfad einen eigenen Lauf', async () => {
   const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
   const alphaDir = mkdtempSync(join(tmpdir(), 'cl-scheduler-alpha-'));

@@ -86,6 +86,7 @@ import { signJwt, verifyJwt } from './jwt.js';
 import {
   buildSchedulerSystemPrompt,
   buildSystemPrompt,
+  describeSchedulerRun,
   runHeadlessCommand,
   runShellCommand,
   SCHEDULER_TRIGGER_PROMPT,
@@ -1661,7 +1662,7 @@ function triggerSchedulerForPath(
     id,
     agent: `scheduler:${scheduler.name}`,
     model: scheduler.model,
-    command: SCHEDULER_TRIGGER_PROMPT,
+    command: describeSchedulerRun(scheduler, systemPrompt),
     path: pathEntry.path,
   });
   publishCommandState(db, id);
@@ -1709,14 +1710,51 @@ function triggerSchedulerForPath(
     });
 }
 
+/**
+ * Scheiterte ein Scheduler-Lauf, bevor {@link triggerSchedulerForPath} einen `t_commands`-Eintrag
+ * anlegen konnte (z.B. kaputter scheduler/<name>.md-Context), landete das bislang nur in
+ * `console.error` auf dem Server-Prozess - im `commander`-Verlauf war davon nichts zu sehen. Legt
+ * stattdessen fuer jeden (aufloesbaren) konfigurierten Pfad einen `failed`-Eintrag mit der Fehlermeldung
+ * als Output an, damit der Fehlschlag im Verlauf sichtbar ist.
+ */
+function recordSchedulerStartupFailure(
+  db: DatabaseSync,
+  config: Config,
+  scheduler: SchedulerConfig,
+  message: string,
+): void {
+  for (const pathName of scheduler.paths) {
+    let pathEntry: PathEntry;
+    try {
+      pathEntry = resolvePathEntry(config, pathName);
+    } catch {
+      continue;
+    }
+    const id = randomUUID();
+    insertCommand(db, {
+      id,
+      agent: `scheduler:${scheduler.name}`,
+      model: scheduler.model,
+      command: scheduler.description,
+      path: pathEntry.path,
+    });
+    completeCommand(db, id, 'failed', null, message);
+    publishCommandState(db, id);
+  }
+}
+
 function triggerScheduler(db: DatabaseSync, config: Config, scheduler: SchedulerConfig): void {
   let systemPrompt: string;
   try {
     systemPrompt = buildSchedulerSystemPrompt(scheduler);
   } catch (error) {
-    console.error(
-      `Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`,
-      error instanceof Error ? error.message : error,
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`, message);
+    recordSchedulerStartupFailure(
+      db,
+      config,
+      scheduler,
+      `Context konnte nicht aufgeloest werden: ${message}`,
     );
     return;
   }

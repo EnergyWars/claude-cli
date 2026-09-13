@@ -22,6 +22,15 @@ export function buildSchedulerSystemPrompt(scheduler: SchedulerConfig): string {
 export const SCHEDULER_TRIGGER_PROMPT =
   'Fuehre den geplanten Lauf jetzt aus, gemaess dem im System-Prompt beschriebenen Auftrag.';
 
+/**
+ * Text, der als `command` eines Scheduler-Laufs im Verlauf gespeichert wird - im Gegensatz zu
+ * {@link SCHEDULER_TRIGGER_PROMPT} (immer identisch, nur die technische `--print`-Eingabe fuer `claude`)
+ * soll hier der tatsaechliche, pro Lauf aufgeloeste Auftrag sichtbar sein.
+ */
+export function describeSchedulerRun(scheduler: SchedulerConfig, systemPrompt: string): string {
+  return `${scheduler.description}\n\n${systemPrompt}`;
+}
+
 export function buildClaudeArgs(
   model: string,
   systemPrompt: string,
