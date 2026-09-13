@@ -387,6 +387,13 @@ test('countRunningAgents: zaehlt nur Agent-Laeufe mit status "running" dieses Pf
       command: './gradlew clean',
       path: '/stats-project',
     });
+    insertCommand(statsDb, {
+      id: 'stats-running-script-scheduler',
+      agent: 'script-scheduler:auto-commit-hourly',
+      model: '-',
+      command: 'git add . && git commit -m x && git push',
+      path: '/stats-project',
+    });
 
     assert.equal(countRunningAgents(statsDb, '/stats-project'), 1);
     assert.equal(countRunningAgents(statsDb, '/other-project'), 1);
@@ -416,6 +423,13 @@ test('countAgentsSince: zaehlt nur Agent-Laeufe dieses Pfads seit dem Zeitpunkt,
       agent: 'path-command:stats-project:clean',
       model: '-',
       command: './gradlew clean',
+      path: '/stats-project',
+    });
+    insertCommand(statsDb, {
+      id: 'stats-since-script-scheduler',
+      agent: 'script-scheduler:auto-commit-hourly',
+      model: '-',
+      command: 'git add . && git commit -m x && git push',
       path: '/stats-project',
     });
     insertCommand(statsDb, {

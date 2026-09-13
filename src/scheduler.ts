@@ -1,14 +1,12 @@
 import { Cron } from 'croner';
 
-import type { SchedulerConfig } from './config.js';
-
 export interface SchedulerRegistry {
   stop: () => void;
 }
 
-export function startSchedulers(
-  schedulers: SchedulerConfig[],
-  onTrigger: (scheduler: SchedulerConfig) => void,
+export function startSchedulers<T extends { name: string; cron: string }>(
+  schedulers: T[],
+  onTrigger: (scheduler: T) => void,
 ): SchedulerRegistry {
   const jobs = schedulers.flatMap((scheduler) => {
     try {

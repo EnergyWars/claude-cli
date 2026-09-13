@@ -525,6 +525,36 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
   }
 });
 
+/**
+ * Wartet auf den ersten Verlaufseintrag mit diesem `agent`, dessen Status nicht mehr "running" ist -
+ * statt eines blinden `sleep()` vor `server.close()`, damit der Test den Server erst schliesst, wenn
+ * der async Scheduler-Lauf (inkl. `completeCommand`-Schreibzugriff) wirklich abgeschlossen ist. Sonst
+ * kann `server.close()` die Datenbank schliessen, waehrend ein noch laufender Cron-Trigger sie danach
+ * beschreiben will ("database is not open").
+ */
+async function waitForSchedulerRun(
+  url: string,
+  headers: Record<string, string>,
+  agent: string,
+  timeoutMs = 5000,
+): Promise<{ id: string; agent: string; status: string; command: string }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await fetch(`${url}/commands/default`, { headers });
+    const body = (await res.json()) as {
+      commands: { id: string; agent: string; status: string; command: string }[];
+    };
+    const run = body.commands.find((entry) => entry.agent === agent && entry.status !== 'running');
+    if (run !== undefined) {
+      return run;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`Timeout beim Warten auf einen abgeschlossenen Scheduler-Lauf von "${agent}".`);
+    }
+    await sleep(50);
+  }
+}
+
 test('Scheduler: Verlauf speichert den tatsaechlichen Auftrag (description + Context) statt eines generischen Platzhaltersatzes', async () => {
   const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
   const schedulerFixture = createFixtureRoot({
@@ -543,7 +573,7 @@ test('Scheduler: Verlauf speichert den tatsaechlichen Auftrag (description + Con
   const previousPath = process.env.PATH;
   process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
   process.env.PATH = pathWithMock(schedulerMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -557,17 +587,9 @@ test('Scheduler: Verlauf speichert den tatsaechlichen Auftrag (description + Con
     });
     const confirmBody = (await confirmRes.json()) as { token: string };
     const token = confirmBody.token;
+    const headers = { Authorization: `Bearer ${token}` };
 
-    await sleep(1300);
-
-    const commandsRes = await fetch(`${url}/commands/default`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const commandsBody = (await commandsRes.json()) as {
-      commands: { agent: string; command: string }[];
-    };
-    const schedulerRun = commandsBody.commands.find((entry) => entry.agent === 'scheduler:ticker');
-    assert.ok(schedulerRun !== undefined, 'erwartete mindestens einen scheduler-Lauf im Verlauf');
+    const schedulerRun = await waitForSchedulerRun(url, headers, 'scheduler:ticker');
     assert.match(schedulerRun.command, /Laeuft jede Sekunde/);
     assert.match(schedulerRun.command, /Ticker-Context/);
   } finally {
@@ -596,11 +618,12 @@ test('Scheduler: fehlender scheduler-Context landet als fehlgeschlagener Eintrag
       },
     ],
   });
+  rmSync(join(schedulerFixture.rootDir, 'scheduler', 'broken.md'));
   const previousRoot = process.env.CL_ROOT_DIR;
   const previousPath = process.env.PATH;
   process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
   process.env.PATH = pathWithMock(schedulerMock.binDir);
-  const server = startServer(loadConfig(), 0);
+  const server = startServer(0);
   try {
     await server.ready;
     const url = `http://localhost:${server.port.toString()}`;
@@ -616,14 +639,7 @@ test('Scheduler: fehlender scheduler-Context landet als fehlgeschlagener Eintrag
     const token = confirmBody.token;
     const headers = { Authorization: `Bearer ${token}` };
 
-    await sleep(1300);
-
-    const commandsRes = await fetch(`${url}/commands/default`, { headers });
-    const commandsBody = (await commandsRes.json()) as {
-      commands: { id: string; agent: string; status: string; command: string }[];
-    };
-    const failedRun = commandsBody.commands.find((entry) => entry.agent === 'scheduler:broken');
-    assert.ok(failedRun !== undefined, 'erwartete einen Verlaufseintrag fuer den fehlgeschlagenen Scheduler');
+    const failedRun = await waitForSchedulerRun(url, headers, 'scheduler:broken');
     assert.equal(failedRun.status, 'failed');
     assert.equal(failedRun.command, 'Fehlt der Context');
 
@@ -2313,4 +2329,191 @@ test('PUT /config/pointer: 401 ohne Authorization-Header', async () => {
     body: JSON.stringify({ versionId: 1 }),
   });
   assert.equal(res.status, 401);
+});
+
+test('GET /script-schedulers: listet name, description, cron, paths und script aus config.json', async () => {
+  const fixture = createFixtureRoot({
+    scriptSchedulers: [
+      {
+        name: 'auto-commit-hourly',
+        description: 'Stuendlicher Auto-Commit',
+        cron: '0 * * * *',
+        paths: ['default'],
+        script: 'echo hi',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    const res = await fetch(`${url}/script-schedulers`, { headers });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      scriptSchedulers: { name: string; description: string; cron: string; paths: string[]; script: string }[];
+    };
+    assert.deepEqual(body.scriptSchedulers, [
+      {
+        name: 'auto-commit-hourly',
+        description: 'Stuendlicher Auto-Commit',
+        cron: '0 * * * *',
+        paths: ['default'],
+        script: 'echo hi',
+      },
+    ]);
+
+    const manifestRes = await fetch(`${url}/manifest`, { headers });
+    const manifestBody = (await manifestRes.json()) as {
+      scriptSchedulers: { name: string }[];
+    };
+    assert.deepEqual(
+      manifestBody.scriptSchedulers.map((entry) => entry.name),
+      ['auto-commit-hourly'],
+    );
+
+    const unauthorizedRes = await fetch(`${url}/script-schedulers`);
+    assert.equal(unauthorizedRes.status, 401);
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
+});
+
+test('Script-Scheduler: cron-Trigger fuehrt das Script per Shell aus und erscheint als "script-scheduler:<name>" im Verlauf, ohne die Agenten-Statistik zu beeinflussen', async () => {
+  const fixture = createFixtureRoot({
+    scriptSchedulers: [
+      {
+        name: 'ticker-script',
+        description: 'Laeuft jede Sekunde',
+        cron: '* * * * * *',
+        paths: ['default'],
+        script: 'echo script-scheduler-output',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    await sleep(1300);
+
+    const commandsRes = await fetch(`${url}/commands/default`, { headers });
+    const commandsBody = (await commandsRes.json()) as {
+      commands: { id: string; agent: string; model: string; command: string; status: string }[];
+    };
+    const runs = commandsBody.commands.filter((entry) => entry.agent === 'script-scheduler:ticker-script');
+    assert.ok(runs.length >= 1, 'erwartete mindestens einen script-scheduler-Lauf im Verlauf');
+    const run = runs[0];
+    assert.ok(run);
+    assert.equal(run.model, '-');
+    assert.equal(run.command, 'echo script-scheduler-output');
+    assert.equal(run.status, 'completed');
+
+    const stateRes = await fetch(`${url}/state/${run.id}`, { headers });
+    const stateBody = (await stateRes.json()) as { output: string };
+    assert.match(stateBody.output, /script-scheduler-output/);
+
+    const statsRes = await fetch(`${url}/stats/default`, { headers });
+    const statsBody = (await statsRes.json()) as { agentsInWindow: number };
+    assert.equal(
+      statsBody.agentsInWindow,
+      0,
+      'Script-Scheduler-Laeufe duerfen nicht als Agenten-Laeufe in der Statistik zaehlen',
+    );
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
+});
+
+test('Script-Scheduler: PUT /config mit geleertem "scriptSchedulers"-Array beendet alle laufenden Script-Scheduler-Cron-Jobs sofort', async () => {
+  const fixture = createFixtureRoot({
+    scriptSchedulers: [
+      {
+        name: 'ticker-script',
+        description: 'Laeuft jede Sekunde',
+        cron: '* * * * * *',
+        paths: ['default'],
+        script: 'echo before-reload',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    const currentConfig = (await (await fetch(`${url}/config`, { headers })).json()) as {
+      scriptSchedulers: unknown[];
+    };
+    await fetch(`${url}/config`, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...currentConfig, scriptSchedulers: [] }),
+    });
+
+    const countScriptSchedulerRuns = async (): Promise<number> => {
+      const res = await fetch(`${url}/commands/default`, { headers });
+      const body = (await res.json()) as { commands: { agent: string }[] };
+      return body.commands.filter((entry) => entry.agent === 'script-scheduler:ticker-script').length;
+    };
+    const before = await countScriptSchedulerRuns();
+
+    await sleep(1300);
+
+    assert.equal(await countScriptSchedulerRuns(), before);
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
 });

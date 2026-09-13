@@ -54,6 +54,14 @@ export interface FixtureScheduler {
   permissions?: string[];
 }
 
+export interface FixtureScriptScheduler {
+  name: string;
+  description?: string;
+  cron: string;
+  paths: string[];
+  script: string;
+}
+
 export interface FixtureTicketAgent {
   model?: string;
   task?: string;
@@ -75,6 +83,7 @@ export interface FixtureConfigOptions {
   tasks?: FixtureTask[];
   schedulers?: FixtureScheduler[];
   schedulerContexts?: Record<string, string>;
+  scriptSchedulers?: FixtureScriptScheduler[];
   ticketAgent?: FixtureTicketAgent;
   contentPath?: string;
   collection?: FixtureCollectionEntry[];
@@ -114,6 +123,10 @@ export function createFixtureRoot(options: FixtureConfigOptions = {}): Fixture {
       description: 'Test-Scheduler',
       model: 'sonnet',
       ...scheduler,
+    })),
+    scriptSchedulers: (options.scriptSchedulers ?? []).map((scriptScheduler) => ({
+      description: 'Test-Script-Scheduler',
+      ...scriptScheduler,
     })),
     ticketAgent: {
       model: 'haiku',

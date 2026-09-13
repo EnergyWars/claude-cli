@@ -78,6 +78,20 @@ export interface SchedulerConfig extends SchedulerDefinition {
   name: string;
 }
 
+export interface ScriptSchedulerDefinition {
+  description: string;
+  /** Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld), der bestimmt, wann dieser Script-Scheduler ausgefuehrt wird. */
+  cron: string;
+  /** Namen von Eintraegen aus config.json "paths" - je einer ein eigener Lauf (eigene cwd). */
+  paths: string[];
+  /** Bash-Befehl (z. B. Aufruf eines Shell-Scripts), im cwd des jeweiligen Pfads ausgefuehrt - kein claude-Aufruf, kein model/contexts noetig. */
+  script: string;
+}
+
+export interface ScriptSchedulerConfig extends ScriptSchedulerDefinition {
+  name: string;
+}
+
 export interface TicketAgentConfig {
   model: string;
   task: string;
@@ -98,6 +112,8 @@ export interface Config {
   defaultCommands?: PathCommandEntry[];
   tasks: TaskConfig[];
   schedulers: SchedulerConfig[];
+  /** Cron-gesteuerte Bash-Script-Laeufe, analog zu schedulers, aber ohne claude-Agenten - fuehren stattdessen "script" per Shell aus. Optional, Default: keine. */
+  scriptSchedulers?: ScriptSchedulerConfig[];
   ticketAgent: TicketAgentConfig;
   contentPath: string;
   collection: CollectionEntry[];
@@ -270,6 +286,31 @@ function isSchedulerConfig(value: unknown): value is SchedulerConfig {
   return typeof record.name === 'string' && isSchedulerDefinition(value);
 }
 
+function isScriptSchedulerDefinition(value: unknown): value is ScriptSchedulerDefinition {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.description === 'string' &&
+    typeof record.cron === 'string' &&
+    record.cron.trim() !== '' &&
+    Array.isArray(record.paths) &&
+    record.paths.length > 0 &&
+    record.paths.every((entry) => typeof entry === 'string' && entry.trim() !== '') &&
+    typeof record.script === 'string' &&
+    record.script.trim() !== ''
+  );
+}
+
+function isScriptSchedulerConfig(value: unknown): value is ScriptSchedulerConfig {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.name === 'string' && isScriptSchedulerDefinition(value);
+}
+
 function isTicketAgentConfig(value: unknown): value is TicketAgentConfig {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -316,6 +357,9 @@ function isConfig(value: unknown): value is Config {
     record.tasks.every(isTaskConfig) &&
     Array.isArray(record.schedulers) &&
     record.schedulers.every(isSchedulerConfig) &&
+    (record.scriptSchedulers === undefined ||
+      (Array.isArray(record.scriptSchedulers) &&
+        record.scriptSchedulers.every(isScriptSchedulerConfig))) &&
     isTicketAgentConfig(record.ticketAgent) &&
     typeof record.contentPath === 'string' &&
     Array.isArray(record.collection) &&
@@ -337,7 +381,7 @@ function assertNoReservedAgentNames(config: Config): void {
 export function parseConfig(raw: unknown): Config {
   if (!isConfig(raw)) {
     throw new Error(
-      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, paths, model, contexts?, permissions? }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist - ein eigener headless claude-Lauf je Pfad), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
+      'Ungueltige config.json: Feld "main" (Objekt), "agents" (Array, jeweils mit optionalem "permissions"-Feld: Array von Strings), "paths" (Array von { name, path, hosted?, commands?, hooks? }, wobei hosted ein Array von { name, path, type: "path"|"file" }, commands ein Array von { key, command, displayName, description } und hooks ein optionales Objekt { onLastAgentFinish? } mit Bash-Befehlen als String-Werten ist), "defaultCommands" (optionales Array von { key, command, displayName, description }, in jedem Pfad zusaetzlich zu dessen eigenen commands ausfuehrbar), "tasks" (Array von { name, description, contexts, model, startCommand, permissions? }), "schedulers" (Array von { name, description, cron, paths, model, contexts?, permissions? }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist - ein eigener headless claude-Lauf je Pfad), "scriptSchedulers" (optionales Array von { name, description, cron, paths, script }, wobei paths ein nicht-leeres Array von Namen aus "paths" ist und script ein Bash-Befehl statt eines claude-Agenten - ebenfalls nie manuell ueber CLI/API ausloesbar), "ticketAgent" (Objekt { model, task }), "contentPath" (String) oder "collection" (Array von { sourcePath, targetName, path }, wobei path der Name eines Eintrags aus "paths" ist) fehlt oder ist fehlerhaft.',
     );
   }
   assertNoReservedAgentNames(raw);
@@ -538,6 +582,24 @@ export function listSchedulers(config: Config): SchedulerSummary[] {
     description: scheduler.description,
     cron: scheduler.cron,
     paths: scheduler.paths,
+  }));
+}
+
+export interface ScriptSchedulerSummary {
+  name: string;
+  description: string;
+  cron: string;
+  paths: string[];
+  script: string;
+}
+
+export function listScriptSchedulers(config: Config): ScriptSchedulerSummary[] {
+  return (config.scriptSchedulers ?? []).map((scheduler) => ({
+    name: scheduler.name,
+    description: scheduler.description,
+    cron: scheduler.cron,
+    paths: scheduler.paths,
+    script: scheduler.script,
   }));
 }
 

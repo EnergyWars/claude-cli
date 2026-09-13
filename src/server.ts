@@ -64,6 +64,7 @@ import {
   type PathCommandEntry,
   type PathEntry,
   type SchedulerConfig,
+  type ScriptSchedulerConfig,
   applyPathsOverride,
   ensureConfigBootstrapped,
   listAgents,
@@ -72,6 +73,7 @@ import {
   listPathCommands,
   listPathNames,
   listSchedulers,
+  listScriptSchedulers,
   parseConfig,
   resolveAgentFrom,
   resolveEffectiveConfig,
@@ -858,11 +860,16 @@ function handleGetManifest(config: Config, res: ServerResponse): void {
       hosted: listHostedSummaries(config, name),
     })),
     schedulers: listSchedulers(config),
+    scriptSchedulers: listScriptSchedulers(config),
   });
 }
 
 function handleGetSchedulers(config: Config, res: ServerResponse): void {
   sendJson(res, 200, { schedulers: listSchedulers(config) });
+}
+
+function handleGetScriptSchedulers(config: Config, res: ServerResponse): void {
+  sendJson(res, 200, { scriptSchedulers: listScriptSchedulers(config) });
 }
 
 interface ConfigState {
@@ -871,12 +878,17 @@ interface ConfigState {
 
 interface SchedulerState {
   registry: SchedulerRegistry;
+  scriptRegistry: SchedulerRegistry;
 }
 
 function restartSchedulers(db: DatabaseSync, schedulerState: SchedulerState, config: Config): void {
   schedulerState.registry.stop();
   schedulerState.registry = startSchedulers(config.schedulers, (scheduler) => {
     triggerScheduler(db, config, scheduler);
+  });
+  schedulerState.scriptRegistry.stop();
+  schedulerState.scriptRegistry = startSchedulers(config.scriptSchedulers ?? [], (scriptScheduler) => {
+    triggerScriptScheduler(db, config, scriptScheduler);
   });
 }
 
@@ -1774,6 +1786,82 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
   }
 }
 
+function triggerScriptSchedulerForPath(
+  db: DatabaseSync,
+  scriptScheduler: ScriptSchedulerConfig,
+  pathEntry: PathEntry,
+): void {
+  const id = randomUUID();
+  insertCommand(db, {
+    id,
+    agent: `script-scheduler:${scriptScheduler.name}`,
+    model: '-',
+    command: scriptScheduler.script,
+    path: pathEntry.path,
+  });
+  publishCommandState(db, id);
+
+  const outputPublisher = createOutputPublisher(db, id);
+  runShellCommand(
+    scriptScheduler.script,
+    pathEntry.path,
+    (output) => {
+      outputPublisher.push(output);
+    },
+    (child) => {
+      runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
+    },
+  )
+    .then((result) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
+      completeCommand(
+        db,
+        id,
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
+        result.exitCode,
+        result.output,
+      );
+      publishCommandState(db, id);
+    })
+    .catch((error: unknown) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
+      const message = error instanceof Error ? error.message : String(error);
+      completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
+      console.error(
+        `Script-Scheduler "${scriptScheduler.name}" fehlgeschlagen (Pfad "${pathEntry.name}"):`,
+        message,
+      );
+    });
+}
+
+function triggerScriptScheduler(
+  db: DatabaseSync,
+  config: Config,
+  scriptScheduler: ScriptSchedulerConfig,
+): void {
+  for (const pathName of scriptScheduler.paths) {
+    let pathEntry: PathEntry;
+    try {
+      pathEntry = resolvePathEntry(config, pathName);
+    } catch (error) {
+      console.error(
+        `Script-Scheduler "${scriptScheduler.name}": Pfad "${pathName}" wurde in config.json nicht gefunden.`,
+        error instanceof Error ? error.message : error,
+      );
+      continue;
+    }
+    triggerScriptSchedulerForPath(db, scriptScheduler, pathEntry);
+  }
+}
+
 function handlePostCommand(
   db: DatabaseSync,
   config: Config,
@@ -1980,6 +2068,8 @@ async function handleRequest(
       handlePutConfigPointer(db, configState, schedulerState, res, bodyText);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'schedulers') {
       handleGetSchedulers(config, res);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'script-schedulers') {
+      handleGetScriptSchedulers(config, res);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
       handleGetCommands(
         db,
@@ -2118,6 +2208,9 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  GET  ${base}/schedulers          (name, description, cron, paths je konfiguriertem Scheduler)`,
   );
+  console.log(
+    `  GET  ${base}/script-schedulers   (name, description, cron, paths, script je konfiguriertem Script-Scheduler)`,
+  );
   console.log(`  GET  ${base}/config`);
   console.log(
     `  PUT  ${base}/config                 (neue Version speichern, Zeiger setzen, sofort aktiv)`,
@@ -2187,6 +2280,9 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
     registry: startSchedulers(effectiveConfig.schedulers, (scheduler) => {
       triggerScheduler(db, configState.current, scheduler);
     }),
+    scriptRegistry: startSchedulers(effectiveConfig.scriptSchedulers ?? [], (scriptScheduler) => {
+      triggerScriptScheduler(db, configState.current, scriptScheduler);
+    }),
   };
 
   const server = createServer((req, res) => {
@@ -2213,6 +2309,7 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
     schedulerState.registry.stop();
+    schedulerState.scriptRegistry.stop();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {

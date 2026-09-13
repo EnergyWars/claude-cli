@@ -13,6 +13,7 @@ import {
   listPathCommands,
   listPathNames,
   listSchedulers,
+  listScriptSchedulers,
   listTasks,
   loadConfig,
   loadPathsOverride,
@@ -324,6 +325,83 @@ test('parseConfig: akzeptiert einen Scheduler-Eintrag mit "permissions"', () => 
 test('parseConfig: wirft wenn ein Scheduler-Eintrag "permissions" kein String-Array ist', () => {
   const raw = validRawConfig() as { schedulers: Record<string, unknown>[] };
   raw.schedulers[0] = { ...raw.schedulers[0], permissions: ['Bash(gradle *)', 42] };
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: akzeptiert eine Config ohne Feld "scriptSchedulers" (optional)', () => {
+  const raw = validRawConfig() as Record<string, unknown>;
+  delete raw.scriptSchedulers;
+  const parsed = parseConfig(raw);
+  assert.equal(parsed.scriptSchedulers, undefined);
+});
+
+test('parseConfig: akzeptiert ein leeres "scriptSchedulers"-Array', () => {
+  const raw = validRawConfig() as { scriptSchedulers: unknown[] };
+  raw.scriptSchedulers = [];
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.scriptSchedulers, []);
+});
+
+test('parseConfig: akzeptiert einen gueltigen Script-Scheduler-Eintrag', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    {
+      name: 'auto-commit-hourly',
+      description: 'Stuendlicher Auto-Commit',
+      cron: '0 * * * *',
+      paths: ['myapp'],
+      script: 'bash auto-commit.sh',
+    },
+  ];
+  const parsed = parseConfig(raw);
+  assert.deepEqual(parsed.scriptSchedulers, [
+    {
+      name: 'auto-commit-hourly',
+      description: 'Stuendlicher Auto-Commit',
+      cron: '0 * * * *',
+      paths: ['myapp'],
+      script: 'bash auto-commit.sh',
+    },
+  ]);
+});
+
+test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "cron" fehlt', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    { name: 'x', description: 'd', paths: ['myapp'], script: 'echo hi' },
+  ];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "cron" leer ist', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    { name: 'x', description: 'd', cron: '   ', paths: ['myapp'], script: 'echo hi' },
+  ];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "paths" fehlt oder leer ist', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    { name: 'x', description: 'd', cron: '0 * * * *', paths: [], script: 'echo hi' },
+  ];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "script" fehlt oder leer ist', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    { name: 'x', description: 'd', cron: '0 * * * *', paths: ['myapp'], script: '   ' },
+  ];
+  assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
+});
+
+test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "description" fehlt', () => {
+  const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
+  raw.scriptSchedulers = [
+    { name: 'x', cron: '0 * * * *', paths: ['myapp'], script: 'echo hi' },
+  ];
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -924,6 +1002,51 @@ test('listSchedulers: jeder Scheduler mit name, description, cron und paths', ()
       paths: ['myapp'],
     },
   ]);
+});
+
+test('listScriptSchedulers: jeder Script-Scheduler mit name, description, cron, paths und script', () => {
+  const config: Config = {
+    main: { description: 'm', contexts: [], model: 'sonnet' },
+    agents: [],
+    paths: [],
+    tasks: [],
+    schedulers: [],
+    scriptSchedulers: [
+      {
+        name: 'auto-commit-hourly',
+        description: 'Stuendlicher Auto-Commit',
+        cron: '0 * * * *',
+        paths: ['myapp'],
+        script: 'bash auto-commit.sh',
+      },
+    ],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+  assert.deepEqual(listScriptSchedulers(config), [
+    {
+      name: 'auto-commit-hourly',
+      description: 'Stuendlicher Auto-Commit',
+      cron: '0 * * * *',
+      paths: ['myapp'],
+      script: 'bash auto-commit.sh',
+    },
+  ]);
+});
+
+test('listScriptSchedulers: leer, wenn "scriptSchedulers" nicht gesetzt ist', () => {
+  const config: Config = {
+    main: { description: 'm', contexts: [], model: 'sonnet' },
+    agents: [],
+    paths: [],
+    tasks: [],
+    schedulers: [],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+  assert.deepEqual(listScriptSchedulers(config), []);
 });
 
 test('listTasks: jeder Task als "cl task <name>" mit description', () => {

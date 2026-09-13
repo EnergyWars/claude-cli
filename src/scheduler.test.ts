@@ -76,3 +76,25 @@ test('startSchedulers: keine Scheduler - stop() ist ein No-op', () => {
     registry.stop();
   });
 });
+
+test('startSchedulers: generisch nutzbar mit einer anderen Scheduler-Form (z. B. Script-Scheduler), solange name+cron vorhanden sind', async () => {
+  interface MinimalScheduler {
+    name: string;
+    cron: string;
+    script: string;
+  }
+  const triggered: MinimalScheduler[] = [];
+  const registry = startSchedulers<MinimalScheduler>(
+    [{ name: 'auto-commit-hourly', cron: '* * * * * *', script: 'echo hi' }],
+    (scheduler) => {
+      triggered.push(scheduler);
+    },
+  );
+  try {
+    await delay(1300);
+    assert.ok(triggered.length >= 1);
+    assert.equal(triggered[0]?.script, 'echo hi');
+  } finally {
+    registry.stop();
+  }
+});
