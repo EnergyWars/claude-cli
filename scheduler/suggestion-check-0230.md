@@ -4,5 +4,6 @@
 2. Kann man noch Module mit einander verknüpfen? Oder kann man Module noch mit dem Kalender verknüpfen?
 3. Gibt es etwas, das die usability stört, was man verbessern könnte?
 4. Welche Features fehlen dieser App, die bei konkurrenten drin sind und deren App vielleicht besser machen als meine?
+5. Was fehlt meiner app wirklich, damit sie genauso gut oder sogar besser ist als die meiner Konkurrenten?
 
 Wenn du alles geprüft hast, erstelle oder update die suggestions.md mit allen neuen Dingen. Dinge, die bereits drin stehen, musst du nicht ergänzen.
