@@ -61,6 +61,16 @@ class ApiModelsTest {
     }
 
     @Test
+    fun `a failed script-scheduler run is not retryable, since it has no free-text prompt`() {
+        assertFalse(commandState(agent = "script-scheduler:auto-commit-hourly", status = "failed").isRetryable())
+    }
+
+    @Test
+    fun `a completed script-scheduler run is not retryable, since it has no free-text prompt`() {
+        assertFalse(commandState(agent = "script-scheduler:auto-commit-hourly", status = "completed").isRetryable())
+    }
+
+    @Test
     fun `the main agent maps back to its manifest command "cl"`() {
         assertEquals("cl", commandState(agent = "main", status = "failed").retryAgentCommand())
     }

@@ -549,7 +549,9 @@ async function waitForSchedulerRun(
       return run;
     }
     if (Date.now() > deadline) {
-      throw new Error(`Timeout beim Warten auf einen abgeschlossenen Scheduler-Lauf von "${agent}".`);
+      throw new Error(
+        `Timeout beim Warten auf einen abgeschlossenen Scheduler-Lauf von "${agent}".`,
+      );
     }
     await sleep(50);
   }
@@ -2362,7 +2364,13 @@ test('GET /script-schedulers: listet name, description, cron, paths und script a
     const res = await fetch(`${url}/script-schedulers`, { headers });
     assert.equal(res.status, 200);
     const body = (await res.json()) as {
-      scriptSchedulers: { name: string; description: string; cron: string; paths: string[]; script: string }[];
+      scriptSchedulers: {
+        name: string;
+        description: string;
+        cron: string;
+        paths: string[];
+        script: string;
+      }[];
     };
     assert.deepEqual(body.scriptSchedulers, [
       {
@@ -2430,7 +2438,9 @@ test('Script-Scheduler: cron-Trigger fuehrt das Script per Shell aus und erschei
     const commandsBody = (await commandsRes.json()) as {
       commands: { id: string; agent: string; model: string; command: string; status: string }[];
     };
-    const runs = commandsBody.commands.filter((entry) => entry.agent === 'script-scheduler:ticker-script');
+    const runs = commandsBody.commands.filter(
+      (entry) => entry.agent === 'script-scheduler:ticker-script',
+    );
     assert.ok(runs.length >= 1, 'erwartete mindestens einen script-scheduler-Lauf im Verlauf');
     const run = runs[0];
     assert.ok(run);
@@ -2500,7 +2510,8 @@ test('Script-Scheduler: PUT /config mit geleertem "scriptSchedulers"-Array beend
     const countScriptSchedulerRuns = async (): Promise<number> => {
       const res = await fetch(`${url}/commands/default`, { headers });
       const body = (await res.json()) as { commands: { agent: string }[] };
-      return body.commands.filter((entry) => entry.agent === 'script-scheduler:ticker-script').length;
+      return body.commands.filter((entry) => entry.agent === 'script-scheduler:ticker-script')
+        .length;
     };
     const before = await countScriptSchedulerRuns();
 

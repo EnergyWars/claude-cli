@@ -296,6 +296,29 @@
         }
       }
     },
+    "/script-schedulers": {
+      "get": {
+        "summary": "Listet alle konfigurierten Script-Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfade, Script)",
+        "description": "Script-Scheduler aus config.json (scriptSchedulers[]) fuehren periodisch einen Bash-Befehl per Shell aus - analog zu schedulers[], aber ohne claude-Agenten (kein model/contexts noetig). Jeder Lauf erscheint wie ein Pfad-Command unter agent: \"script-scheduler:<name>\" in GET /commands/:pathName und GET /state/:id (nicht als Agent-Lauf gezaehlt, siehe GET /stats/:pathName).",
+        "operationId": "listScriptSchedulers",
+        "responses": {
+          "200": {
+            "description": "Alle konfigurierten Script-Scheduler.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ScriptSchedulerList" }
+              }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/manifest": {
       "get": {
         "summary": "Liefert alle Agents, Pfade und Scheduler (inkl. deren Commands/Hosted-Eintraege) in einem Aufruf",
@@ -1631,6 +1654,40 @@
           }
         }
       },
+      "ScriptScheduler": {
+        "type": "object",
+        "required": ["name", "description", "cron", "paths", "script"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name des Script-Schedulers (scriptSchedulers[].name)."
+          },
+          "description": { "type": "string" },
+          "cron": {
+            "type": "string",
+            "description": "Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld), der bestimmt, wann dieser Script-Scheduler ausgefuehrt wird."
+          },
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Namen von Eintraegen aus config.json paths[].name - je einer ein eigener Shell-Lauf (eigene cwd)."
+          },
+          "script": {
+            "type": "string",
+            "description": "Bash-Befehl, der statt eines claude-Agenten per Shell ausgefuehrt wird (kein model/keine contexts)."
+          }
+        }
+      },
+      "ScriptSchedulerList": {
+        "type": "object",
+        "required": ["scriptSchedulers"],
+        "properties": {
+          "scriptSchedulers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ScriptScheduler" }
+          }
+        }
+      },
       "UsageLimit": {
         "type": "object",
         "required": ["label", "percentUsed", "resetsAt"],
@@ -1926,7 +1983,7 @@
       },
       "Manifest": {
         "type": "object",
-        "required": ["agents", "paths", "schedulers"],
+        "required": ["agents", "paths", "schedulers", "scriptSchedulers"],
         "properties": {
           "agents": {
             "type": "array",
@@ -1939,6 +1996,10 @@
           "schedulers": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/Scheduler" }
+          },
+          "scriptSchedulers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ScriptScheduler" }
           }
         }
       },
@@ -2249,6 +2310,36 @@
           }
         ]
       },
+      "ConfigScriptSchedulerDefinition": {
+        "type": "object",
+        "required": ["description", "cron", "paths", "script"],
+        "properties": {
+          "description": { "type": "string" },
+          "cron": {
+            "type": "string",
+            "description": "Cron-Ausdruck (croner-Syntax, inkl. optionalem Sekunden-Feld)."
+          },
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Namen von Eintraegen aus config.json paths[].name - je einer ein eigener Shell-Lauf (eigene cwd)."
+          },
+          "script": {
+            "type": "string",
+            "description": "Bash-Befehl (z. B. Aufruf eines Shell-Scripts), im cwd des jeweiligen Pfads ausgefuehrt - kein claude-Aufruf, kein model/contexts noetig."
+          }
+        }
+      },
+      "ConfigScriptScheduler": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConfigScriptSchedulerDefinition" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string" } }
+          }
+        ]
+      },
       "ConfigTicketAgent": {
         "type": "object",
         "required": ["model", "task"],
@@ -2306,6 +2397,11 @@
           "schedulers": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ConfigScheduler" }
+          },
+          "scriptSchedulers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConfigScriptScheduler" },
+            "description": "Optional. Cron-gesteuerte Bash-Script-Laeufe, analog zu schedulers, aber ohne claude-Agenten."
           },
           "ticketAgent": { "$ref": "#/components/schemas/ConfigTicketAgent" },
           "contentPath": { "type": "string" },

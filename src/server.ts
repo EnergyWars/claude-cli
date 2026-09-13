@@ -887,9 +887,12 @@ function restartSchedulers(db: DatabaseSync, schedulerState: SchedulerState, con
     triggerScheduler(db, config, scheduler);
   });
   schedulerState.scriptRegistry.stop();
-  schedulerState.scriptRegistry = startSchedulers(config.scriptSchedulers ?? [], (scriptScheduler) => {
-    triggerScriptScheduler(db, config, scriptScheduler);
-  });
+  schedulerState.scriptRegistry = startSchedulers(
+    config.scriptSchedulers ?? [],
+    (scriptScheduler) => {
+      triggerScriptScheduler(db, config, scriptScheduler);
+    },
+  );
 }
 
 const USAGE_CACHE_TTL_MS = 60_000;
@@ -1718,7 +1721,10 @@ function triggerSchedulerForPath(
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
       triggerOnLastAgentFinishHook(db, pathEntry);
-      console.error(`Scheduler "${scheduler.name}" fehlgeschlagen (Pfad "${pathEntry.name}"):`, message);
+      console.error(
+        `Scheduler "${scheduler.name}" fehlgeschlagen (Pfad "${pathEntry.name}"):`,
+        message,
+      );
     });
 }
 
@@ -1761,7 +1767,10 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
     systemPrompt = buildSchedulerSystemPrompt(scheduler);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`, message);
+    console.error(
+      `Scheduler "${scheduler.name}": Context konnte nicht aufgeloest werden.`,
+      message,
+    );
     recordSchedulerStartupFailure(
       db,
       config,

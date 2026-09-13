@@ -367,9 +367,7 @@ test('parseConfig: akzeptiert einen gueltigen Script-Scheduler-Eintrag', () => {
 
 test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "cron" fehlt', () => {
   const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
-  raw.scriptSchedulers = [
-    { name: 'x', description: 'd', paths: ['myapp'], script: 'echo hi' },
-  ];
+  raw.scriptSchedulers = [{ name: 'x', description: 'd', paths: ['myapp'], script: 'echo hi' }];
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 
@@ -399,9 +397,7 @@ test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "script" fehlt oder l
 
 test('parseConfig: wirft wenn ein Script-Scheduler-Eintrag "description" fehlt', () => {
   const raw = validRawConfig() as { scriptSchedulers: Record<string, unknown>[] };
-  raw.scriptSchedulers = [
-    { name: 'x', cron: '0 * * * *', paths: ['myapp'], script: 'echo hi' },
-  ];
+  raw.scriptSchedulers = [{ name: 'x', cron: '0 * * * *', paths: ['myapp'], script: 'echo hi' }];
   assert.throws(() => parseConfig(raw), /Ungueltige config\.json/);
 });
 

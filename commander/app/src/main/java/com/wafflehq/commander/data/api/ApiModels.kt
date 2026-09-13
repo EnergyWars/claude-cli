@@ -221,14 +221,16 @@ fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim()
 private const val PATH_COMMAND_AGENT_PREFIX = "path-command:"
 private const val HOOK_AGENT_PREFIX = "hook:"
 private const val SCHEDULER_AGENT_PREFIX = "scheduler:"
+private const val SCRIPT_SCHEDULER_AGENT_PREFIX = "script-scheduler:"
 private const val COMMAND_STATUS_RUNNING = "running"
 
-/** True for finished agent runs, successful or not (retryable via the run-agent screen) - excludes still-running commands and shell-based path commands/hooks/scheduler runs, which have no free-text prompt to retry. */
+/** True for finished agent runs, successful or not (retryable via the run-agent screen) - excludes still-running commands and shell-based path commands/hooks/scheduler/script-scheduler runs, which have no free-text prompt to retry. */
 fun CommandState.isRetryable(): Boolean =
     status != COMMAND_STATUS_RUNNING &&
         !agent.startsWith(PATH_COMMAND_AGENT_PREFIX) &&
         !agent.startsWith(HOOK_AGENT_PREFIX) &&
-        !agent.startsWith(SCHEDULER_AGENT_PREFIX)
+        !agent.startsWith(SCHEDULER_AGENT_PREFIX) &&
+        !agent.startsWith(SCRIPT_SCHEDULER_AGENT_PREFIX)
 
 /** Reverses the server's `agentNameOrNull()` mapping: turns a stored `CommandState.agent` (e.g. "main", "dev") back into the `ManifestAgent.command` used to look it up (e.g. "cl", "cl dev"). */
 fun CommandState.retryAgentCommand(): String = if (agent == "main") "cl" else "cl $agent"
