@@ -17,26 +17,8 @@ if [ ! -x "$CL_BIN" ]; then
   exit 1
 fi
 
-supports_sqlite() {
-  [ -x "$1" ] && "$1" -e 'require("node:sqlite")' >/dev/null 2>&1
-}
-
-NODE_BIN="${CL_SERVICE_NODE:-$(command -v node || true)}"
-if ! supports_sqlite "$NODE_BIN"; then
-  NODE_BIN=""
-  while IFS= read -r candidate; do
-    if supports_sqlite "$candidate"; then
-      NODE_BIN="$candidate"
-      break
-    fi
-  done < <(find "$HOME/.nvm/versions/node" -mindepth 3 -maxdepth 3 -path '*/bin/node' 2>/dev/null | sort -Vr)
-fi
-
-if ! supports_sqlite "$NODE_BIN"; then
-  echo "Fehler: Kein Node mit 'node:sqlite' gefunden (noetig: >= 22.5, empfohlen 24)." >&2
-  echo "        Installieren (z. B. 'nvm install 24') oder CL_SERVICE_NODE=<pfad/zu/node> setzen." >&2
-  exit 1
-fi
+source "$ROOT_DIR/scripts/find-sqlite-node.sh"
+NODE_BIN="$(find_sqlite_node)" || exit 1
 
 CL_SERVICE_NODE_DIR="$(cd "$(dirname "$NODE_BIN")" && pwd)"
 export CL_SERVICE_NODE_DIR
