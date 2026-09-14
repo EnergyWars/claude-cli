@@ -189,7 +189,7 @@ class ClServerApi @Inject constructor(
         try {
             streamingClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw errorFrom(response)
-                val source = response.body?.source() ?: throw ApiException(response.code, "Leere Antwort.")
+                val source = response.body.source()
                 while (true) {
                     val line = source.readUtf8Line() ?: break
                     if (line.startsWith(SSE_DATA_PREFIX)) {
@@ -417,7 +417,7 @@ class ClServerApi @Inject constructor(
             try {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw errorFrom(response)
-                    val body = response.body ?: throw ApiException(response.code, "Leere Antwort.")
+                    val body = response.body
                     val fileName = contentDispositionFileName(response.header("Content-Disposition")) ?: fallbackFileName
                     destinationDir.mkdirs()
                     val destination = File(destinationDir, fileName)
@@ -481,7 +481,7 @@ class ClServerApi @Inject constructor(
                 throw error
             }
             val text = try {
-                it.body?.string().orEmpty()
+                it.body.string()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -502,7 +502,7 @@ class ClServerApi @Inject constructor(
     }
 
     private fun errorFrom(response: Response): ApiException {
-        val text = response.body?.string().orEmpty()
+        val text = response.body.string()
         val message = try {
             json.decodeFromString(ErrorResponse.serializer(), text).error
         } catch (error: SerializationException) {
