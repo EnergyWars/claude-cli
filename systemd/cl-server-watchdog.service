@@ -1,0 +1,8 @@
+[Unit]
+Description=cl-server Health-Check-Watchdog (startet cl-server.service neu, falls /health nicht antwortet)
+After=cl-server.service
+
+[Service]
+Type=oneshot
+User=sklein
+ExecStart=/home/sklein/IdeaProjects/claude-cli/scripts/cl-server-watchdog.sh

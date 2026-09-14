@@ -36,10 +36,12 @@ import {
   insertGeneratingTicket,
   isTicketStatus,
   listAllTickets,
+  listCommandCosts,
   listCommands,
   listConfigVersions,
   listFeedback,
   listRunningCommandsWithPid,
+  listSystemMetrics,
   listTickets,
   logAccess,
   openDatabase,
@@ -52,10 +54,12 @@ import {
   updateTicket,
   type CommandRow,
   type ConfigVersionSummary,
+  type CostEntry,
   type TicketRow,
   type TicketStatus,
   type TicketUpdate,
 } from './db.js';
+import { startSystemMetricsLogger, type SystemMetricsLogger } from './metrics.js';
 import { getUsageLimits, type UsageLimit } from './usage.js';
 import {
   type AgentDefinition,
@@ -851,6 +855,91 @@ function handleGetStats(
   });
 }
 
+/**
+ * Projektuebergreifende Kosten-/Token-Uebersicht (`GET /costs`, siehe `commander/context.md`s
+ * Token-Kosten-Uebersichtsseite). `t_commands.path` speichert den aufgeloesten Dateisystem-Pfad, nicht
+ * den Namen aus `config.json` - `pathNameByFsPath` bildet ihn zurueck; ein spaeter umbenannter/entfernter
+ * `paths[]`-Eintrag faellt auf den rohen gespeicherten Pfad als Anzeige-Label zurueck, statt die Zeile aus
+ * der Uebersicht/den Summen verschwinden zu lassen.
+ */
+function handleGetCosts(db: DatabaseSync, config: Config, res: ServerResponse): void {
+  const pathNameByFsPath = new Map<string, string>();
+  for (const entry of config.paths) {
+    if (!pathNameByFsPath.has(entry.path)) {
+      pathNameByFsPath.set(entry.path, entry.name);
+    }
+  }
+  const entries = listCommandCosts(db);
+
+  const byPath = new Map<string, CostEntry[]>();
+  for (const entry of entries) {
+    const displayName = pathNameByFsPath.get(entry.path) ?? entry.path;
+    const bucket = byPath.get(displayName);
+    if (bucket === undefined) {
+      byPath.set(displayName, [entry]);
+    } else {
+      bucket.push(entry);
+    }
+  }
+
+  const projects = Array.from(byPath.entries())
+    .map(([pathName, projectEntries]) => ({
+      pathName,
+      totalCostUsd: projectEntries.reduce((sum, entry) => sum + entry.costUsd, 0),
+      entries: projectEntries.map((entry) => ({
+        id: entry.id,
+        createdAt: entry.createdAt,
+        costUsd: entry.costUsd,
+        inputTokens: entry.inputTokens,
+        outputTokens: entry.outputTokens,
+        cacheCreationInputTokens: entry.cacheCreationInputTokens,
+        cacheReadInputTokens: entry.cacheReadInputTokens,
+      })),
+    }))
+    .sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+
+  sendJson(res, 200, {
+    totalCostUsd: entries.reduce((sum, entry) => sum + entry.costUsd, 0),
+    totalInputTokens: entries.reduce((sum, entry) => sum + entry.inputTokens, 0),
+    totalOutputTokens: entries.reduce((sum, entry) => sum + entry.outputTokens, 0),
+    totalCacheCreationInputTokens: entries.reduce(
+      (sum, entry) => sum + entry.cacheCreationInputTokens,
+      0,
+    ),
+    totalCacheReadInputTokens: entries.reduce((sum, entry) => sum + entry.cacheReadInputTokens, 0),
+    projects,
+  });
+}
+
+const DEFAULT_METRICS_WINDOW_HOURS = 24;
+
+/** Systemauslastung (CPU/RAM), alle 5 Minuten geloggt (siehe `src/metrics.ts`) - Grundlage fuer `commander`s CPU-/RAM-Diagramme. */
+function handleGetSystemMetrics(
+  db: DatabaseSync,
+  res: ServerResponse,
+  hoursParam: string | null,
+): void {
+  let windowHours = DEFAULT_METRICS_WINDOW_HOURS;
+  if (hoursParam !== null) {
+    const parsed = Number(hoursParam);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      sendJson(res, 400, { error: 'Query-Parameter "hours" muss eine positive Zahl sein.' });
+      return;
+    }
+    windowHours = parsed;
+  }
+
+  const sinceIso = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  const metrics = listSystemMetrics(db, sinceIso).map((row) => ({
+    createdAt: row.createdAt,
+    cpuPercent: row.cpuPercent,
+    memUsedPercent: row.memUsedPercent,
+    memTotalBytes: row.memTotalBytes,
+    memFreeBytes: row.memFreeBytes,
+  }));
+  sendJson(res, 200, { metrics, windowHours });
+}
+
 function handleGetManifest(config: Config, res: ServerResponse): void {
   sendJson(res, 200, {
     agents: listAgents(config),
@@ -1115,6 +1204,7 @@ function handlePostPathCommand(
         stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
+        result.usage,
       );
       publishCommandState(db, id);
     })
@@ -1649,6 +1739,7 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
         stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
+        result.usage,
       );
       publishCommandState(db, id);
     })
@@ -1709,6 +1800,7 @@ function triggerSchedulerForPath(
         stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
+        result.usage,
       );
       publishCommandState(db, id);
       triggerOnLastAgentFinishHook(db, pathEntry);
@@ -1834,6 +1926,7 @@ function triggerScriptSchedulerForPath(
         stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
+        result.usage,
       );
       publishCommandState(db, id);
     })
@@ -1946,6 +2039,7 @@ function handlePostCommand(
         stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
         result.exitCode,
         result.output,
+        result.usage,
       );
       publishCommandState(db, id);
       triggerOnLastAgentFinishHook(db, pathEntry);
@@ -2090,6 +2184,10 @@ async function handleRequest(
       );
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'stats') {
       handleGetStats(db, config, res, segments[1] ?? '', url.searchParams.get('hours'));
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'costs') {
+      handleGetCosts(db, config, res);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'system-metrics') {
+      handleGetSystemMetrics(db, res, url.searchParams.get('hours'));
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'usage') {
       await handleGetUsage(usageCache, res);
     } else if (
@@ -2237,6 +2335,12 @@ function printEndpoints(config: Config, port: number): void {
     `  GET  ${base}/stats/:pathName        (optionaler Query-Parameter ?hours=, Default 24)`,
   );
   console.log(
+    `  GET  ${base}/costs                  (Token-Kosten-Uebersicht, projektuebergreifend)`,
+  );
+  console.log(
+    `  GET  ${base}/system-metrics         (CPU/RAM alle 5 Minuten geloggt, optionaler Query-Parameter ?hours=, Default ${String(DEFAULT_METRICS_WINDOW_HOURS)})`,
+  );
+  console.log(
     `  GET  ${base}/usage                  (Claude-Code-Nutzungslimits, ${(USAGE_CACHE_TTL_MS / 1000).toString()}s gecacht)`,
   );
   console.log(`  GET  ${base}/paths/:pathName/commands`);
@@ -2285,6 +2389,7 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
   }
   const configState: ConfigState = { current: effectiveConfig };
   const usageCache: UsageCacheState = {};
+  const metricsLogger: SystemMetricsLogger = startSystemMetricsLogger(db);
   const schedulerState: SchedulerState = {
     registry: startSchedulers(effectiveConfig.schedulers, (scheduler) => {
       triggerScheduler(db, configState.current, scheduler);
@@ -2295,6 +2400,14 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
   };
 
   const server = createServer((req, res) => {
+    const startedAt = Date.now();
+    const method = req.method ?? 'GET';
+    const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    res.on('finish', () => {
+      console.log(
+        `${method} ${pathname} ${res.statusCode.toString()} ${(Date.now() - startedAt).toString()}ms`,
+      );
+    });
     handleRequest(db, configState, schedulerState, usageCache, req, res).catch((error: unknown) => {
       console.error(error instanceof Error ? error.message : error);
     });
@@ -2317,6 +2430,7 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
   const close = async (): Promise<void> => {
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
+    metricsLogger.stop();
     schedulerState.registry.stop();
     schedulerState.scriptRegistry.stop();
     await new Promise<void>((resolve, reject) => {

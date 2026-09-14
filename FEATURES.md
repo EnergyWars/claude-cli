@@ -441,6 +441,24 @@ Gedacht für eine App (siehe `commander/FEATURES.md`, "Verlauf"), die den Verlau
 
 Implementiert in `src/db.ts` (`listCommands(db, path, { limit?, offset? })` – ohne `limit` unverändert die volle Liste, mit `limit` per SQL `LIMIT`/`OFFSET` statt In-Memory-`slice()`; `countCommands(db, path)` für `total`) und `src/server.ts` (`handleGetCommands`).
 
+## Token-Kosten-Übersicht (`GET /costs`)
+
+Liefert eine projektübergreifende Aggregation aller bisher entstandenen Token-Kosten aus echten `claude`-Läufen (Agenten/Scheduler mit LLM-Aufruf – Pfad-Commands, Hooks und Script-Scheduler-Läufe haben nie Kosten und tauchen hier nie auf) als `{ totalCostUsd, totalInputTokens, totalOutputTokens, totalCacheCreationInputTokens, totalCacheReadInputTokens, projects: [{ pathName, totalCostUsd, entries: [{ id, createdAt, costUsd, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens }] }] }`. `projects` ist nach `pathName` gruppiert (zurückgemappt vom in `t_commands.path` gespeicherten Dateisystem-Pfad auf den aktuellen `config.json`-Namen; ein später umbenannter/entfernter Pfad-Eintrag fällt auf den rohen gespeicherten Pfad als Label zurück statt zu verschwinden) und nach Kosten absteigend sortiert, `entries` je Projekt neueste zuerst.
+
+Gedacht für eine App (siehe `commander/FEATURES.md`, "Token-Kosten"), die alle Kosten über alle Projekte hinweg an einer Stelle zeigen will, mit Sprung zum jeweiligen Verlaufseintrag.
+
+Implementiert in `src/db.ts` (`listCommandCosts(db)` – alle Commands mit gesetztem `cost_usd`, neueste zuerst) und `src/server.ts` (`handleGetCosts`).
+
+## System-Metriken (`GET /system-metrics?hours=`)
+
+Liefert die Systemauslastung (CPU/RAM) der Maschine, auf der `cl server` läuft, als Zeitreihe: `{ metrics: [{ createdAt, cpuPercent, memUsedPercent, memTotalBytes, memFreeBytes }], windowHours }`. `cpuPercent` ist die Linux-Load-Average (1 Minute) bezogen auf die Kernanzahl (`os.loadavg()[0] / os.cpus().length * 100`) – bewusst ungekappt, kann bei Überlast > 100 liegen. `memUsedPercent` ist `(memTotal - memFree) / memTotal * 100`. Query-Parameter `?hours=` (optional, Default `24`, muss eine positive Zahl sein, sonst `400`) grenzt das zurückgelieferte Fenster ein.
+
+Die Messpunkte entstehen **serverseitig alle 5 Minuten automatisch** (unabhängig von Requests, solange `cl server` läuft) – sofort ein erster Messpunkt beim Start, danach im festen Intervall (`SYSTEM_METRICS_INTERVAL_MS = 5 * 60 * 1000`), gespeichert in einer eigenen Tabelle `t_system_metrics` (nicht Teil von `t_commands`).
+
+Gedacht für eine App (siehe `commander/FEATURES.md`, "System-Metriken"), die CPU-/RAM-Auslastung als Liniendiagramm über die Zeit anzeigen will, um die Maschine im Blick zu behalten.
+
+Implementiert in `src/metrics.ts` (`sampleSystemMetrics()`, `computeCpuLoadPercent()`/`computeMemoryUsedPercent()` als reine Funktionen, `startSystemMetricsLogger(db, intervalMs?)` – Timer wird beim Server-Shutdown per `metricsLogger.stop()` sauber beendet), `src/db.ts` (`insertSystemMetric`, `listSystemMetrics(db, sinceIso?)`) und `src/server.ts` (`handleGetSystemMetrics`, Aufruf von `startSystemMetricsLogger(db)` beim Server-Start).
+
 ## Projekt-Statistik (`GET /stats/<pathName>`, `cl stats [path]`)
 
 Liefert pro Pfad (`config.json` `paths[].name`) vier Kennzahlen als `{ runningAgents, agentsInWindow, windowHours, lastDebugBuildAt, lastReleaseBuildAt }`:
@@ -539,6 +557,7 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 - `npm run dev` – führt `src/index.ts` direkt über `tsx` aus, ohne vorherigen Compile-Schritt.
 - `npm run deploy-service` / `make deploy-service` – Vollständiges Service-Deployment: Build + Bundle (wie `release`), dann Stoppen des laufenden Service und Start des neuen mit der frisch gebauten `cl` (siehe nächster Abschnitt).
 - `npm run release-service` / `make release-service` – Alias für `deploy-service`.
+- `npm run deploy-watchdog` / `make deploy-watchdog` – Installiert/aktiviert den Watchdog (`systemd/cl-server-watchdog.service`+`.timer`, siehe unten), unabhängig von `deploy-service`.
 
 ## Dauerbetrieb als systemd-Service (`cl-server.service`, `make deploy-service`)
 
@@ -556,8 +575,11 @@ Das Tool wird als eigenständige, ausführbare Datei nach `~/.local/bin/cl` depl
 - `StartLimitIntervalSec=0` – kein Start-Rate-Limit, systemd gibt nie dauerhaft auf.
 - `WantedBy=multi-user.target` + `After=network.target` (bewusst nicht `network-online.target`) – Start so früh wie möglich im Boot, ohne auf eine fertig konfigurierte Netzwerkverbindung zu warten.
 - `OOMPolicy=continue` + `OOMScoreAdjust=-500` – der Server wird vom OOM-Killer zuletzt gewählt und stirbt nicht mit, wenn ein Kindprozess (z. B. `claude`) OOM-gekillt wird.
+- `MemoryHigh=8G` / `MemoryMax=10G` – deckelt den eigenen Cgroup (Server + alle darin gespawnten `claude`- und `gradlew`-Prozesse). Verhindert, dass ein einzelner haengender Build oder eine haengende Session den gesamten Arbeitsspeicher der Maschine aufbraucht und dadurch die komplette Desktop-Session (nicht nur `cl-server`) vom Kernel-OOM-Killer weggeraeumt wird.
 - `LimitNOFILE=65536` – ausreichend Filedeskriptoren für viele parallele SSE-Verbindungen.
 - Hardening ohne Einschränkung des Dateisystemzugriffs: `NoNewPrivileges`, `ProtectClock`, `ProtectKernelModules`/`-Tunables`/`-Logs`, `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality`.
+
+**Watchdog (`systemd/cl-server-watchdog.service`+`.timer`, `make deploy-watchdog`):** eigenständige Timer-Unit, getrennt von `make deploy-service` installiert (`make deploy-watchdog` → `scripts/deploy-watchdog.sh`: installiert/aktiviert Service+Timer per `sudo`, prüft `systemctl is-active` des Timers und nicht-destruktiv per `sudo -n -l`, ob die für den Ernstfall nötige passwortlose `sudo`-Berechtigung vorhanden ist). Der Timer prüft alle 30 Minuten `GET /health` (`scripts/cl-server-watchdog.sh`, 3 Versuche im Abstand von 5s gegen kurzzeitige Aussetzer). Antwortet keiner der Versuche, prüft das Skript zusätzlich `systemctl is-active cl-server.service`: ist der Dienst dort nicht `active` (abgestürzt/gestoppt), unternimmt der Watchdog nichts – das übernimmt bereits `Restart=always`. Ist er `active`, obwohl `/health` nicht antwortet (Prozess hängt/deadlockt trotz laufender PID), startet der Watchdog per `sudo systemctl restart cl-server.service` manuell neu. Voraussetzungen (passwortloses `sudo`): `systemd/README.md`.
 
 **Node-Auswahl:** `src/db.ts` nutzt `node:sqlite` und braucht damit Node >= 22.5 (empfohlen 24), während systemd weder `~/.bashrc` noch `nvm` lädt. `scripts/deploy-service.sh` prüft deshalb das aktive `node` per `require("node:sqlite")`, fällt sonst auf die höchste passende Version unter `~/.nvm/versions/node/*/bin/node` zurück (`CL_SERVICE_NODE=<pfad>` erzwingt ein bestimmtes Binary) und trägt dessen Verzeichnis als ersten Eintrag in `Environment=PATH=` der Unit ein. Findet sich kein passendes Node, bricht das Deployment mit einer klaren Meldung ab, statt einen Service zu installieren, der in eine Restart-Schleife läuft.
 
@@ -686,7 +708,7 @@ Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-, `context`- 
 
 ## Tests (`npm test`)
 
-`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 513 Tests über 18 Dateien, ein File pro Feature-Bereich:
+`npm test` (= `tsx --test 'src/**/*.test.ts'`) führt die komplette Test-Suite aus – 572 Tests über 20 Dateien, ein File pro Feature-Bereich:
 
 - **`src/config.test.ts`** – Validierung (`parseConfig`: gültige/ungültige Configs, reservierte Agent-/Command-Namen, `hosted`-/`commands`-/`hooks`-/`schedulers`-/optionale `scriptSchedulers`-Einträge (fehlt/leer/gültig, wirft bei fehlendem `cron`/`paths`/`script`/`description`), optionales `permissions`-Feld bei Agents/Tasks/Schedulern: akzeptiert/verwirft), `listAgents`, `listSchedulers`, `listScriptSchedulers` (inkl. leer ohne konfiguriertes Feld), `listHostedNames`/`resolveHostedEntry`, `listPathCommands`/`resolvePathCommand`, sowie `loadConfig`/`resolveAgent`/`resolveContext`/`resolveSchedulerContext`/`resolveTask` gegen echte temporäre Fixtures (sowohl "lokale Dateien vorhanden" als auch "keine lokalen Dateien → Embedded-Fallback").
 - **`src/launch.test.ts`** – `buildClaudeArgs`/`buildSystemPrompt`/`buildSchedulerSystemPrompt` (reine Funktionen, inkl. `--allowedTools` bei gesetzten/leeren `permissions` und eigener scheduler-Context vor zusätzlichen `contexts`) sowie `runHeadlessCommand`/`runShellCommand` gegen ein Fake-`claude`-Binary bzw. echte Shell-Commands (Output-Streaming, Exit-Codes, Verhalten wenn `claude` fehlt, Weitergabe von `permissions` als `--allowedTools`, `onSpawn`-Callback erhaelt das Kind-Prozess-Handle und `child.kill('SIGTERM')` darueber beendet den Prozess vorzeitig).
@@ -704,6 +726,9 @@ Implementiert in `src/db.ts` (`t_feedback`-Tabelle inkl. `section`-, `context`- 
 - **`src/index.test.ts`** – die komplette CLI als Subprozess (`--help`, `--version`, Agent-Start, Model-Override + Headless mit/ohne Prompt-Wert, Agent-`permissions` haengen `--allowedTools` an, unbekannter Agent, Startup-Crash bei reserviertem Namen, `cl server` (inkl. `PORT` aus der Umgebung als Listen-Port und Abbruch bei ungültigem `PORT`)/`cl task` (inkl. Task-`permissions` haengen `--allowedTools` an)/`cl totp remove`/`cl inst`/`cl instr`/`cl ticket from|get|list|list-all|update|delete` End-to-End inkl. `SIGTERM`-Shutdown).
 - **`src/gradle-install.test.ts`** – `parseAdbDevices` (reine Funktion), `findApk` (echte temporäre Verzeichnisstrukturen), `formatInstallSummary` (Singular/Plural/leer), `buildAndInstall` End-to-End gegen ein skriptbares Fake-`gradlew`-Shellscript (`steps`-Sequenz) + ein Fake-`adb`-Shellscript im `PATH` (Erfolg auf mehreren Geräten, Installationsfehler auf einem Gerät bricht die anderen nicht ab, keine Geräte gefunden, Gerätenamen + Abschluss-Zusammenfassung) sowie der Fix-Agent-Kreislauf (Build-Fehler bzw. Warnings starten den Fake-`claude`-Fix-Agent im Auto-Mode, danach erneuter Build; mehrfache Wiederholung bis fehlerfrei; Abbruch, wenn `claude` für den Fix-Agent nicht gefunden wird).
 - **`src/collect.test.ts`** – `collectAll`/`collectOne`/`collectForPath`/`listCollectedFiles`/`resolveCollectedFilePath`/`resolveCollectionPathForFileName` (reine fs-Logik gegen echte temporäre Verzeichnisse: Extension-Anhängen, keine doppelte Extension, fehlende `sourcePath` landet in `errors` statt Abbruch, unbekannter `targetName`/`pathName` wirft, Pfad-Traversal wird abgelehnt, `collectForPath` sammelt nur Eintraege des angegebenen `path`, `resolveCollectionPathForFileName` findet/verfehlt den zugehoerigen `path` ueber den resultierenden Dateinamen).
+- **`src/metrics.test.ts`** – `computeCpuLoadPercent`/`computeMemoryUsedPercent` (reine Funktionen: Normalfall, Kernanzahl 0, Ueberlast > 100%, voller/leerer Speicher), `startSystemMetricsLogger` gegen eine echte temporäre SQLite-DB (sofortiger erster Messpunkt, weitere Messpunkte im Intervall, `stop()` beendet den Timer).
+
+`GET /costs`/`GET /system-metrics` sind zusätzlich in `src/server.test.ts` (401 ohne Auth, Aggregation nach Pfad-Namen inkl. korrekter Zuordnung bei mehreren Pfad-Einträgen auf demselben Dateisystem-Verzeichnis, Pfad-Commands ohne Kosten tauchen nicht auf, leere Übersicht, `?hours=`-Fenster inkl. `400` bei ungültigem Wert) End-to-End abgedeckt; `insertSystemMetric`/`listSystemMetrics`/`listCommandCosts` zusätzlich in `src/db.test.ts`.
 
 Kein echter `claude`-Aufruf in den Tests: `src/test-support/mock-claude.ts` erzeugt ein ausführbares Fake-`claude`-Script, das seine Argumente als JSON zurückmeldet und konfigurierbare Output/Exit-Codes liefert. `src/test-support/fixture-config.ts` erzeugt temporäre `config.json`+`contexts/`+`scheduler/`-Verzeichnisse; `src/config.ts`s `getRootDir()` liest dafür `process.env.CL_ROOT_DIR` (nur für Tests relevant, im Normalbetrieb ungesetzt). `src/test-support/run-cli.ts` spawnt die CLI für Subprozess-Tests.
 

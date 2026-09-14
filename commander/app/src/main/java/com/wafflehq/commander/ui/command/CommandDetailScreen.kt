@@ -45,6 +45,7 @@ import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.costs.formatUsd
 import com.wafflehq.commander.ui.downloads.DownloadProgressIndicator
 import com.wafflehq.commander.ui.history.formatDuration
 import com.wafflehq.commander.ui.history.formatTimestamp
@@ -308,6 +309,14 @@ private fun CommandSummary(state: CommandState, onCopyInput: () -> Unit) {
         if (exitCode != null) {
             Text(
                 text = stringResource(R.string.command_detail_exit_code, exitCode),
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTheme.colors.onSurfaceVariant,
+            )
+        }
+        val costUsd = state.costUsd
+        if (costUsd != null) {
+            Text(
+                text = stringResource(R.string.command_detail_cost, formatUsd(costUsd)),
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.onSurfaceVariant,
             )

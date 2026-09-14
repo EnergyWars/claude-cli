@@ -19,6 +19,8 @@ import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsGroup
 import com.wafflehq.commander.ui.components.SettingsGroupDivider
 import com.wafflehq.commander.ui.components.SettingsListContent
+import com.wafflehq.commander.ui.components.SettingsListRow
+import com.wafflehq.commander.ui.components.SettingsRowDivider
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
@@ -30,6 +32,8 @@ fun SettingsScreen(
     onOpenDisplay: () -> Unit,
     onOpenContexts: () -> Unit,
     onOpenConfig: () -> Unit,
+    onOpenTokenCosts: () -> Unit,
+    onOpenSystemMetrics: () -> Unit,
     onDisconnected: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -56,6 +60,17 @@ fun SettingsScreen(
                 configLabel = stringResource(R.string.settings_config_title),
                 configSubtitle = stringResource(R.string.settings_config_sub),
                 onOpenConfig = onOpenConfig,
+            )
+            SettingsListRow(
+                title = stringResource(R.string.settings_token_costs_title),
+                subtitle = stringResource(R.string.settings_token_costs_sub),
+                onClick = onOpenTokenCosts,
+            )
+            SettingsRowDivider()
+            SettingsListRow(
+                title = stringResource(R.string.settings_system_metrics_title),
+                subtitle = stringResource(R.string.settings_system_metrics_sub),
+                onClick = onOpenSystemMetrics,
             )
             SettingsGroupDivider()
             SettingsGroup(

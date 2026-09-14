@@ -234,6 +234,10 @@ class ClServerApi @Inject constructor(
 
     suspend fun getUsage(): List<UsageLimit> = authedGet<UsageResponse>("usage").limits
 
+    suspend fun getCosts(): CostOverview = authedGet("costs")
+
+    suspend fun getSystemMetrics(): SystemMetricsResponse = authedGet("system-metrics")
+
     suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
         authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions
 

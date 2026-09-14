@@ -16,6 +16,7 @@
     "build": "tsc",
     "deploy": "bash scripts/deploy.sh",
     "deploy-service": "bash scripts/deploy-service.sh",
+    "deploy-watchdog": "bash scripts/deploy-watchdog.sh",
     "release": "npm run build && npm run deploy",
     "release-service": "npm run deploy-service",
     "pretest": "npm run generate-version && npm run generate-context-bundle",

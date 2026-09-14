@@ -1,4 +1,4 @@
-.PHONY: generate-version generate-context-bundle dev build deploy deploy-service release release-service test lint format
+.PHONY: generate-version generate-context-bundle dev build deploy deploy-service deploy-watchdog release release-service test lint format
 
 generate-version:
 	npm run generate-version
@@ -17,6 +17,9 @@ deploy:
 
 deploy-service:
 	npm run deploy-service
+
+deploy-watchdog:
+	npm run deploy-watchdog
 
 release:
 	npm run release

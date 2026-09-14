@@ -148,6 +148,25 @@ test('GET /health: 200 ohne Authorization-Header', async () => {
   assert.equal(typeof body.version, 'string');
 });
 
+test('GET /health: loggt Methode, Pfad, Status und Dauer, aber keine Query-Parameter', async () => {
+  const logged: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args.map(String).join(' '));
+  };
+  try {
+    const res = await fetch(`${baseUrl()}/health?token=geheim`);
+    assert.equal(res.status, 200);
+    await sleep(10);
+  } finally {
+    console.log = originalLog;
+  }
+  const line = logged.find((entry) => entry.startsWith('GET /health'));
+  assert.ok(line, `Keine Log-Zeile fuer GET /health gefunden: ${logged.join(' | ')}`);
+  assert.match(line, /^GET \/health 200 \d+ms$/);
+  assert.ok(!line.includes('geheim'));
+});
+
 test('GET /status: 204 ohne Body und ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/status`);
   assert.equal(res.status, 204);
@@ -989,6 +1008,155 @@ test('GET /stats/doesnotexist: 404 bei unbekanntem Pfad', async () => {
 test('GET /stats/default: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/stats/default`);
   assert.equal(res.status, 401);
+});
+
+test('GET /costs: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/costs`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /costs: aggregiert Kosten aus echten Agent-Laeufen, gruppiert nach Pfad-Namen', async () => {
+  const beforeRes = await fetch(`${baseUrl()}/costs`, { headers: authHeaders() });
+  const before = (await beforeRes.json()) as { totalCostUsd: number; totalInputTokens: number };
+
+  const costMock = createMockClaude({
+    resultJson: {
+      type: 'result',
+      result: 'Antwort',
+      total_cost_usd: 0.05,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_input_tokens: 1,
+        cache_read_input_tokens: 2,
+      },
+    },
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(costMock.binDir);
+  try {
+    const res = await fetch(`${baseUrl()}/`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ command: 'x', path: 'default' }),
+    });
+    const { id } = (await res.json()) as { id: string };
+    await sleep(300);
+
+    const costsRes = await fetch(`${baseUrl()}/costs`, { headers: authHeaders() });
+    assert.equal(costsRes.status, 200);
+    const body = (await costsRes.json()) as {
+      totalCostUsd: number;
+      totalInputTokens: number;
+      projects: {
+        pathName: string;
+        totalCostUsd: number;
+        entries: { id: string; costUsd: number }[];
+      }[];
+    };
+    assert.ok(Math.abs(body.totalCostUsd - before.totalCostUsd - 0.05) < 1e-9);
+    assert.equal(body.totalInputTokens, before.totalInputTokens + 10);
+    const project = body.projects.find((p) => p.pathName === 'default');
+    assert.ok(project, 'Projekt "default" sollte in der Uebersicht auftauchen');
+    assert.ok(project.entries.some((entry) => entry.id === id && entry.costUsd === 0.05));
+  } finally {
+    process.env.PATH = previous;
+    costMock.cleanup();
+  }
+});
+
+test('GET /costs: Pfad-Commands ohne LLM-Aufruf tauchen nicht in der Uebersicht auf', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/commands/pwd`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  const { id } = (await res.json()) as { id: string };
+  await sleep(200);
+  const costsRes = await fetch(`${baseUrl()}/costs`, { headers: authHeaders() });
+  const body = (await costsRes.json()) as {
+    projects: { entries: { id: string }[] }[];
+  };
+  const allIds = body.projects.flatMap((p) => p.entries.map((entry) => entry.id));
+  assert.ok(!allIds.includes(id));
+});
+
+test('GET /costs: leere Uebersicht ohne jegliche Kosten-Daten', async () => {
+  const emptyFixture = createFixtureRoot({});
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = emptyFixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const setupRes = await fetch(`http://localhost:${server.port.toString()}/auth/setup`, {
+      method: 'POST',
+    });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(
+      `http://localhost:${server.port.toString()}/auth/setup/confirm`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+      },
+    );
+    const { token } = (await confirmRes.json()) as { token: string };
+
+    const res = await fetch(`http://localhost:${server.port.toString()}/costs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { totalCostUsd: number; projects: unknown[] };
+    assert.equal(body.totalCostUsd, 0);
+    assert.deepEqual(body.projects, []);
+  } finally {
+    await server.close();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+    emptyFixture.cleanup();
+  }
+});
+
+test('GET /system-metrics: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/system-metrics`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /system-metrics: liefert mindestens den sofortigen Startmesspunkt, Default-Fenster 24h', async () => {
+  const res = await fetch(`${baseUrl()}/system-metrics`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    metrics: { createdAt: string; cpuPercent: number; memUsedPercent: number }[];
+    windowHours: number;
+  };
+  assert.equal(body.windowHours, 24);
+  assert.ok(body.metrics.length >= 1);
+  const [first] = body.metrics;
+  assert.ok(first);
+  assert.ok(first.cpuPercent >= 0);
+  assert.ok(first.memUsedPercent >= 0 && first.memUsedPercent <= 100);
+});
+
+test('GET /system-metrics?hours=0.0000001: derart schmales Fenster liefert keine Messpunkte', async () => {
+  const res = await fetch(`${baseUrl()}/system-metrics?hours=0.0000001`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { metrics: unknown[] };
+  assert.equal(body.metrics.length, 0);
+});
+
+test('GET /system-metrics?hours=abc: 400 bei ungueltigem Zeitfenster', async () => {
+  const res = await fetch(`${baseUrl()}/system-metrics?hours=abc`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
+});
+
+test('GET /system-metrics?hours=-1: 400 bei nicht-positivem Zeitfenster', async () => {
+  const res = await fetch(`${baseUrl()}/system-metrics?hours=-1`, { headers: authHeaders() });
+  assert.equal(res.status, 400);
 });
 
 test('GET /usage: 401 ohne Authorization-Header', async () => {

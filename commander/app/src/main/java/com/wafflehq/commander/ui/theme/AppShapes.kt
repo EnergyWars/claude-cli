@@ -3,10 +3,10 @@ package com.wafflehq.commander.ui.theme
 import androidx.compose.ui.unit.dp
 
 object AppRadius {
-    val card = 12.dp
+    val card = 20.dp
     val button = 20.dp
-    val chip = 8.dp
-    val textField = 4.dp
+    val chip = 6.dp
+    val textField = 14.dp
     val sheet = 28.dp
     val dialog = 28.dp
     val pill = 999.dp

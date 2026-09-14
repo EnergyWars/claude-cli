@@ -39,6 +39,11 @@ data class CommandState(
     val exitCode: Int?,
     val createdAt: String,
     val updatedAt: String,
+    val costUsd: Double? = null,
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val cacheCreationInputTokens: Long? = null,
+    val cacheReadInputTokens: Long? = null,
 )
 
 @Serializable
@@ -57,6 +62,49 @@ data class ProjectStats(
     val windowHours: Double,
     val lastDebugBuildAt: String? = null,
     val lastReleaseBuildAt: String? = null,
+)
+
+@Serializable
+data class CostEntry(
+    val id: String,
+    val createdAt: String,
+    val costUsd: Double,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cacheCreationInputTokens: Long,
+    val cacheReadInputTokens: Long,
+)
+
+@Serializable
+data class CostProject(
+    val pathName: String,
+    val totalCostUsd: Double,
+    val entries: List<CostEntry>,
+)
+
+@Serializable
+data class CostOverview(
+    val totalCostUsd: Double,
+    val totalInputTokens: Long,
+    val totalOutputTokens: Long,
+    val totalCacheCreationInputTokens: Long,
+    val totalCacheReadInputTokens: Long,
+    val projects: List<CostProject>,
+)
+
+@Serializable
+data class SystemMetricSample(
+    val createdAt: String,
+    val cpuPercent: Double,
+    val memUsedPercent: Double,
+    val memTotalBytes: Long,
+    val memFreeBytes: Long,
+)
+
+@Serializable
+data class SystemMetricsResponse(
+    val metrics: List<SystemMetricSample>,
+    val windowHours: Double,
 )
 
 @Serializable

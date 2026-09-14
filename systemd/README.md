@@ -59,7 +59,63 @@ Prioritaet: `-p/--port` > `PORT` > `8787` (`src/server-port.ts`).
   startet so frueh wie moeglich im Boot, ohne auf eine fertig konfigurierte Netzwerkverbindung zu warten.
 - `OOMPolicy=continue` + `OOMScoreAdjust=-500` – der Kernel waehlt den Server als OOM-Opfer zuletzt;
   wird ein Kindprozess (z. B. `claude`) OOM-gekillt, stirbt der Service nicht mit.
+- `MemoryHigh=8G` / `MemoryMax=10G` – deckelt den eigenen Cgroup (Server + alle darin gespawnten
+  `claude`- und `gradlew`-Prozesse, siehe unten). Verhindert, dass ein einzelner haengender Build
+  oder eine haengende Session den gesamten Arbeitsspeicher der Maschine aufbraucht und dadurch die
+  komplette Desktop-Session (nicht nur `cl-server`) vom Kernel-OOM-Killer weggeraeumt wird.
 - `LimitNOFILE=65536` – genug Filedeskriptoren fuer viele parallele SSE-Verbindungen.
+
+### Speicher-Vorfall 2026-09-14 und Watchdog
+
+In der Nacht auf den 14.09.2026 haben ueber `cl server` ausgeloeste Android-Builds (`install-debug`
+fuer mehrere Projekte) Gradle-Daemons erzeugt, die als Kindprozesse im selben Cgroup wie
+`cl-server.service` verblieben sind und mangels Idle-Timeout (Gradle-Default: 3 Stunden) stundenlang
+mehrere GB Speicher pro Daemon belegt haben. Zusammen mit mehreren parallel laufenden `claude`-Sessions
+hat das RAM + Swap komplett gefuellt; der Kernel-OOM-Killer hat daraufhin ueber Stunden Prozesse
+weggeraeumt und schliesslich um 07:19 Uhr die komplette `user-1000.slice` (GNOME-Session, alle
+Terminals/IDE/`claude`-Prozesse) getoetet. `cl-server.service` selbst ist dank `OOMScoreAdjust=-500`
+nicht gestorben, hat den Ausfall der Desktop-Session aber nicht verhindert.
+
+Gegenmassnahmen:
+
+1. **Ursache behoben**: `org.gradle.daemon.idletimeout=900000` (15 statt 180 Minuten) in
+   `~/.gradle/gradle.properties` – ueber `cl server` angestossene Builds geben ihren Speicher jetzt
+   zeitnah wieder frei, statt stundenlang zu idlen.
+2. **Blastradius begrenzt**: `MemoryHigh`/`MemoryMax` oben – selbst wenn wieder ein Build/eine Session
+   ausufert, trifft es nur noch den Cgroup von `cl-server.service` (der Dienst startet dank
+   `Restart=always` sofort neu), nicht mehr die gesamte Maschine.
+3. **Sicherheitsnetz**: `cl-server-watchdog.service`/`.timer` prueft alle 30 Minuten `GET /health`
+   (3 Versuche im Abstand von 5s, gegen einzelne kurzzeitige Aussetzer). Antwortet keiner der
+   Versuche, prueft das Skript zusaetzlich `systemctl is-active cl-server.service`: ist der Dienst
+   laut systemd nicht `active` (abgestuerzt/gestoppt), macht der Watchdog nichts – dann kuemmert sich
+   bereits `Restart=always` selbst. Meldet systemd dagegen `active`, obwohl `/health` nicht antwortet,
+   haengt/deadlockt der Prozess trotz laufendem PID – erst dann startet der Watchdog per
+   `sudo systemctl restart` manuell neu.
+
+Installation des Watchdogs (einmalig, braucht Root – kann nicht aus einer unprivilegierten Shell
+heraus automatisiert werden):
+
+    make deploy-watchdog
+
+Das macht (`scripts/deploy-watchdog.sh`, `npm run deploy-watchdog`):
+
+1. `sudo install` von `systemd/cl-server-watchdog.service`/`.timer` nach `/etc/systemd/system/`,
+2. `systemctl daemon-reload`, `systemctl enable --now cl-server-watchdog.timer`,
+3. Pruefung per `systemctl is-active`, dass der Timer wirklich laeuft (sonst Abbruch mit Exit-Code 1),
+4. nicht-destruktive Pruefung per `sudo -n -l systemctl restart cl-server.service`, ob der Watchdog
+   `cl-server.service` spaeter ohne Passwortabfrage neu starten darf (nur eine Berechtigungspruefung,
+   kein tatsaechlicher Neustart) – fehlt die Berechtigung, gibt das Skript eine Warnung aus, bricht
+   aber nicht ab (der Timer selbst laeuft dann trotzdem, wuerde im Ernstfall aber leer laufen).
+
+Voraussetzung fuer Punkt 4: `sudo -n systemctl restart cl-server.service` muss ohne Passwortabfrage
+funktionieren (dieselbe Rechte-Voraussetzung, die `scripts/deploy-service.sh` bzw. der Self-Update-Endpoint
+`POST /paths/claude-cli/commands/update` bereits benoetigen). Fehlt sie, zuerst eine `NOPASSWD`-Sudoers-Regel
+ergaenzen (z. B. `sudo visudo -f /etc/sudoers.d/cl-server`) und `make deploy-watchdog` erneut ausfuehren.
+
+Status/Logs des Watchdogs:
+
+    systemctl list-timers cl-server-watchdog.timer
+    journalctl -u cl-server-watchdog.service -n 50
 
 ## Verwaltung
 

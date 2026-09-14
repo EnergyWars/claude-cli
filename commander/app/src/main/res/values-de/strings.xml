@@ -63,6 +63,9 @@
     <string name="history_row_meta">%1$s · %2$s</string>
     <string name="history_retry_action">Erneut versuchen</string>
     <string name="history_load_more">Mehr laden</string>
+    <string name="history_command_label">Befehl</string>
+    <string name="history_command_expand">Befehl anzeigen</string>
+    <string name="history_command_collapse">Befehl ausblenden</string>
 
     <string name="stats_title">Statistik</string>
     <string name="stats_running_agents">Laufende Agents</string>
@@ -70,6 +73,22 @@
     <string name="stats_last_debug_build">Letzter Debug-Build</string>
     <string name="stats_last_release_build">Letzter Release-Build</string>
     <string name="stats_no_build_yet">Kein Build vorhanden</string>
+
+    <string name="token_costs_title">Token-Kosten</string>
+    <string name="token_costs_refresh">Aktualisieren</string>
+    <string name="token_costs_empty">Noch keine Kosten erfasst.</string>
+    <string name="token_costs_input_tokens">Input-Tokens: %1$s</string>
+    <string name="token_costs_output_tokens">Output-Tokens: %1$s</string>
+    <string name="token_costs_cache_creation_tokens">Cache-Erstellung-Tokens: %1$s</string>
+    <string name="token_costs_cache_read_tokens">Cache-Lese-Tokens: %1$s</string>
+
+    <string name="system_metrics_title">System-Metriken</string>
+    <string name="system_metrics_cpu_title">CPU-Auslastung</string>
+    <string name="system_metrics_ram_title">Arbeitsspeicher</string>
+    <string name="system_metrics_empty">Noch keine Daten.</string>
+    <string name="system_metrics_no_data">Keine Daten</string>
+    <string name="system_metrics_refresh">Aktualisieren</string>
+    <string name="system_metrics_ram_usage">%1$s / %2$s</string>
 
     <string name="remote_sessions_title">Remote-Sitzungen</string>
     <string name="remote_sessions_empty">Keine aktiven Sitzungen.</string>
@@ -128,6 +147,7 @@
     <string name="command_detail_stop_confirm_title">Befehl stoppen?</string>
     <string name="command_detail_stop_confirm_body">Der laufende Prozess wird sofort beendet.</string>
     <string name="command_detail_stop_confirm_confirm">Stoppen</string>
+    <string name="command_detail_cost">Kosten: %1$s</string>
 
     <string name="tickets_title">Tickets</string>
     <string name="tickets_empty">Noch keine Tickets.</string>
@@ -183,6 +203,10 @@
 
     <string name="settings_config_title">Server-Konfiguration</string>
     <string name="settings_config_sub">config.json bearbeiten, Versionsverlauf</string>
+    <string name="settings_token_costs_title">Token-Kosten</string>
+    <string name="settings_token_costs_sub">Kostenübersicht über alle Projekte</string>
+    <string name="settings_system_metrics_title">System-Metriken</string>
+    <string name="settings_system_metrics_sub">CPU- und Arbeitsspeicher-Auslastung über Zeit</string>
     <string name="settings_config_json_label">config.json</string>
     <string name="settings_config_save">Speichern</string>
     <string name="settings_config_saved_title">Gespeichert</string>

@@ -12,6 +12,8 @@ export interface MockClaudeOptions {
   logFile?: string;
   /** When set, skips the argv/marker preamble and outputChunks entirely, writing this string to stdout as-is (for callers that JSON.parse() the full stdout, e.g. "claude agents --json"). */
   rawOutput?: string;
+  /** When set, writes `JSON.stringify(resultJson)` to stdout as a single write (models `claude --output-format json`'s single-result-object contract, see `runHeadlessCommand`). Mutually exclusive with `rawOutput`/`outputChunks`. */
+  resultJson?: Record<string, unknown>;
 }
 
 export interface MockClaude {
@@ -26,6 +28,7 @@ export function createMockClaude(options: MockClaudeOptions = {}): MockClaude {
     exitCode = 0,
     logFile,
     rawOutput,
+    resultJson,
   } = options;
   const binDir = mkdtempSync(join(tmpdir(), 'cl-mock-claude-'));
   const scriptPath = join(binDir, 'claude');
@@ -36,12 +39,17 @@ export function createMockClaude(options: MockClaudeOptions = {}): MockClaude {
       : `require('node:fs').appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`;
 
   const script =
-    rawOutput !== undefined
+    resultJson !== undefined
       ? `#!/usr/bin/env node
+${logStatement}process.stdout.write(${JSON.stringify(JSON.stringify(resultJson))});
+process.exit(${exitCode.toString()});
+`
+      : rawOutput !== undefined
+        ? `#!/usr/bin/env node
 ${logStatement}process.stdout.write(${JSON.stringify(rawOutput)});
 process.exit(${exitCode.toString()});
 `
-      : `#!/usr/bin/env node
+        : `#!/usr/bin/env node
 ${logStatement}process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n${ARGS_END_MARKER}\\n');
 (async () => {
 ${outputChunks

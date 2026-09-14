@@ -63,6 +63,9 @@
     <string name="history_row_meta">%1$s · %2$s</string>
     <string name="history_retry_action">Retry</string>
     <string name="history_load_more">Load more</string>
+    <string name="history_command_label">Command</string>
+    <string name="history_command_expand">Show command</string>
+    <string name="history_command_collapse">Hide command</string>
 
     <string name="stats_title">Statistics</string>
     <string name="stats_running_agents">Running agents</string>
@@ -70,6 +73,22 @@
     <string name="stats_last_debug_build">Last debug build</string>
     <string name="stats_last_release_build">Last release build</string>
     <string name="stats_no_build_yet">No build yet</string>
+
+    <string name="token_costs_title">Token costs</string>
+    <string name="token_costs_refresh">Refresh</string>
+    <string name="token_costs_empty">No costs recorded yet.</string>
+    <string name="token_costs_input_tokens">Input tokens: %1$s</string>
+    <string name="token_costs_output_tokens">Output tokens: %1$s</string>
+    <string name="token_costs_cache_creation_tokens">Cache creation tokens: %1$s</string>
+    <string name="token_costs_cache_read_tokens">Cache read tokens: %1$s</string>
+
+    <string name="system_metrics_title">System metrics</string>
+    <string name="system_metrics_cpu_title">CPU usage</string>
+    <string name="system_metrics_ram_title">Memory</string>
+    <string name="system_metrics_empty">No data yet.</string>
+    <string name="system_metrics_no_data">No data</string>
+    <string name="system_metrics_refresh">Refresh</string>
+    <string name="system_metrics_ram_usage">%1$s / %2$s</string>
 
     <string name="remote_sessions_title">Remote sessions</string>
     <string name="remote_sessions_empty">No active sessions.</string>
@@ -128,6 +147,7 @@
     <string name="command_detail_stop_confirm_title">Stop command?</string>
     <string name="command_detail_stop_confirm_body">The running process is terminated immediately.</string>
     <string name="command_detail_stop_confirm_confirm">Stop</string>
+    <string name="command_detail_cost">Cost: %1$s</string>
 
     <string name="tickets_title">Tickets</string>
     <string name="tickets_empty">No tickets yet.</string>
@@ -183,6 +203,10 @@
 
     <string name="settings_config_title">Server configuration</string>
     <string name="settings_config_sub">Edit config.json, version history</string>
+    <string name="settings_token_costs_title">Token costs</string>
+    <string name="settings_token_costs_sub">Cost overview across all projects</string>
+    <string name="settings_system_metrics_title">System metrics</string>
+    <string name="settings_system_metrics_sub">CPU and memory usage over time</string>
     <string name="settings_config_json_label">config.json</string>
     <string name="settings_config_save">Save</string>
     <string name="settings_config_saved_title">Saved</string>

@@ -8,13 +8,13 @@
     {
       "name": "dev",
       "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben.",
-      "contexts": ["main", "dev/code", "dev/deny-gradle"],
+      "contexts": ["main", "dev/code", "dev/deny-gradle", "dev/styling"],
       "model": "sonnet"
     },
     {
       "name": "remote",
       "description": "Standard-Entwickler für alltägliche Entwicklungsaufgaben.",
-      "contexts": ["main", "dev/code", "dev/deny-gradle", "dev/remote"],
+      "contexts": ["main", "dev/code", "dev/deny-gradle", "dev/remote", "dev/styling"],
       "model": "sonnet"
     },
     {

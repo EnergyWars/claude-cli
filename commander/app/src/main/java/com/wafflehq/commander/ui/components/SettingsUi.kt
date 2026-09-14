@@ -169,7 +169,7 @@ fun SettingsListRow(
 }
 
 @Composable
-private fun SettingsRowDivider() {
+fun SettingsRowDivider() {
     Box(
         Modifier
             .padding(start = 16.dp)

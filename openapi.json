@@ -391,6 +391,63 @@
         }
       }
     },
+    "/costs": {
+      "get": {
+        "summary": "Token-Kosten-Uebersicht ueber alle Projekte (paths[]) hinweg",
+        "description": "Nur echte claude-Laeufe (POST /, POST /{agent}, Scheduler) tragen costUsd/Token-Zaehler - Pfad-Commands/Hooks/Script-Scheduler-Laeufe (kein LLM-Aufruf) haben nie Kosten und tauchen hier nie auf. projects ist absteigend nach totalCostUsd sortiert, entries je Projekt neueste zuerst.",
+        "operationId": "getCosts",
+        "responses": {
+          "200": {
+            "description": "Kosten-Uebersicht.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CostOverview" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/system-metrics": {
+      "get": {
+        "summary": "Systemauslastung (CPU/RAM) des Servers, alle 5 Minuten geloggt",
+        "description": "cpuPercent basiert auf der Linux-1-Minuten-Load-Average bezogen auf die Kernanzahl (kann > 100 liegen, wird nicht gekappt), memUsedPercent auf os.totalmem()/os.freemem().",
+        "operationId": "getSystemMetrics",
+        "parameters": [
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "description": "Zeitfenster in Stunden. Default 24, muss eine positive Zahl sein.",
+            "schema": { "type": "number", "exclusiveMinimum": 0, "default": 24 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messpunkte im angefragten Zeitfenster.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SystemMetricsResponse" } }
+            }
+          },
+          "400": {
+            "description": "Query-Parameter \"hours\" ist keine positive Zahl.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/usage": {
       "get": {
         "summary": "Aktuelle Claude-Code-Nutzungslimits (Session/Woche/etc.)",
@@ -1754,6 +1811,93 @@
           }
         }
       },
+      "CostEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "createdAt",
+          "costUsd",
+          "inputTokens",
+          "outputTokens",
+          "cacheCreationInputTokens",
+          "cacheReadInputTokens"
+        ],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "Command-ID, abfragbar via GET /state/{id}." },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "costUsd": { "type": "number" },
+          "inputTokens": { "type": "integer", "minimum": 0 },
+          "outputTokens": { "type": "integer", "minimum": 0 },
+          "cacheCreationInputTokens": { "type": "integer", "minimum": 0 },
+          "cacheReadInputTokens": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "CostProject": {
+        "type": "object",
+        "required": ["pathName", "totalCostUsd", "entries"],
+        "properties": {
+          "pathName": {
+            "type": "string",
+            "description": "Name aus config.json (paths[].name); faellt auf den rohen gespeicherten Dateisystem-Pfad zurueck, falls der urspruengliche Eintrag inzwischen umbenannt/entfernt wurde."
+          },
+          "totalCostUsd": { "type": "number", "description": "Summe von costUsd ueber alle entries dieses Projekts." },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CostEntry" },
+            "description": "Neueste zuerst."
+          }
+        }
+      },
+      "CostOverview": {
+        "type": "object",
+        "required": [
+          "totalCostUsd",
+          "totalInputTokens",
+          "totalOutputTokens",
+          "totalCacheCreationInputTokens",
+          "totalCacheReadInputTokens",
+          "projects"
+        ],
+        "properties": {
+          "totalCostUsd": { "type": "number" },
+          "totalInputTokens": { "type": "integer", "minimum": 0 },
+          "totalOutputTokens": { "type": "integer", "minimum": 0 },
+          "totalCacheCreationInputTokens": { "type": "integer", "minimum": 0 },
+          "totalCacheReadInputTokens": { "type": "integer", "minimum": 0 },
+          "projects": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/CostProject" },
+            "description": "Sortiert nach totalCostUsd absteigend."
+          }
+        }
+      },
+      "SystemMetricSample": {
+        "type": "object",
+        "required": ["createdAt", "cpuPercent", "memUsedPercent", "memTotalBytes", "memFreeBytes"],
+        "properties": {
+          "createdAt": { "type": "string", "format": "date-time" },
+          "cpuPercent": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Linux-1-Minuten-Load-Average bezogen auf die Kernanzahl, als Prozent. Kann > 100 sein (Ueberlast)."
+          },
+          "memUsedPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "memTotalBytes": { "type": "integer", "minimum": 0 },
+          "memFreeBytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "SystemMetricsResponse": {
+        "type": "object",
+        "required": ["metrics", "windowHours"],
+        "properties": {
+          "metrics": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SystemMetricSample" },
+            "description": "Chronologisch aufsteigend (aeltester zuerst), ein Messpunkt alle 5 Minuten."
+          },
+          "windowHours": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      },
       "HostedList": {
         "type": "object",
         "required": ["hosted"],
@@ -1826,7 +1970,15 @@
             "description": "Exit-Code des claude-Prozesses; null solange \"running\" oder bei Spawn-Fehler."
           },
           "createdAt": { "type": "string", "format": "date-time" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "costUsd": {
+            "type": ["number", "null"],
+            "description": "Kosten dieses Laufs in USD, aus \"claude --output-format json\" extrahiert. null fuer Pfad-Commands/Hooks/Script-Scheduler-Laeufe (kein LLM-Aufruf) sowie fuer Laeufe ohne auswertbares Ergebnisobjekt (z.B. per SIGTERM gestoppt)."
+          },
+          "inputTokens": { "type": ["integer", "null"] },
+          "outputTokens": { "type": ["integer", "null"] },
+          "cacheCreationInputTokens": { "type": ["integer", "null"] },
+          "cacheReadInputTokens": { "type": ["integer", "null"] }
         }
       },
       "Error": {

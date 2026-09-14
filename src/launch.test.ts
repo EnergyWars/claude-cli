@@ -9,6 +9,7 @@ import {
   buildClaudeArgs,
   buildSchedulerSystemPrompt,
   buildSystemPrompt,
+  parseHeadlessResultJson,
   runHeadlessCommand,
   runShellCommand,
 } from './launch.js';
@@ -212,6 +213,8 @@ test('runHeadlessCommand: sammelt Output und liefert Exit-Code 0', async () => {
       'auto',
       '--print',
       'irgendein prompt',
+      '--output-format',
+      'json',
     ]);
   } finally {
     process.env.PATH = previousPath;
@@ -243,6 +246,8 @@ test('runHeadlessCommand: gibt permissions als --allowedTools an claude weiter',
       'auto',
       '--print',
       'irgendein prompt',
+      '--output-format',
+      'json',
       '--allowedTools',
       'Bash(gradle *)',
       'Bash(./gradlew *)',
@@ -397,4 +402,156 @@ test('runShellCommand: onSpawn erhaelt das Kind-Prozess-Handle, SIGTERM beendet 
     'Prozess sollte lange vor Ablauf der 5s beendet worden sein',
   );
   assert.notEqual(result.exitCode, 0);
+});
+
+test('buildClaudeArgs: mit headlessOutputFormat haengt --output-format nach dem Prompt an', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', 'headless', undefined, undefined, 'json');
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'auto',
+    '--print',
+    'headless',
+    '--output-format',
+    'json',
+  ]);
+});
+
+test('buildClaudeArgs: headlessOutputFormat ohne headlessPrompt hat keinen Effekt', () => {
+  const args = buildClaudeArgs('sonnet', 'SYSTEM-PROMPT', undefined, undefined, undefined, 'json');
+  assert.deepEqual(args, [
+    '--model',
+    'sonnet',
+    '--append-system-prompt',
+    'SYSTEM-PROMPT',
+    '--permission-mode',
+    'auto',
+  ]);
+});
+
+test('parseHeadlessResultJson: gueltiges Ergebnisobjekt liefert Text + usage', () => {
+  const parsed = parseHeadlessResultJson(
+    JSON.stringify({
+      type: 'result',
+      result: 'Antworttext',
+      total_cost_usd: 0.0215587,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 31,
+        cache_creation_input_tokens: 9538,
+        cache_read_input_tokens: 13607,
+      },
+    }),
+  );
+  assert.deepEqual(parsed, {
+    text: 'Antworttext',
+    usage: {
+      costUsd: 0.0215587,
+      inputTokens: 10,
+      outputTokens: 31,
+      cacheCreationInputTokens: 9538,
+      cacheReadInputTokens: 13607,
+    },
+  });
+});
+
+test('parseHeadlessResultJson: fehlendes usage liefert Text ohne usage', () => {
+  const parsed = parseHeadlessResultJson(JSON.stringify({ type: 'result', result: 'x' }));
+  assert.deepEqual(parsed, { text: 'x', usage: undefined });
+});
+
+test('parseHeadlessResultJson: leerer String liefert undefined', () => {
+  assert.equal(parseHeadlessResultJson(''), undefined);
+  assert.equal(parseHeadlessResultJson('   '), undefined);
+});
+
+test('parseHeadlessResultJson: unvollstaendiges/ungueltiges JSON liefert undefined', () => {
+  assert.equal(parseHeadlessResultJson('{"type":"result","result":'), undefined);
+  assert.equal(parseHeadlessResultJson('nicht json'), undefined);
+});
+
+test('parseHeadlessResultJson: JSON ohne type "result" liefert undefined', () => {
+  assert.equal(
+    parseHeadlessResultJson(JSON.stringify({ type: 'system', subtype: 'init' })),
+    undefined,
+  );
+});
+
+test('parseHeadlessResultJson: type "result" ohne string result liefert undefined', () => {
+  assert.equal(parseHeadlessResultJson(JSON.stringify({ type: 'result', result: 42 })), undefined);
+});
+
+test('parseHeadlessResultJson: nicht-numerische usage-Felder werden zu 0', () => {
+  const parsed = parseHeadlessResultJson(
+    JSON.stringify({
+      type: 'result',
+      result: 'x',
+      usage: { input_tokens: 'viel', output_tokens: null },
+    }),
+  );
+  assert.deepEqual(parsed, {
+    text: 'x',
+    usage: {
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    },
+  });
+});
+
+test('runHeadlessCommand: fragt --output-format json an und liefert usage aus dem Ergebnisobjekt', async () => {
+  const mock = createMockClaude({
+    resultJson: {
+      type: 'result',
+      result: 'finaler Text',
+      total_cost_usd: 0.01,
+      usage: {
+        input_tokens: 5,
+        output_tokens: 7,
+        cache_creation_input_tokens: 1,
+        cache_read_input_tokens: 2,
+      },
+    },
+    exitCode: 0,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    const chunks: string[] = [];
+    const result = await runHeadlessCommand('', 'sonnet', 'p', process.cwd(), (output) => {
+      chunks.push(output);
+    });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.output, 'finaler Text');
+    assert.deepEqual(result.usage, {
+      costUsd: 0.01,
+      inputTokens: 5,
+      outputTokens: 7,
+      cacheCreationInputTokens: 1,
+      cacheReadInputTokens: 2,
+    });
+    assert.ok(chunks.every((chunk) => chunk === 'finaler Text' || chunk === ''));
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
+});
+
+test('runHeadlessCommand: kein usage, wenn stdout kein gueltiges Ergebnisobjekt ist (Fallback auf Rohtext)', async () => {
+  const mock = createMockClaude({ outputChunks: ['plain text'], exitCode: 0 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    const result = await runHeadlessCommand('', 'sonnet', 'p', process.cwd(), () => undefined);
+    assert.equal(result.usage, undefined);
+    assert.match(result.output, /plain text/);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
 });

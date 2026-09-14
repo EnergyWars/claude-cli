@@ -42,6 +42,12 @@ test('renderServiceUnit: startet unbegrenzt und frueh neu', () => {
   assert.match(unit, /^OOMPolicy=continue$/m);
 });
 
+test('renderServiceUnit: begrenzt den Speicher auf den eigenen Cgroup', () => {
+  const unit = renderServiceUnit(params);
+  assert.match(unit, /^MemoryHigh=8G$/m);
+  assert.match(unit, /^MemoryMax=10G$/m);
+});
+
 test('renderServiceUnit: wartet nicht auf network-online.target', () => {
   const unit = renderServiceUnit(params);
   assert.ok(!unit.includes('network-online.target'));

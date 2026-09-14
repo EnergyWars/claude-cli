@@ -21,11 +21,14 @@ import {
   insertCommand,
   insertFeedback,
   insertGeneratingTicket,
+  insertSystemMetric,
   insertTicket,
   listAllTickets,
+  listCommandCosts,
   listCommands,
   listFeedback,
   listRunningCommandsWithPid,
+  listSystemMetrics,
   listTickets,
   logAccess,
   openDatabase,
@@ -194,6 +197,11 @@ test('insertCommand + getCommand: Roundtrip mit status "running"', () => {
   assert.equal(row.output, '');
   assert.equal(row.exitCode, null);
   assert.equal(row.pid, null);
+  assert.equal(row.costUsd, null);
+  assert.equal(row.inputTokens, null);
+  assert.equal(row.outputTokens, null);
+  assert.equal(row.cacheCreationInputTokens, null);
+  assert.equal(row.cacheReadInputTokens, null);
   assert.equal(typeof row.createdAt, 'string');
   assert.equal(row.createdAt, row.updatedAt);
 });
@@ -230,6 +238,61 @@ test('openDatabase: ergaenzt fehlende Spalte "pid" in einer alten t_commands-Tab
       const row = getCommand(migratedDb, 'legacy-pid-cmd');
       assert.ok(row);
       assert.equal(row.pid, null);
+    } finally {
+      migratedDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('openDatabase: ergaenzt fehlende Kosten-/Token-Spalten in einer alten t_commands-Tabelle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-migration-cost-'));
+  try {
+    const legacyDb = new DatabaseSync(join(dir, 'commands.db'));
+    legacyDb.exec(`
+      CREATE TABLE t_commands (
+        id TEXT PRIMARY KEY,
+        agent TEXT NOT NULL,
+        model TEXT NOT NULL,
+        command TEXT NOT NULL,
+        path TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        output TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        pid INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    legacyDb.close();
+
+    const migratedDb = openDatabase(dir);
+    try {
+      insertCommand(migratedDb, {
+        id: 'legacy-cost-cmd',
+        agent: 'main',
+        model: 'sonnet',
+        command: 'x',
+        path: '/tmp',
+      });
+      const row = getCommand(migratedDb, 'legacy-cost-cmd');
+      assert.ok(row);
+      assert.equal(row.costUsd, null);
+      assert.equal(row.inputTokens, null);
+      assert.equal(row.outputTokens, null);
+      assert.equal(row.cacheCreationInputTokens, null);
+      assert.equal(row.cacheReadInputTokens, null);
+
+      completeCommand(migratedDb, 'legacy-cost-cmd', 'completed', 0, 'ok', {
+        costUsd: 0.5,
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheCreationInputTokens: 3,
+        cacheReadInputTokens: 4,
+      });
+      const updated = getCommand(migratedDb, 'legacy-cost-cmd');
+      assert.equal(updated?.costUsd, 0.5);
     } finally {
       migratedDb.close();
     }
@@ -477,6 +540,157 @@ test('completeCommand: setzt status "failed" mit null exit_code (Spawn-Fehler)',
   assert.equal(row.status, 'failed');
   assert.equal(row.exitCode, null);
   assert.equal(row.output, 'claude ENOENT');
+});
+
+test('completeCommand: mit usage setzt Kosten-/Token-Spalten', () => {
+  insertCommand(db, { id: 'cmd-usage-1', agent: 'main', model: 'sonnet', command: 'x', path: '/tmp' });
+  completeCommand(db, 'cmd-usage-1', 'completed', 0, 'Antwort', {
+    costUsd: 0.0215587,
+    inputTokens: 10,
+    outputTokens: 31,
+    cacheCreationInputTokens: 9538,
+    cacheReadInputTokens: 13607,
+  });
+  const row = getCommand(db, 'cmd-usage-1');
+  assert.ok(row);
+  assert.equal(row.costUsd, 0.0215587);
+  assert.equal(row.inputTokens, 10);
+  assert.equal(row.outputTokens, 31);
+  assert.equal(row.cacheCreationInputTokens, 9538);
+  assert.equal(row.cacheReadInputTokens, 13607);
+});
+
+test('completeCommand: ohne usage bleiben Kosten-/Token-Spalten null', () => {
+  insertCommand(db, { id: 'cmd-usage-2', agent: 'main', model: 'sonnet', command: 'x', path: '/tmp' });
+  completeCommand(db, 'cmd-usage-2', 'stopped', null, 'abgebrochen');
+  const row = getCommand(db, 'cmd-usage-2');
+  assert.ok(row);
+  assert.equal(row.costUsd, null);
+  assert.equal(row.inputTokens, null);
+});
+
+test('listCommandCosts: nur Commands mit gesetzten Kosten, neueste zuerst', () => {
+  insertCommand(db, { id: 'cost-a', agent: 'main', model: 'sonnet', command: 'a', path: '/proj-a' });
+  completeCommand(db, 'cost-a', 'completed', 0, 'x', {
+    costUsd: 0.01,
+    inputTokens: 1,
+    outputTokens: 2,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+  });
+  insertCommand(db, { id: 'cost-b', agent: 'main', model: 'sonnet', command: 'b', path: '/proj-b' });
+  completeCommand(db, 'cost-b', 'completed', 0, 'x', {
+    costUsd: 0.02,
+    inputTokens: 3,
+    outputTokens: 4,
+    cacheCreationInputTokens: 1,
+    cacheReadInputTokens: 1,
+  });
+  insertCommand(db, {
+    id: 'cost-no-usage',
+    agent: 'path-command:proj-a:clean',
+    model: '-',
+    command: 'echo x',
+    path: '/proj-a',
+  });
+  completeCommand(db, 'cost-no-usage', 'completed', 0, 'x');
+
+  const costs = listCommandCosts(db);
+  const ids = costs.map((entry) => entry.id);
+  assert.ok(ids.includes('cost-a'));
+  assert.ok(ids.includes('cost-b'));
+  assert.ok(!ids.includes('cost-no-usage'));
+  const indexB = ids.indexOf('cost-b');
+  const indexA = ids.indexOf('cost-a');
+  assert.ok(indexB < indexA, 'neuere Zeile (cost-b) sollte vor cost-a stehen');
+  const entryA = costs.find((entry) => entry.id === 'cost-a');
+  assert.deepEqual(entryA, {
+    id: 'cost-a',
+    path: '/proj-a',
+    createdAt: entryA?.createdAt,
+    costUsd: 0.01,
+    inputTokens: 1,
+    outputTokens: 2,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+  });
+});
+
+test('insertSystemMetric + listSystemMetrics: chronologisch aufsteigend', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-metrics-'));
+  try {
+    const metricsDb = openDatabase(dir);
+    try {
+      insertSystemMetric(metricsDb, {
+        cpuPercent: 12.5,
+        memUsedPercent: 40.1,
+        memTotalBytes: 1000,
+        memFreeBytes: 600,
+      });
+      insertSystemMetric(metricsDb, {
+        cpuPercent: 20,
+        memUsedPercent: 50,
+        memTotalBytes: 1000,
+        memFreeBytes: 500,
+      });
+      const rows = listSystemMetrics(metricsDb);
+      assert.equal(rows.length, 2);
+      const [first, second] = rows;
+      assert.ok(first);
+      assert.ok(second);
+      assert.equal(first.cpuPercent, 12.5);
+      assert.equal(second.cpuPercent, 20);
+      assert.equal(first.memTotalBytes, 1000);
+      assert.ok(first.createdAt <= second.createdAt);
+    } finally {
+      metricsDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('listSystemMetrics: sinceIso filtert aeltere Eintraege heraus', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-metrics-filter-'));
+  try {
+    const metricsDb = openDatabase(dir);
+    try {
+      insertSystemMetric(metricsDb, {
+        cpuPercent: 1,
+        memUsedPercent: 1,
+        memTotalBytes: 1000,
+        memFreeBytes: 900,
+      });
+      const cutoff = new Date(Date.now() + 60_000).toISOString();
+      insertSystemMetric(metricsDb, {
+        cpuPercent: 2,
+        memUsedPercent: 2,
+        memTotalBytes: 1000,
+        memFreeBytes: 800,
+      });
+      const filtered = listSystemMetrics(metricsDb, cutoff);
+      assert.equal(filtered.length, 0);
+      assert.equal(listSystemMetrics(metricsDb).length, 2);
+    } finally {
+      metricsDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('listSystemMetrics: leeres Array ohne Eintraege', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-metrics-empty-'));
+  try {
+    const metricsDb = openDatabase(dir);
+    try {
+      assert.deepEqual(listSystemMetrics(metricsDb), []);
+    } finally {
+      metricsDb.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('logAccess: schreibt Zeile inkl. Body', () => {

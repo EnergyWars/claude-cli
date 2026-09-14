@@ -349,6 +349,44 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getCosts requests the plain path and parses the overview`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"totalCostUsd":12.34,"totalInputTokens":1000,"totalOutputTokens":2000,"totalCacheCreationInputTokens":500,"totalCacheReadInputTokens":300,"projects":[{"pathName":"myapp","totalCostUsd":3.21,"entries":[{"id":"abc","createdAt":"2026-09-14T12:00:00.000Z","costUsd":0.02,"inputTokens":10,"outputTokens":40,"cacheCreationInputTokens":0,"cacheReadInputTokens":100}]}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getCosts()
+
+        assertEquals(12.34, result.totalCostUsd, 0.0)
+        assertEquals(1000L, result.totalInputTokens)
+        assertEquals(1, result.projects.size)
+        assertEquals("myapp", result.projects.first().pathName)
+        assertEquals(1, result.projects.first().entries.size)
+        assertEquals("abc", result.projects.first().entries.first().id)
+        val recorded = server.takeRequest()
+        assertEquals("/costs", recorded.target)
+    }
+
+    @Test
+    fun `getSystemMetrics requests the plain path and parses the samples`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"metrics":[{"createdAt":"2026-09-14T12:00:00.000Z","cpuPercent":23.4,"memUsedPercent":61.2,"memTotalBytes":16000000000,"memFreeBytes":6200000000}],"windowHours":24}""",
+            ),
+        )
+
+        val result = apiWithConnection().getSystemMetrics()
+
+        assertEquals(1, result.metrics.size)
+        assertEquals(23.4, result.metrics.first().cpuPercent, 0.0)
+        assertEquals(16_000_000_000L, result.metrics.first().memTotalBytes)
+        assertEquals(24.0, result.windowHours, 0.0)
+        val recorded = server.takeRequest()
+        assertEquals("/system-metrics", recorded.target)
+    }
+
+    @Test
     fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
         server.enqueue(
             MockResponse(

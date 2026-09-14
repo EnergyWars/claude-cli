@@ -57,6 +57,8 @@ TimeoutStopSec=30
 LimitNOFILE=65536
 OOMPolicy=continue
 OOMScoreAdjust=-500
+MemoryHigh=8G
+MemoryMax=10G
 
 StandardOutput=journal
 StandardError=journal

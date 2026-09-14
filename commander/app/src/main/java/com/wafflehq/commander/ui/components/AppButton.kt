@@ -56,6 +56,7 @@ fun AppButton(
                 disabledContainerColor = t.disabledBackground,
                 disabledContentColor   = t.disabledContent,
             ),
+            border = BorderStroke(1.dp, if (enabled) r.tonalBorder else t.disabledContent),
         ) { Text(text) }
 
         ButtonVariant.Elevated -> ElevatedButton(

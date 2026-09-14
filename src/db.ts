@@ -17,6 +17,40 @@ export interface CommandRow {
   pid: number | null;
   createdAt: string;
   updatedAt: string;
+  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  cacheReadInputTokens: number | null;
+}
+
+/** Token-/Kostenverbrauch eines einzelnen `claude`-Laufs, aus `--output-format json` extrahiert (siehe `parseHeadlessResultJson` in `src/launch.ts`). */
+export interface CommandUsage {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+export interface CostEntry {
+  id: string;
+  path: string;
+  createdAt: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
+export interface SystemMetricRow {
+  id: number;
+  createdAt: string;
+  cpuPercent: number;
+  memUsedPercent: number;
+  memTotalBytes: number;
+  memFreeBytes: number;
 }
 
 function ensureColumns(
@@ -67,6 +101,11 @@ export function openDatabase(directory: string): DatabaseSync {
   ensureColumns(db, 't_commands', [
     { name: 'path', definition: "path TEXT NOT NULL DEFAULT ''" },
     { name: 'pid', definition: 'pid INTEGER' },
+    { name: 'cost_usd', definition: 'cost_usd REAL' },
+    { name: 'input_tokens', definition: 'input_tokens INTEGER' },
+    { name: 'output_tokens', definition: 'output_tokens INTEGER' },
+    { name: 'cache_creation_input_tokens', definition: 'cache_creation_input_tokens INTEGER' },
+    { name: 'cache_read_input_tokens', definition: 'cache_read_input_tokens INTEGER' },
   ]);
   db.exec(`
     CREATE TABLE IF NOT EXISTS t_totp (
@@ -138,6 +177,19 @@ export function openDatabase(directory: string): DatabaseSync {
       FOREIGN KEY (version_id) REFERENCES t_config_versions(id)
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_system_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      cpu_percent REAL NOT NULL,
+      mem_used_percent REAL NOT NULL,
+      mem_total_bytes INTEGER NOT NULL,
+      mem_free_bytes INTEGER NOT NULL
+    )
+  `);
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_system_metrics_created ON t_system_metrics (created_at)',
+  );
   return db;
 }
 
@@ -201,16 +253,43 @@ export function updateCommandOutput(db: DatabaseSync, id: string, output: string
   );
 }
 
+/**
+ * `usage` wird nur bei erfolgreicher Extraktion aus `--output-format json` mitgegeben (siehe
+ * `parseHeadlessResultJson` in `src/launch.ts`) - `COALESCE` laesst die Kosten-/Token-Spalten
+ * unangetastet, wenn kein `usage` vorliegt (z.B. Spawn-Fehler, per SIGTERM gestoppter Lauf).
+ */
 export function completeCommand(
   db: DatabaseSync,
   id: string,
   status: 'completed' | 'failed' | 'stopped',
   exitCode: number | null,
   output: string,
+  usage?: CommandUsage,
 ): void {
   db.prepare(
-    'UPDATE t_commands SET status = ?, exit_code = ?, output = ?, updated_at = ? WHERE id = ?',
-  ).run(status, exitCode, output, new Date().toISOString(), id);
+    `UPDATE t_commands SET status = ?, exit_code = ?, output = ?, updated_at = ?,
+       cost_usd = COALESCE(?, cost_usd),
+       input_tokens = COALESCE(?, input_tokens),
+       output_tokens = COALESCE(?, output_tokens),
+       cache_creation_input_tokens = COALESCE(?, cache_creation_input_tokens),
+       cache_read_input_tokens = COALESCE(?, cache_read_input_tokens)
+     WHERE id = ?`,
+  ).run(
+    status,
+    exitCode,
+    output,
+    new Date().toISOString(),
+    usage?.costUsd ?? null,
+    usage?.inputTokens ?? null,
+    usage?.outputTokens ?? null,
+    usage?.cacheCreationInputTokens ?? null,
+    usage?.cacheReadInputTokens ?? null,
+    id,
+  );
+}
+
+function toNullableNumber(value: SQLOutputValue | undefined): number | null {
+  return value === null || value === undefined ? null : Number(value);
 }
 
 function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
@@ -226,6 +305,11 @@ function toCommandRow(row: Record<string, SQLOutputValue>): CommandRow {
     pid: row.pid === null || row.pid === undefined ? null : Number(row.pid),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    costUsd: toNullableNumber(row.cost_usd),
+    inputTokens: toNullableNumber(row.input_tokens),
+    outputTokens: toNullableNumber(row.output_tokens),
+    cacheCreationInputTokens: toNullableNumber(row.cache_creation_input_tokens),
+    cacheReadInputTokens: toNullableNumber(row.cache_read_input_tokens),
   };
 }
 
@@ -243,6 +327,11 @@ function toCommandSummaryRow(row: Record<string, SQLOutputValue>): CommandRow {
     pid: row.pid === null || row.pid === undefined ? null : Number(row.pid),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    costUsd: toNullableNumber(row.cost_usd),
+    inputTokens: toNullableNumber(row.input_tokens),
+    outputTokens: toNullableNumber(row.output_tokens),
+    cacheCreationInputTokens: toNullableNumber(row.cache_creation_input_tokens),
+    cacheReadInputTokens: toNullableNumber(row.cache_read_input_tokens),
   };
 }
 
@@ -266,7 +355,8 @@ export function listCommands(
   path: string,
   options?: { limit?: number; offset?: number },
 ): CommandRow[] {
-  const columns = 'id, agent, model, command, path, status, exit_code, pid, created_at, updated_at';
+  const columns =
+    'id, agent, model, command, path, status, exit_code, pid, created_at, updated_at, cost_usd, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens';
   if (options?.limit === undefined) {
     const rows = db
       .prepare(
@@ -321,6 +411,64 @@ export function countAgentsSince(db: DatabaseSync, path: string, sinceIso: strin
     )
     .get(path, sinceIso);
   return Number(row?.count ?? 0);
+}
+
+/** Alle Commands mit erfasstem Kostenverbrauch (echte `claude`-Laeufe, siehe {@link CommandUsage}), neueste zuerst - Grundlage fuer `GET /costs` (aggregiert projektuebergreifend, siehe `handleGetCosts` in `src/server.ts`). Pfad-Commands/Hooks/Script-Scheduler-Laeufe haben nie `cost_usd` gesetzt und tauchen hier nie auf. */
+export function listCommandCosts(db: DatabaseSync): CostEntry[] {
+  const rows = db
+    .prepare(
+      `SELECT id, path, created_at, cost_usd, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens
+       FROM t_commands WHERE cost_usd IS NOT NULL ORDER BY created_at DESC, rowid DESC`,
+    )
+    .all();
+  return rows.map((row) => ({
+    id: String(row.id),
+    path: String(row.path),
+    createdAt: String(row.created_at),
+    costUsd: Number(row.cost_usd),
+    inputTokens: Number(row.input_tokens ?? 0),
+    outputTokens: Number(row.output_tokens ?? 0),
+    cacheCreationInputTokens: Number(row.cache_creation_input_tokens ?? 0),
+    cacheReadInputTokens: Number(row.cache_read_input_tokens ?? 0),
+  }));
+}
+
+export function insertSystemMetric(
+  db: DatabaseSync,
+  metric: {
+    cpuPercent: number;
+    memUsedPercent: number;
+    memTotalBytes: number;
+    memFreeBytes: number;
+  },
+): void {
+  db.prepare(
+    'INSERT INTO t_system_metrics (created_at, cpu_percent, mem_used_percent, mem_total_bytes, mem_free_bytes) VALUES (?, ?, ?, ?, ?)',
+  ).run(
+    new Date().toISOString(),
+    metric.cpuPercent,
+    metric.memUsedPercent,
+    metric.memTotalBytes,
+    metric.memFreeBytes,
+  );
+}
+
+/** Chronologisch aufsteigend (aeltester zuerst) - direkt in dieser Reihenfolge fuer ein Zeitreihen-Diagramm nutzbar. */
+export function listSystemMetrics(db: DatabaseSync, sinceIso?: string): SystemMetricRow[] {
+  const rows =
+    sinceIso === undefined
+      ? db.prepare('SELECT * FROM t_system_metrics ORDER BY created_at ASC').all()
+      : db
+          .prepare('SELECT * FROM t_system_metrics WHERE created_at >= ? ORDER BY created_at ASC')
+          .all(sinceIso);
+  return rows.map((row) => ({
+    id: Number(row.id),
+    createdAt: String(row.created_at),
+    cpuPercent: Number(row.cpu_percent),
+    memUsedPercent: Number(row.mem_used_percent),
+    memTotalBytes: Number(row.mem_total_bytes),
+    memFreeBytes: Number(row.mem_free_bytes),
+  }));
 }
 
 export interface TotpRow {

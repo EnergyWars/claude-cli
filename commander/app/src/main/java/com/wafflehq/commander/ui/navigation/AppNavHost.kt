@@ -25,11 +25,13 @@ import com.wafflehq.commander.ui.agents.AgentsScreen
 import com.wafflehq.commander.ui.collect.CollectScreen
 import com.wafflehq.commander.ui.command.CommandDetailScreen
 import com.wafflehq.commander.ui.commands.CommandsScreen
+import com.wafflehq.commander.ui.costs.TokenCostsScreen
 import com.wafflehq.commander.ui.downloads.DownloadHistoryScreen
 import com.wafflehq.commander.ui.downloads.DownloadsScreen
 import com.wafflehq.commander.ui.feedback.FeedbackListScreen
 import com.wafflehq.commander.ui.history.HistoryScreen
 import com.wafflehq.commander.ui.login.LoginScreen
+import com.wafflehq.commander.ui.metrics.SystemMetricsScreen
 import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
 import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
@@ -71,6 +73,8 @@ object Routes {
     const val SETTINGS_CONTEXT_EDIT = "settings_contexts/edit/{id}"
     const val SETTINGS_CONFIG = "settings_config"
     const val SETTINGS_CONFIG_VERSIONS = "settings_config/versions"
+    const val TOKEN_COSTS = "token_costs"
+    const val SYSTEM_METRICS = "system_metrics"
 
     fun commands(pathName: String): String = "commands/${Uri.encode(pathName)}"
 
@@ -318,6 +322,8 @@ fun AppNavHost() {
                 onOpenDisplay = { navController.navigate(Routes.SETTINGS_DISPLAY) },
                 onOpenContexts = { navController.navigate(Routes.SETTINGS_CONTEXTS) },
                 onOpenConfig = { navController.navigate(Routes.SETTINGS_CONFIG) },
+                onOpenTokenCosts = { navController.navigate(Routes.TOKEN_COSTS) },
+                onOpenSystemMetrics = { navController.navigate(Routes.SYSTEM_METRICS) },
                 onDisconnected = { navController.navigate(Routes.SETUP) { popUpTo(0) } },
             )
         }
@@ -348,6 +354,15 @@ fun AppNavHost() {
         }
         composable(Routes.SETTINGS_CONFIG_VERSIONS) {
             ConfigVersionsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.TOKEN_COSTS) {
+            TokenCostsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenCommand = { id, pathName -> navController.navigate(Routes.commandDetail(id, pathName)) },
+            )
+        }
+        composable(Routes.SYSTEM_METRICS) {
+            SystemMetricsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

@@ -7,6 +7,8 @@ import {
   type SchedulerConfig,
   type TaskConfig,
 } from './config.js';
+import type { CommandUsage } from './db.js';
+import { extractJsonObjects } from './json-utils.js';
 
 export function buildSystemPrompt(entity: { contexts: string[] }): string {
   return entity.contexts.map((name) => resolveContext(name)).join('\n\n');
@@ -37,6 +39,7 @@ export function buildClaudeArgs(
   headlessPrompt?: string,
   interactivePrompt?: string,
   permissions?: string[],
+  headlessOutputFormat?: 'json',
 ): string[] {
   const args = [
     '--model',
@@ -49,6 +52,9 @@ export function buildClaudeArgs(
 
   if (headlessPrompt !== undefined) {
     args.push('--print', headlessPrompt);
+    if (headlessOutputFormat !== undefined) {
+      args.push('--output-format', headlessOutputFormat);
+    }
   } else if (interactivePrompt !== undefined) {
     args.push(interactivePrompt);
   }
@@ -58,6 +64,69 @@ export function buildClaudeArgs(
   }
 
   return args;
+}
+
+interface HeadlessResultJson {
+  type?: unknown;
+  result?: unknown;
+  total_cost_usd?: unknown;
+  usage?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+    cache_creation_input_tokens?: unknown;
+    cache_read_input_tokens?: unknown;
+  };
+}
+
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Parst das abschliessende `claude --print ... --output-format json`-Ergebnisobjekt. Nutzt wie
+ * `extractUsageResultText` (`src/usage.ts`) `extractJsonObjects()` statt eines simplen `JSON.parse(raw)`
+ * auf dem Gesamtstring - dadurch liefert dieselbe Funktion auch waehrend `claude` noch laeuft (`raw` ist
+ * dann noch unvollstaendiges JSON, z.B. `{"type":"result","result":` ohne schliessende Klammer)
+ * konsistent `undefined`, bis das Ergebnisobjekt vollstaendig auf stdout angekommen ist. Aufrufer fallen in
+ * diesem Fall auf den rohen bisherigen Output zurueck (siehe {@link runHeadlessCommand}) - unveraendertes
+ * Verhalten fuer jedes Mock-"claude"-Binary in den Tests, das kein JSON, sondern rohen Text ausgibt.
+ */
+export function parseHeadlessResultJson(
+  raw: string,
+): { text: string; usage: CommandUsage | undefined } | undefined {
+  const candidates = extractJsonObjects(raw);
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const candidate = candidates[i];
+    if (candidate === undefined) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== 'object' || parsed === null) {
+      continue;
+    }
+    const result = parsed as HeadlessResultJson;
+    if (result.type !== 'result' || typeof result.result !== 'string') {
+      continue;
+    }
+    const usageRaw = result.usage;
+    const usage: CommandUsage | undefined =
+      typeof usageRaw === 'object'
+        ? {
+            costUsd: toFiniteNumber(result.total_cost_usd),
+            inputTokens: toFiniteNumber(usageRaw.input_tokens),
+            outputTokens: toFiniteNumber(usageRaw.output_tokens),
+            cacheCreationInputTokens: toFiniteNumber(usageRaw.cache_creation_input_tokens),
+            cacheReadInputTokens: toFiniteNumber(usageRaw.cache_read_input_tokens),
+          }
+        : undefined;
+    return { text: result.result, usage };
+  }
+  return undefined;
 }
 
 export async function launchAgent(
@@ -89,8 +158,17 @@ export async function launchAgent(
 export interface HeadlessCommandResult {
   exitCode: number | null;
   output: string;
+  usage: CommandUsage | undefined;
 }
 
+/**
+ * Fordert von `claude` `--output-format json` an, um Kosten/Token-Verbrauch (`usage`) einzusammeln
+ * (siehe {@link parseHeadlessResultJson}). `stdoutOnly` wird ausschliesslich fuer den JSON-Parse-Versuch
+ * verwendet (stderr wuerde ein sonst gueltiges JSON-Objekt zerstueckeln); `combinedOutput` (stdout+stderr,
+ * wie vor Einfuehrung dieses Formats) ist der Fallback, solange noch kein vollstaendiges Ergebnisobjekt
+ * geparst werden kann - dadurch bleibt das Verhalten fuer jeden Mock/Fehlerfall, der kein `--output-format
+ * json` versteht (z.B. alle bestehenden Test-Mocks, ein abstuerzendes `claude`-Binary), unveraendert.
+ */
 export async function runHeadlessCommand(
   systemPrompt: string,
   model: string,
@@ -100,23 +178,33 @@ export async function runHeadlessCommand(
   permissions?: string[],
   onSpawn?: (child: ChildProcess) => void,
 ): Promise<HeadlessCommandResult> {
-  const args = buildClaudeArgs(model, systemPrompt, command, undefined, permissions);
+  const args = buildClaudeArgs(model, systemPrompt, command, undefined, permissions, 'json');
 
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd });
     onSpawn?.(child);
-    let output = '';
+    let combinedOutput = '';
+    let stdoutOnly = '';
 
-    const handleChunk = (chunk: Buffer): void => {
-      output += chunk.toString('utf8');
-      onChunk(output);
+    const currentDisplay = (): { text: string; usage: CommandUsage | undefined } => {
+      const parsed = parseHeadlessResultJson(stdoutOnly);
+      return parsed ?? { text: combinedOutput, usage: undefined };
     };
 
-    child.stdout.on('data', handleChunk);
-    child.stderr.on('data', handleChunk);
+    child.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      combinedOutput += text;
+      stdoutOnly += text;
+      onChunk(currentDisplay().text);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      combinedOutput += chunk.toString('utf8');
+      onChunk(currentDisplay().text);
+    });
     child.on('error', reject);
     child.on('exit', (code) => {
-      resolve({ exitCode: code, output });
+      const final = currentDisplay();
+      resolve({ exitCode: code, output: final.text, usage: final.usage });
     });
   });
 }
@@ -141,7 +229,7 @@ export async function runShellCommand(
     child.stderr.on('data', handleChunk);
     child.on('error', reject);
     child.on('exit', (code) => {
-      resolve({ exitCode: code, output });
+      resolve({ exitCode: code, output, usage: undefined });
     });
   });
 }
