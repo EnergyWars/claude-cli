@@ -36,6 +36,7 @@ import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
 import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
+import com.wafflehq.commander.ui.schedulers.SchedulersScreen
 import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
 import com.wafflehq.commander.ui.settings.SettingsScreen
 import com.wafflehq.commander.ui.settings.config.ConfigScreen
@@ -64,6 +65,7 @@ object Routes {
     const val HISTORY = "history/{pathName}"
     const val STATS = "stats/{pathName}"
     const val REMOTE_SESSIONS = "remote_sessions/{pathName}"
+    const val SCHEDULERS = "schedulers/{pathName}"
     const val FEEDBACK = "feedback/{pathName}"
     const val COLLECT = "collect/{pathName}"
     const val SETTINGS = "settings"
@@ -103,6 +105,8 @@ object Routes {
     fun stats(pathName: String): String = "stats/${Uri.encode(pathName)}"
 
     fun remoteSessions(pathName: String): String = "remote_sessions/${Uri.encode(pathName)}"
+
+    fun schedulers(pathName: String): String = "schedulers/${Uri.encode(pathName)}"
 
     fun feedback(pathName: String): String = "feedback/${Uri.encode(pathName)}"
 
@@ -196,6 +200,7 @@ fun AppNavHost() {
                 onOpenCollect = { pathName -> navController.navigate(Routes.collect(pathName)) },
                 onOpenStats = { pathName -> navController.navigate(Routes.stats(pathName)) },
                 onOpenRemoteSessions = { pathName -> navController.navigate(Routes.remoteSessions(pathName)) },
+                onOpenSchedulers = { pathName -> navController.navigate(Routes.schedulers(pathName)) },
                 onOpenSettings = openSettings,
             )
         }
@@ -303,6 +308,15 @@ fun AppNavHost() {
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
         ) {
             RemoteSessionsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = Routes.SCHEDULERS,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
+            SchedulersScreen(
+                onBack = { navController.popBackStack() },
+                onCommandStarted = { commandId, pathName -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
+            )
         }
         composable(
             route = Routes.FEEDBACK,

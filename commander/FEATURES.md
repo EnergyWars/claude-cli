@@ -33,7 +33,7 @@ Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App 
 
 ## Projekt-Hub
 
-Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter neun Einträge, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen acht Einträge bleiben schlichte Listenzeilen:
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter neun feste Einträge plus ein zehnter, nur bedingt sichtbarer Eintrag, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen Einträge bleiben schlichte Listenzeilen:
 
 - **Entwicklung** (hervorgehoben) – alle konfigurierten Agenten des aktuellen Projekts.
 - **Befehle** – alle Commands des aktuellen Projekts.
@@ -44,6 +44,7 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 - **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
 - **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
 - **Remote-Sitzungen** – aktive Claude-Code-Sessions dieses Projekts anzeigen und eine neue mit Remote Control starten (siehe unten).
+- **Scheduler** (nur sichtbar, wenn das aktuelle Projekt mindestens einen (Script-)Scheduler führt) – konfigurierte (Script-)Scheduler manuell nur für dieses eine Projekt anstoßen (siehe unten).
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
@@ -138,6 +139,12 @@ Erreichbar über den „Remote-Sitzungen"-Eintrag im Projekt-Hub, immer auf das 
 Oben ein optionales Textfeld für einen Anzeigenamen sowie ein Button „Remote-Control-Sitzung starten": startet direkt auf dem Server per `claude --bg --remote-control` eine neue, von unterwegs per claude.ai/Mobile-App fernsteuerbare Session im Verzeichnis dieses Projekts. Nach erfolgreichem Start zeigt ein Erfolgs-Banner die vergebene Kurz-ID der Session; die Liste darunter lädt automatisch neu.
 
 Darunter die Liste aller aktiven Sessions dieses Projekts (interaktive **und** Hintergrund-Sessions, unabhängig davon, ob sie über die App oder direkt auf der Maschine gestartet wurden): Name, Status-Pill, Typ (Interaktiv bzw. Hintergrund inkl. Kurz-ID) und Startzeitpunkt (Geräte-Zeitzone); wartet eine Session gerade auf eine Rückmeldung (z. B. einen Permission-Prompt), erscheint zusätzlich eine Zeile dazu. Lädt einmalig beim Öffnen und nach jedem Start einer neuen Session neu (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
+
+## Scheduler
+
+Manueller Ein-mal-Trigger für die in `config.json` konfigurierten cron-gesteuerten Scheduler/Script-Scheduler (siehe `../FEATURES.md`, „Scheduler"/„Script-Scheduler") – zusätzlich zu deren automatischem `cron`-Zeitplan, ausschließlich für das **aktuell ausgewählte Projekt**, nie für die übrigen in `paths[]` des jeweiligen (Script-)Schedulers konfigurierten Projekte gleichzeitig.
+
+Der Eintrag „Scheduler" im Projekt-Hub erscheint nur, wenn `GET /paths/<pathName>/schedulers` für das aktuelle Projekt mindestens einen Scheduler oder Script-Scheduler zurückliefert – ein Projekt ohne konfigurierte (Script-)Scheduler zeigt den Eintrag gar nicht erst an. Der Screen selbst lädt dieselbe Liste erneut und zeigt jeden Eintrag (Scheduler wie Script-Scheduler gemeinsam, ohne optische Trennung außer der Reihenfolge) als Zeile mit Name, Beschreibung und Cron-Ausdruck sowie einem Start-Icon. Tippen öffnet einen Bestätigungsdialog („Scheduler jetzt ausführen?" mit Namen); erst nach Bestätigung wird `POST /paths/<pathName>/schedulers/<name>/trigger` (Agent-Scheduler) bzw. `POST /paths/<pathName>/script-schedulers/<name>/trigger` (Script-Scheduler) aufgerufen und die Status-Detailseite geöffnet – identisch zum Verhalten bei „Befehle" oben. Während ein Trigger läuft, zeigt die betroffene Zeile statt des Start-Icons einen Ladeindikator.
 
 ## Einstellungen
 

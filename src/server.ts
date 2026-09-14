@@ -77,13 +77,17 @@ import {
   listPathCommands,
   listPathNames,
   listSchedulers,
+  listSchedulersForPath,
   listScriptSchedulers,
+  listScriptSchedulersForPath,
   parseConfig,
   resolveAgentFrom,
   resolveEffectiveConfig,
   resolveHostedEntry,
   resolvePathCommand,
   resolvePathEntry,
+  resolveScheduler,
+  resolveScriptScheduler,
 } from './config.js';
 import { resolveDatabaseDirectory } from './env.js';
 import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
@@ -1757,12 +1761,13 @@ function triggerOnLastAgentFinishHook(db: DatabaseSync, pathEntry: PathEntry): v
     });
 }
 
+/** Gibt die generierte Command-ID zurueck, damit ein manueller Trigger (`POST /paths/:pathName/schedulers/:name/trigger`) sie dem Client sofort mitteilen kann (analog zu `handlePostPathCommand`s `202 { id }`). */
 function triggerSchedulerForPath(
   db: DatabaseSync,
   scheduler: SchedulerConfig,
   pathEntry: PathEntry,
   systemPrompt: string,
-): void {
+): string {
   const id = randomUUID();
   insertCommand(db, {
     id,
@@ -1818,6 +1823,8 @@ function triggerSchedulerForPath(
         message,
       );
     });
+
+  return id;
 }
 
 /**
@@ -1887,11 +1894,12 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
   }
 }
 
+/** Gibt die generierte Command-ID zurueck, damit ein manueller Trigger (`POST /paths/:pathName/script-schedulers/:name/trigger`) sie dem Client sofort mitteilen kann. */
 function triggerScriptSchedulerForPath(
   db: DatabaseSync,
   scriptScheduler: ScriptSchedulerConfig,
   pathEntry: PathEntry,
-): void {
+): string {
   const id = randomUUID();
   insertCommand(db, {
     id,
@@ -1942,6 +1950,8 @@ function triggerScriptSchedulerForPath(
         message,
       );
     });
+
+  return id;
 }
 
 function triggerScriptScheduler(
@@ -1962,6 +1972,86 @@ function triggerScriptScheduler(
     }
     triggerScriptSchedulerForPath(db, scriptScheduler, pathEntry);
   }
+}
+
+function handleGetPathSchedulers(config: Config, res: ServerResponse, pathName: string): void {
+  try {
+    sendJson(res, 200, {
+      schedulers: listSchedulersForPath(config, pathName),
+      scriptSchedulers: listScriptSchedulersForPath(config, pathName),
+    });
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/**
+ * Manueller Trigger fuer einen einzelnen Scheduler, beschraenkt auf genau das eine angegebene Projekt
+ * (`pathName`) - anders als der automatische Cron-Trigger (`triggerScheduler`), der alle in `scheduler.paths`
+ * konfigurierten Pfade gleichzeitig anstoesst. Laeuft ansonsten identisch zum Cron-Trigger (gleicher
+ * `t_commands`-Eintrag, gleiches SSE-Live-Output, gleicher `onLastAgentFinish`-Hook danach).
+ */
+function handlePostSchedulerTrigger(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  schedulerName: string,
+  pathName: string,
+): void {
+  let scheduler: SchedulerConfig;
+  let pathEntry: PathEntry;
+  try {
+    scheduler = resolveScheduler(config, schedulerName);
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  if (!scheduler.paths.includes(pathName)) {
+    sendJson(res, 400, {
+      error: `Scheduler "${schedulerName}" ist fuer Pfad "${pathName}" nicht konfiguriert.`,
+    });
+    return;
+  }
+
+  let systemPrompt: string;
+  try {
+    systemPrompt = buildSchedulerSystemPrompt(scheduler);
+  } catch (error) {
+    sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const id = triggerSchedulerForPath(db, scheduler, pathEntry, systemPrompt);
+  sendJson(res, 202, { id });
+}
+
+/** Manueller Trigger fuer einen einzelnen Script-Scheduler, beschraenkt auf genau das eine angegebene Projekt - analog zu {@link handlePostSchedulerTrigger}. */
+function handlePostScriptSchedulerTrigger(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  scriptSchedulerName: string,
+  pathName: string,
+): void {
+  let scriptScheduler: ScriptSchedulerConfig;
+  let pathEntry: PathEntry;
+  try {
+    scriptScheduler = resolveScriptScheduler(config, scriptSchedulerName);
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  if (!scriptScheduler.paths.includes(pathName)) {
+    sendJson(res, 400, {
+      error: `Script-Scheduler "${scriptSchedulerName}" ist fuer Pfad "${pathName}" nicht konfiguriert.`,
+    });
+    return;
+  }
+
+  const id = triggerScriptSchedulerForPath(db, scriptScheduler, pathEntry);
+  sendJson(res, 202, { id });
 }
 
 function handlePostCommand(
@@ -2208,6 +2298,29 @@ async function handleRequest(
       method === 'GET' &&
       segments.length === 3 &&
       segments[0] === 'paths' &&
+      segments[2] === 'schedulers'
+    ) {
+      handleGetPathSchedulers(config, res, segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 5 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'schedulers' &&
+      segments[4] === 'trigger'
+    ) {
+      handlePostSchedulerTrigger(db, config, res, segments[3] ?? '', segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 5 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'script-schedulers' &&
+      segments[4] === 'trigger'
+    ) {
+      handlePostScriptSchedulerTrigger(db, config, res, segments[3] ?? '', segments[1] ?? '');
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'paths' &&
       segments[2] === 'remote-sessions'
     ) {
       await handleGetRemoteSessions(config, res, segments[1] ?? '');
@@ -2349,6 +2462,15 @@ function printEndpoints(config: Config, port: number): void {
       console.log(`  POST ${base}/paths/${pathEntry.name}/commands/${command.key}`);
     }
   }
+  console.log(
+    `  GET  ${base}/paths/:pathName/schedulers                    (Scheduler+Script-Scheduler, die diesen Pfad fuehren)`,
+  );
+  console.log(
+    `  POST ${base}/paths/:pathName/schedulers/:name/trigger        (manueller Trigger, nur fuer diesen einen Pfad)`,
+  );
+  console.log(
+    `  POST ${base}/paths/:pathName/script-schedulers/:name/trigger (manueller Trigger, nur fuer diesen einen Pfad)`,
+  );
   console.log(`  GET  ${base}/paths/:pathName/remote-sessions`);
   console.log(
     `  POST ${base}/paths/:pathName/remote-sessions (startet eine "claude --bg --remote-control"-Session)`,

@@ -24,6 +24,7 @@ private const val USAGE_POLL_INTERVAL_MS = 60_000L
 data class ProjectHomeUiState(
     val availablePaths: List<String> = emptyList(),
     val usageLimits: List<UsageLimit> = emptyList(),
+    val hasSchedulers: Boolean = false,
     val error: String? = null,
 )
 
@@ -54,6 +55,26 @@ class ProjectHomeViewModel @Inject constructor(
             while (isActive) {
                 usageRepository.refresh()
                 delay(USAGE_POLL_INTERVAL_MS)
+            }
+        }
+        viewModelScope.launch {
+            selectedProjectName.collect { name -> refreshSchedulerAvailability(name) }
+        }
+    }
+
+    private fun refreshSchedulerAvailability(pathName: String?) {
+        if (pathName == null) {
+            _uiState.update { it.copy(hasSchedulers = false) }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val result = api.getPathSchedulers(pathName)
+                _uiState.update {
+                    it.copy(hasSchedulers = result.schedulers.isNotEmpty() || result.scriptSchedulers.isNotEmpty())
+                }
+            } catch (error: ApiException) {
+                _uiState.update { it.copy(hasSchedulers = false) }
             }
         }
     }

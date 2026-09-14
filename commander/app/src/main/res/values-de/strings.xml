@@ -45,6 +45,7 @@
     <string name="project_home_collect">Sammlung</string>
     <string name="project_home_stats">Statistik</string>
     <string name="project_home_remote_sessions">Remote-Sitzungen</string>
+    <string name="project_home_schedulers">Scheduler</string>
 
     <string name="usage_banner_title">Nutzung</string>
     <string name="usage_banner_expand">Nutzung anzeigen</string>
@@ -100,6 +101,13 @@
     <string name="remote_sessions_kind_background">Hintergrund · ID: %1$s</string>
     <string name="remote_sessions_started_at">Gestartet %1$s</string>
     <string name="remote_sessions_waiting_for">Wartet auf: %1$s</string>
+
+    <string name="schedulers_title">Scheduler</string>
+    <string name="schedulers_empty">Für dieses Projekt sind keine Scheduler konfiguriert.</string>
+    <string name="schedulers_cron_label">Zeitplan: %1$s</string>
+    <string name="schedulers_trigger_confirm_title">Scheduler jetzt ausführen?</string>
+    <string name="schedulers_trigger_confirm_body">„%1$s“ jetzt ausführen, nur für dieses Projekt?</string>
+    <string name="schedulers_trigger_confirm_confirm">Ausführen</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>

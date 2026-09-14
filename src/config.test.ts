@@ -13,7 +13,9 @@ import {
   listPathCommands,
   listPathNames,
   listSchedulers,
+  listSchedulersForPath,
   listScriptSchedulers,
+  listScriptSchedulersForPath,
   listTasks,
   loadConfig,
   loadPathsOverride,
@@ -26,7 +28,9 @@ import {
   resolveHostedEntry,
   resolvePath,
   resolvePathCommand,
+  resolveScheduler,
   resolveSchedulerContext,
+  resolveScriptScheduler,
   resolveTask,
   type Config,
 } from './config.js';
@@ -1043,6 +1047,79 @@ test('listScriptSchedulers: leer, wenn "scriptSchedulers" nicht gesetzt ist', ()
     collection: [],
   };
   assert.deepEqual(listScriptSchedulers(config), []);
+});
+
+function configWithSchedulersForPathTests(): Config {
+  return {
+    main: { description: 'm', contexts: [], model: 'sonnet' },
+    agents: [],
+    paths: [
+      { name: 'myapp', path: '/tmp/myapp' },
+      { name: 'other', path: '/tmp/other' },
+    ],
+    tasks: [],
+    schedulers: [
+      {
+        name: 'nightly-sync',
+        description: 'Sync',
+        cron: '0 0 3 * * *',
+        paths: ['myapp'],
+        model: 'sonnet',
+      },
+    ],
+    scriptSchedulers: [
+      {
+        name: 'auto-commit-hourly',
+        description: 'Auto-Commit',
+        cron: '0 * * * *',
+        paths: ['myapp'],
+        script: 'bash auto-commit.sh',
+      },
+    ],
+    ticketAgent: { model: 'haiku', task: 'Test-Task' },
+    contentPath: '/tmp/content',
+    collection: [],
+  };
+}
+
+test('listSchedulersForPath: nur Scheduler, die diesen Pfad in "paths" fuehren', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.deepEqual(
+    listSchedulersForPath(config, 'myapp').map((entry) => entry.name),
+    ['nightly-sync'],
+  );
+  assert.deepEqual(listSchedulersForPath(config, 'other'), []);
+});
+
+test('listSchedulersForPath: wirft bei unbekanntem Pfad', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.throws(() => listSchedulersForPath(config, 'doesnotexist'));
+});
+
+test('listScriptSchedulersForPath: nur Script-Scheduler, die diesen Pfad in "paths" fuehren', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.deepEqual(
+    listScriptSchedulersForPath(config, 'myapp').map((entry) => entry.name),
+    ['auto-commit-hourly'],
+  );
+  assert.deepEqual(listScriptSchedulersForPath(config, 'other'), []);
+});
+
+test('listScriptSchedulersForPath: wirft bei unbekanntem Pfad', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.throws(() => listScriptSchedulersForPath(config, 'doesnotexist'));
+});
+
+test('resolveScheduler: liefert den Scheduler mit passendem Namen, wirft sonst', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.equal(resolveScheduler(config, 'nightly-sync').cron, '0 0 3 * * *');
+  assert.throws(() => resolveScheduler(config, 'doesnotexist'));
+});
+
+test('resolveScriptScheduler: liefert den Script-Scheduler mit passendem Namen, wirft sonst', () => {
+  const config = configWithSchedulersForPathTests();
+  assert.equal(resolveScriptScheduler(config, 'auto-commit-hourly').script, 'bash auto-commit.sh');
+  assert.throws(() => resolveScriptScheduler(config, 'doesnotexist'));
 });
 
 test('listTasks: jeder Task als "cl task <name>" mit description', () => {

@@ -557,6 +557,146 @@
         }
       }
     },
+    "/paths/{pathName}/schedulers": {
+      "get": {
+        "summary": "Listet die Scheduler+Script-Scheduler, die diesen Pfad fuehren",
+        "description": "Wie GET /schedulers bzw. GET /script-schedulers, aber gefiltert auf Eintraege, deren paths[]-Array diesen pathName enthaelt. Grundlage fuer einen manuellen Trigger nur des jeweils ausgewaehlten Projekts (POST .../schedulers/{name}/trigger bzw. POST .../script-schedulers/{name}/trigger).",
+        "operationId": "listPathSchedulers",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scheduler+Script-Scheduler, die diesen Pfad fuehren (leere Arrays, falls keiner konfiguriert ist).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PathSchedulerList" }
+              }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/schedulers/{name}/trigger": {
+      "post": {
+        "summary": "Startet einen Scheduler manuell, ausschliesslich fuer diesen einen Pfad",
+        "description": "Loest denselben Ablauf wie der automatische Cron-Trigger aus (headless claude-Lauf, t_commands-Eintrag agent: \"scheduler:<name>\", Live-Output ueber GET /state/{id}/stream, anschliessender onLastAgentFinish-Hook), aber nur fuer den einen angegebenen pathName statt fuer alle in schedulers[].paths konfigurierten Pfade gleichzeitig. Antwortet sofort mit 202.",
+        "operationId": "triggerScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in schedulers[].paths dieses Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (schedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Scheduler-Lauf wurde gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "Dieser Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/script-schedulers/{name}/trigger": {
+      "post": {
+        "summary": "Startet einen Script-Scheduler manuell, ausschliesslich fuer diesen einen Pfad",
+        "description": "Analog zu POST /paths/{pathName}/schedulers/{name}/trigger, aber fuer einen Script-Scheduler (agent: \"script-scheduler:<name>\", reiner Shell-Lauf, kein onLastAgentFinish-Hook, kein Einfluss auf die Agenten-Statistik).",
+        "operationId": "triggerScriptScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in scriptSchedulers[].paths dieses Script-Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (scriptSchedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Script-Scheduler-Lauf wurde gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "Dieser Script-Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Script-Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/remote-sessions": {
       "get": {
         "summary": "Listet die aktiven Claude-Code-Sessions in diesem Pfad-Verzeichnis",
@@ -1742,6 +1882,22 @@
           "scriptSchedulers": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ScriptScheduler" }
+          }
+        }
+      },
+      "PathSchedulerList": {
+        "type": "object",
+        "required": ["schedulers", "scriptSchedulers"],
+        "properties": {
+          "schedulers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Scheduler" },
+            "description": "Nur Scheduler, die diesen Pfad in ihrem paths[]-Array fuehren."
+          },
+          "scriptSchedulers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ScriptScheduler" },
+            "description": "Nur Script-Scheduler, die diesen Pfad in ihrem paths[]-Array fuehren."
           }
         }
       },

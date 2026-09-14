@@ -789,4 +789,46 @@ class ClServerApiTest {
         val recorded = server.takeRequest()
         assertTrue(recorded.body?.utf8().orEmpty().contains("\"name\":\"mein-name\""))
     }
+
+    @Test
+    fun `getPathSchedulers requests the path-scoped endpoint and parses schedulers and script schedulers`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"schedulers":[{"name":"nightly-sync","description":"Sync","cron":"0 0 3 * * *","paths":["myapp"]}],"scriptSchedulers":[{"name":"auto-commit","description":"Auto-Commit","cron":"0 * * * *","paths":["myapp"],"script":"echo hi"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getPathSchedulers("myapp")
+
+        assertEquals(1, result.schedulers.size)
+        assertEquals("nightly-sync", result.schedulers[0].name)
+        assertEquals(1, result.scriptSchedulers.size)
+        assertEquals("auto-commit", result.scriptSchedulers[0].name)
+        val recorded = server.takeRequest()
+        assertEquals("/paths/myapp/schedulers", recorded.target)
+    }
+
+    @Test
+    fun `triggerScheduler posts to the path-scoped trigger endpoint`() = runBlocking {
+        server.enqueue(MockResponse(code = 202, body = """{"id":"abc-123"}"""))
+
+        val result = apiWithConnection().triggerScheduler("myapp", "nightly-sync")
+
+        assertEquals("abc-123", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/paths/myapp/schedulers/nightly-sync/trigger", recorded.target)
+    }
+
+    @Test
+    fun `triggerScriptScheduler posts to the path-scoped trigger endpoint`() = runBlocking {
+        server.enqueue(MockResponse(code = 202, body = """{"id":"abc-456"}"""))
+
+        val result = apiWithConnection().triggerScriptScheduler("myapp", "auto-commit")
+
+        assertEquals("abc-456", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/paths/myapp/script-schedulers/auto-commit/trigger", recorded.target)
+    }
 }

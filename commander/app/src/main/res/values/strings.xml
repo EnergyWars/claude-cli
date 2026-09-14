@@ -45,6 +45,7 @@
     <string name="project_home_collect">Collect</string>
     <string name="project_home_stats">Statistics</string>
     <string name="project_home_remote_sessions">Remote sessions</string>
+    <string name="project_home_schedulers">Schedulers</string>
 
     <string name="usage_banner_title">Usage</string>
     <string name="usage_banner_expand">Show usage</string>
@@ -100,6 +101,13 @@
     <string name="remote_sessions_kind_background">Background · ID: %1$s</string>
     <string name="remote_sessions_started_at">Started %1$s</string>
     <string name="remote_sessions_waiting_for">Waiting: %1$s</string>
+
+    <string name="schedulers_title">Schedulers</string>
+    <string name="schedulers_empty">No schedulers configured for this project.</string>
+    <string name="schedulers_cron_label">Schedule: %1$s</string>
+    <string name="schedulers_trigger_confirm_title">Run scheduler now?</string>
+    <string name="schedulers_trigger_confirm_body">Run \"%1$s\" now, for this project only?</string>
+    <string name="schedulers_trigger_confirm_confirm">Run</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">No files.</string>

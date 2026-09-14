@@ -485,6 +485,87 @@ test('GET /manifest: 401 ohne Authorization-Header', async () => {
   assert.equal(res.status, 401);
 });
 
+test('GET /paths/:pathName/schedulers: listet Scheduler+Script-Scheduler, die diesen Pfad fuehren', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    schedulers: { name: string }[];
+    scriptSchedulers: { name: string }[];
+  };
+  assert.deepEqual(
+    body.schedulers.map((entry) => entry.name),
+    ['nightly-sync'],
+  );
+  assert.deepEqual(body.scriptSchedulers, []);
+});
+
+test('GET /paths/:pathName/schedulers: leer fuer einen Pfad ohne konfigurierten Scheduler', async () => {
+  const res = await fetch(`${baseUrl()}/paths/other/schedulers`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { schedulers: unknown[]; scriptSchedulers: unknown[] };
+  assert.deepEqual(body.schedulers, []);
+  assert.deepEqual(body.scriptSchedulers, []);
+});
+
+test('GET /paths/:pathName/schedulers: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/schedulers`, {
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('GET /paths/:pathName/schedulers: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers`);
+  assert.equal(res.status, 401);
+});
+
+test('POST /paths/:pathName/schedulers/:name/trigger: startet den Scheduler manuell nur fuer diesen einen Pfad, 202 + id', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/trigger`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 202);
+  const body = (await res.json()) as { id: string };
+  assert.match(body.id, /^[0-9a-f-]{36}$/);
+
+  const stateRes = await fetch(`${baseUrl()}/state/${body.id}`, { headers: authHeaders() });
+  const state = (await stateRes.json()) as { agent: string; model: string; path: string };
+  assert.equal(state.agent, 'scheduler:nightly-sync');
+  assert.equal(state.model, 'sonnet');
+  assert.equal(state.path, hostedDir);
+});
+
+test('POST /paths/:pathName/schedulers/:name/trigger: 400 falls der Scheduler fuer diesen Pfad nicht konfiguriert ist', async () => {
+  const res = await fetch(`${baseUrl()}/paths/other/schedulers/nightly-sync/trigger`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /paths/:pathName/schedulers/:name/trigger: 404 bei unbekanntem Scheduler-Namen', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers/doesnotexist/trigger`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /paths/:pathName/schedulers/:name/trigger: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/schedulers/nightly-sync/trigger`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 404);
+});
+
+test('POST /paths/:pathName/schedulers/:name/trigger: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/trigger`, {
+    method: 'POST',
+  });
+  assert.equal(res.status, 401);
+});
+
 test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "scheduler:<name>" im Verlauf', async () => {
   const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
   const schedulerFixture = createFixtureRoot({
@@ -2564,6 +2645,108 @@ test('GET /script-schedulers: listet name, description, cron, paths und script a
   } finally {
     await server.close();
     fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
+});
+
+test('GET /paths/:pathName/schedulers + POST .../script-schedulers/:name/trigger: manueller Trigger nur fuer diesen einen Pfad', async () => {
+  const defaultDir = mkdtempSync(join(tmpdir(), 'cl-script-trigger-default-'));
+  const otherDir = mkdtempSync(join(tmpdir(), 'cl-script-trigger-other-'));
+  const fixture = createFixtureRoot({
+    paths: [
+      { name: 'default', path: defaultDir },
+      { name: 'other', path: otherDir },
+    ],
+    scriptSchedulers: [
+      {
+        name: 'auto-commit-hourly',
+        description: 'Stuendlicher Auto-Commit',
+        cron: '0 * * * *',
+        paths: ['default'],
+        script: 'echo script-trigger-output',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    const listRes = await fetch(`${url}/paths/default/schedulers`, { headers });
+    assert.equal(listRes.status, 200);
+    const listBody = (await listRes.json()) as {
+      schedulers: unknown[];
+      scriptSchedulers: { name: string }[];
+    };
+    assert.deepEqual(listBody.schedulers, []);
+    assert.deepEqual(
+      listBody.scriptSchedulers.map((entry) => entry.name),
+      ['auto-commit-hourly'],
+    );
+
+    const otherListRes = await fetch(`${url}/paths/other/schedulers`, { headers });
+    const otherListBody = (await otherListRes.json()) as { scriptSchedulers: unknown[] };
+    assert.deepEqual(otherListBody.scriptSchedulers, []);
+
+    const triggerRes = await fetch(
+      `${url}/paths/default/script-schedulers/auto-commit-hourly/trigger`,
+      { method: 'POST', headers },
+    );
+    assert.equal(triggerRes.status, 202);
+    const triggerBody = (await triggerRes.json()) as { id: string };
+
+    let state: { status: string; agent: string; output: string } | undefined;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const stateRes = await fetch(`${url}/state/${triggerBody.id}`, { headers });
+      state = (await stateRes.json()) as { status: string; agent: string; output: string };
+      if (state.status !== 'running') break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(state);
+    assert.equal(state.status, 'completed');
+    assert.equal(state.agent, 'script-scheduler:auto-commit-hourly');
+    assert.match(state.output, /script-trigger-output/);
+
+    const wrongPathRes = await fetch(
+      `${url}/paths/other/script-schedulers/auto-commit-hourly/trigger`,
+      { method: 'POST', headers },
+    );
+    assert.equal(wrongPathRes.status, 400);
+
+    const unknownNameRes = await fetch(
+      `${url}/paths/default/script-schedulers/doesnotexist/trigger`,
+      {
+        method: 'POST',
+        headers,
+      },
+    );
+    assert.equal(unknownNameRes.status, 404);
+
+    const unauthorizedRes = await fetch(
+      `${url}/paths/default/script-schedulers/auto-commit-hourly/trigger`,
+      { method: 'POST' },
+    );
+    assert.equal(unauthorizedRes.status, 401);
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    rmSync(defaultDir, { recursive: true, force: true });
+    rmSync(otherDir, { recursive: true, force: true });
     if (previousRoot === undefined) {
       delete process.env.CL_ROOT_DIR;
     } else {

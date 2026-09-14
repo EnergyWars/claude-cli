@@ -238,6 +238,15 @@ class ClServerApi @Inject constructor(
 
     suspend fun getSystemMetrics(): SystemMetricsResponse = authedGet("system-metrics")
 
+    suspend fun getPathSchedulers(pathName: String): PathSchedulerList =
+        authedGet("paths", pathName, "schedulers")
+
+    suspend fun triggerScheduler(pathName: String, name: String): CommandAccepted =
+        authedPost("", "paths", pathName, "schedulers", name, "trigger")
+
+    suspend fun triggerScriptScheduler(pathName: String, name: String): CommandAccepted =
+        authedPost("", "paths", pathName, "script-schedulers", name, "trigger")
+
     suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
         authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions
 

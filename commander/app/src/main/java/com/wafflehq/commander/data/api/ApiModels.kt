@@ -150,6 +150,29 @@ data class ManifestPath(
 @Serializable
 data class Manifest(val agents: List<ManifestAgent>, val paths: List<ManifestPath>)
 
+@Serializable
+data class SchedulerSummary(
+    val name: String,
+    val description: String,
+    val cron: String,
+    val paths: List<String>,
+)
+
+@Serializable
+data class ScriptSchedulerSummary(
+    val name: String,
+    val description: String,
+    val cron: String,
+    val paths: List<String>,
+    val script: String,
+)
+
+@Serializable
+data class PathSchedulerList(
+    val schedulers: List<SchedulerSummary>,
+    val scriptSchedulers: List<ScriptSchedulerSummary>,
+)
+
 const val HOSTED_TYPE_FILE = "file"
 const val HOSTED_TYPE_PATH = "path"
 

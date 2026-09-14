@@ -585,6 +585,20 @@ export function listSchedulers(config: Config): SchedulerSummary[] {
   }));
 }
 
+/** Wie {@link listSchedulers}, aber nur Scheduler, die diesen Pfad in ihrem `paths`-Array führen - Grundlage für `GET /paths/:pathName/schedulers` (manueller Trigger, siehe {@link resolveScheduler}). */
+export function listSchedulersForPath(config: Config, pathName: string): SchedulerSummary[] {
+  resolvePathEntry(config, pathName);
+  return listSchedulers(config).filter((scheduler) => scheduler.paths.includes(pathName));
+}
+
+export function resolveScheduler(config: Config, name: string): SchedulerConfig {
+  const scheduler = config.schedulers.find((candidate) => candidate.name === name);
+  if (!scheduler) {
+    throw new Error(`Scheduler "${name}" wurde nicht gefunden.`);
+  }
+  return scheduler;
+}
+
 export interface ScriptSchedulerSummary {
   name: string;
   description: string;
@@ -601,6 +615,23 @@ export function listScriptSchedulers(config: Config): ScriptSchedulerSummary[] {
     paths: scheduler.paths,
     script: scheduler.script,
   }));
+}
+
+/** Wie {@link listScriptSchedulers}, aber nur Script-Scheduler, die diesen Pfad in ihrem `paths`-Array führen. */
+export function listScriptSchedulersForPath(
+  config: Config,
+  pathName: string,
+): ScriptSchedulerSummary[] {
+  resolvePathEntry(config, pathName);
+  return listScriptSchedulers(config).filter((scheduler) => scheduler.paths.includes(pathName));
+}
+
+export function resolveScriptScheduler(config: Config, name: string): ScriptSchedulerConfig {
+  const scheduler = (config.scriptSchedulers ?? []).find((candidate) => candidate.name === name);
+  if (!scheduler) {
+    throw new Error(`Script-Scheduler "${name}" wurde nicht gefunden.`);
+  }
+  return scheduler;
 }
 
 /**
