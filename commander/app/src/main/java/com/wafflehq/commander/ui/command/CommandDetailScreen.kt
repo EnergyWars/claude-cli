@@ -2,7 +2,9 @@ package com.wafflehq.commander.ui.command
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,8 +17,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +50,7 @@ import com.wafflehq.commander.ui.components.AppIconButton
 import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.SettingsScaffold
+import com.wafflehq.commander.ui.costs.formatTokenCount
 import com.wafflehq.commander.ui.costs.formatUsd
 import com.wafflehq.commander.ui.downloads.DownloadProgressIndicator
 import com.wafflehq.commander.ui.history.formatDuration
@@ -84,6 +90,7 @@ fun CommandDetailScreen(
     val copiedInputMessage = stringResource(R.string.command_detail_input_copied)
     var pendingDeleteDownloadedFile by remember { mutableStateOf(false) }
     var pendingStopConfirm by remember { mutableStateOf(false) }
+    var outputExpanded by remember { mutableStateOf(true) }
 
     fun copyToClipboard(text: String, confirmationMessage: String) {
         coroutineScope.launch {
@@ -226,7 +233,9 @@ fun CommandDetailScreen(
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { outputExpanded = !outputExpanded },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
             ) {
@@ -236,6 +245,13 @@ fun CommandDetailScreen(
                     color = AppTheme.colors.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
+                Icon(
+                    imageVector = if (outputExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = stringResource(
+                        if (outputExpanded) R.string.command_detail_output_collapse else R.string.command_detail_output_expand,
+                    ),
+                    tint = AppTheme.colors.onSurfaceVariant,
+                )
                 AppIconButton(
                     icon = Icons.Outlined.ContentCopy,
                     contentDescription = stringResource(R.string.command_detail_output_copy),
@@ -243,15 +259,19 @@ fun CommandDetailScreen(
                     onClick = { copyToClipboard(state.output, copiedOutputMessage) },
                 )
             }
-            Text(
-                text = state.output.ifEmpty { stringResource(R.string.command_detail_output_empty) },
-                style = TextStyle(fontFamily = GeistMono, fontSize = MaterialTheme.typography.bodySmall.fontSize),
-                color = AppTheme.colors.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(AppTheme.colors.surfaceVariant, RoundedCornerShape(AppRadius.card))
-                    .padding(AppSpacing.md),
-            )
+            Column(modifier = Modifier.animateContentSize()) {
+                if (outputExpanded) {
+                    Text(
+                        text = state.output.ifEmpty { stringResource(R.string.command_detail_output_empty) },
+                        style = TextStyle(fontFamily = GeistMono, fontSize = MaterialTheme.typography.bodySmall.fontSize),
+                        color = AppTheme.colors.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(AppTheme.colors.surfaceVariant, RoundedCornerShape(AppRadius.card))
+                            .padding(AppSpacing.md),
+                    )
+                }
+            }
         }
     }
 }
@@ -317,6 +337,15 @@ private fun CommandSummary(state: CommandState, onCopyInput: () -> Unit) {
         if (costUsd != null) {
             Text(
                 text = stringResource(R.string.command_detail_cost, formatUsd(costUsd)),
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTheme.colors.onSurfaceVariant,
+            )
+            val totalTokens = (state.inputTokens ?: 0) +
+                (state.outputTokens ?: 0) +
+                (state.cacheCreationInputTokens ?: 0) +
+                (state.cacheReadInputTokens ?: 0)
+            Text(
+                text = stringResource(R.string.command_detail_tokens, formatTokenCount(totalTokens)),
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.onSurfaceVariant,
             )

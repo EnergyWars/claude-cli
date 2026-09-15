@@ -44,6 +44,9 @@ export interface CostEntry {
   cacheReadInputTokens: number;
 }
 
+/** `"scheduler"` fuer `schedulers[]`, `"script-scheduler"` fuer `scriptSchedulers[]` (siehe `t_scheduler_disabled`). */
+export type SchedulerKind = 'scheduler' | 'script-scheduler';
+
 export interface SystemMetricRow {
   id: number;
   createdAt: string;
@@ -190,6 +193,15 @@ export function openDatabase(directory: string): DatabaseSync {
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_system_metrics_created ON t_system_metrics (created_at)',
   );
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_scheduler_disabled (
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path_name TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, name, path_name)
+    )
+  `);
   return db;
 }
 
@@ -431,6 +443,47 @@ export function listCommandCosts(db: DatabaseSync): CostEntry[] {
     cacheCreationInputTokens: Number(row.cache_creation_input_tokens ?? 0),
     cacheReadInputTokens: Number(row.cache_read_input_tokens ?? 0),
   }));
+}
+
+/**
+ * Deaktiviert/aktiviert einen (Script-)Scheduler fuer genau einen Pfad, ohne `config.json` anzufassen -
+ * Grundlage fuer `POST /paths/:pathName/schedulers/:name/enable|disable` (siehe `src/server.ts`). Ein
+ * deaktivierter Eintrag hat eine Zeile in `t_scheduler_disabled`; Aktivieren loescht sie wieder, statt
+ * einen `enabled`-Flag zu pflegen - Standardzustand (kein Eintrag) ist also immer "aktiviert".
+ */
+export function setSchedulerEnabled(
+  db: DatabaseSync,
+  kind: SchedulerKind,
+  name: string,
+  pathName: string,
+  enabled: boolean,
+): void {
+  if (enabled) {
+    db.prepare(
+      'DELETE FROM t_scheduler_disabled WHERE kind = ? AND name = ? AND path_name = ?',
+    ).run(kind, name, pathName);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO t_scheduler_disabled (kind, name, path_name, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(kind, name, path_name) DO UPDATE SET updated_at = excluded.updated_at`,
+  ).run(kind, name, pathName, new Date().toISOString());
+}
+
+/** Nur der automatische Cron-Trigger (`triggerScheduler`/`triggerScriptScheduler`) prueft dies - ein manueller Trigger ueber die API laeuft unabhaengig vom deaktivierten Zustand. */
+export function isSchedulerDisabled(
+  db: DatabaseSync,
+  kind: SchedulerKind,
+  name: string,
+  pathName: string,
+): boolean {
+  const row = db
+    .prepare(
+      'SELECT 1 AS present FROM t_scheduler_disabled WHERE kind = ? AND name = ? AND path_name = ?',
+    )
+    .get(kind, name, pathName);
+  return row !== undefined;
 }
 
 export function insertSystemMetric(

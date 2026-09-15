@@ -5,6 +5,7 @@ import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
 import com.wafflehq.commander.data.api.CommandAccepted
 import com.wafflehq.commander.data.api.PathSchedulerList
+import com.wafflehq.commander.data.api.SchedulerEnabledUpdate
 import com.wafflehq.commander.data.api.SchedulerSummary
 import com.wafflehq.commander.data.api.ScriptSchedulerSummary
 import com.wafflehq.commander.data.usage.UsageRepository
@@ -136,5 +137,66 @@ class SchedulersViewModelTest {
         viewModel.consumeStartedCommand()
 
         assertNull(viewModel.uiState.value.startedCommandId)
+    }
+
+    @Test
+    fun `setEnabled on an agent scheduler calls setSchedulerEnabled and updates the local state`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getPathSchedulers("myproject") } returns PathSchedulerList(
+                schedulers = listOf(SCHEDULER),
+                scriptSchedulers = emptyList(),
+            )
+            coEvery { setSchedulerEnabled("myproject", "nightly-sync", false) } returns
+                SchedulerEnabledUpdate("nightly-sync", "myproject", false)
+        }
+        val viewModel = SchedulersViewModel(api, mockk(), savedStateHandle())
+        dispatcher.scheduler.runCurrent()
+
+        viewModel.setEnabled("nightly-sync", SchedulerKind.AGENT, false)
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(false, viewModel.uiState.value.schedulers.single().enabled)
+        assertNull(viewModel.uiState.value.updatingName)
+        coVerify(exactly = 1) { api.setSchedulerEnabled("myproject", "nightly-sync", false) }
+    }
+
+    @Test
+    fun `setEnabled on a script scheduler calls setScriptSchedulerEnabled and updates the local state`() =
+        runTest(dispatcher) {
+            val api = mockk<ClServerApi> {
+                coEvery { getPathSchedulers("myproject") } returns PathSchedulerList(
+                    schedulers = emptyList(),
+                    scriptSchedulers = listOf(SCRIPT_SCHEDULER),
+                )
+                coEvery { setScriptSchedulerEnabled("myproject", "auto-commit-hourly", true) } returns
+                    SchedulerEnabledUpdate("auto-commit-hourly", "myproject", true)
+            }
+            val viewModel = SchedulersViewModel(api, mockk(), savedStateHandle())
+            dispatcher.scheduler.runCurrent()
+
+            viewModel.setEnabled("auto-commit-hourly", SchedulerKind.SCRIPT, true)
+            dispatcher.scheduler.runCurrent()
+
+            assertEquals(true, viewModel.uiState.value.scriptSchedulers.single().enabled)
+        }
+
+    @Test
+    fun `a failed setEnabled call sets the error and keeps the previous state`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getPathSchedulers("myproject") } returns PathSchedulerList(
+                schedulers = listOf(SCHEDULER),
+                scriptSchedulers = emptyList(),
+            )
+            coEvery { setSchedulerEnabled("myproject", "nightly-sync", false) } throws
+                ApiException(404, "Unbekannter Scheduler.")
+        }
+        val viewModel = SchedulersViewModel(api, mockk(), savedStateHandle())
+        dispatcher.scheduler.runCurrent()
+
+        viewModel.setEnabled("nightly-sync", SchedulerKind.AGENT, false)
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals("Unbekannter Scheduler.", viewModel.uiState.value.error)
+        assertEquals(true, viewModel.uiState.value.schedulers.single().enabled)
     }
 }

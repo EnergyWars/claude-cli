@@ -697,6 +697,202 @@
         }
       }
     },
+    "/paths/{pathName}/schedulers/{name}/enable": {
+      "post": {
+        "summary": "Aktiviert einen Scheduler wieder, ausschliesslich fuer diesen einen Pfad",
+        "description": "Loescht den Deaktivierungs-Eintrag in t_scheduler_disabled fuer diese Kombination aus Scheduler und Pfad (idempotent). config.json bleibt unveraendert. Der automatische Cron-Trigger feuert danach fuer diesen Pfad wieder normal.",
+        "operationId": "enableScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in schedulers[].paths dieses Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (schedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zustand wurde geaendert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SchedulerEnabledUpdate" } }
+            }
+          },
+          "400": {
+            "description": "Dieser Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/schedulers/{name}/disable": {
+      "post": {
+        "summary": "Deaktiviert einen Scheduler, ausschliesslich fuer diesen einen Pfad",
+        "description": "Legt einen Eintrag in t_scheduler_disabled an (DB, config.json bleibt unveraendert). Der automatische Cron-Trigger loest fuer diesen Pfad danach nicht mehr aus, alle anderen in schedulers[].paths konfigurierten Pfade dieses Schedulers bleiben unbeeinflusst. Ein manueller Trigger (POST .../schedulers/{name}/trigger) bleibt weiterhin moeglich.",
+        "operationId": "disableScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in schedulers[].paths dieses Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (schedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zustand wurde geaendert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SchedulerEnabledUpdate" } }
+            }
+          },
+          "400": {
+            "description": "Dieser Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/script-schedulers/{name}/enable": {
+      "post": {
+        "summary": "Aktiviert einen Script-Scheduler wieder, ausschliesslich fuer diesen einen Pfad",
+        "description": "Analog zu POST /paths/{pathName}/schedulers/{name}/enable, aber fuer einen Script-Scheduler.",
+        "operationId": "enableScriptScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in scriptSchedulers[].paths dieses Script-Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (scriptSchedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zustand wurde geaendert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SchedulerEnabledUpdate" } }
+            }
+          },
+          "400": {
+            "description": "Dieser Script-Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Script-Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/script-schedulers/{name}/disable": {
+      "post": {
+        "summary": "Deaktiviert einen Script-Scheduler, ausschliesslich fuer diesen einen Pfad",
+        "description": "Analog zu POST /paths/{pathName}/schedulers/{name}/disable, aber fuer einen Script-Scheduler.",
+        "operationId": "disableScriptScheduler",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name). Muss in scriptSchedulers[].paths dieses Script-Schedulers enthalten sein.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (scriptSchedulers[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zustand wurde geaendert.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SchedulerEnabledUpdate" } }
+            }
+          },
+          "400": {
+            "description": "Dieser Script-Scheduler fuehrt den angegebenen pathName nicht in seinem paths[]-Array.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "JWT fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Script-Scheduler mit diesem Namen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/remote-sessions": {
       "get": {
         "summary": "Listet die aktiven Claude-Code-Sessions in diesem Pfad-Verzeichnis",
@@ -1885,20 +2081,59 @@
           }
         }
       },
+      "PathScheduler": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Scheduler" },
+          {
+            "type": "object",
+            "required": ["enabled"],
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Aus t_scheduler_disabled (DB, nicht config.json) - false bedeutet: der automatische Cron-Trigger loest fuer diesen einen Pfad nicht aus. Ein manueller Trigger (POST .../schedulers/{name}/trigger) bleibt davon unabhaengig moeglich."
+              }
+            }
+          }
+        ]
+      },
+      "PathScriptScheduler": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ScriptScheduler" },
+          {
+            "type": "object",
+            "required": ["enabled"],
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Aus t_scheduler_disabled (DB, nicht config.json) - false bedeutet: der automatische Cron-Trigger loest fuer diesen einen Pfad nicht aus. Ein manueller Trigger (POST .../script-schedulers/{name}/trigger) bleibt davon unabhaengig moeglich."
+              }
+            }
+          }
+        ]
+      },
       "PathSchedulerList": {
         "type": "object",
         "required": ["schedulers", "scriptSchedulers"],
         "properties": {
           "schedulers": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Scheduler" },
+            "items": { "$ref": "#/components/schemas/PathScheduler" },
             "description": "Nur Scheduler, die diesen Pfad in ihrem paths[]-Array fuehren."
           },
           "scriptSchedulers": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/ScriptScheduler" },
+            "items": { "$ref": "#/components/schemas/PathScriptScheduler" },
             "description": "Nur Script-Scheduler, die diesen Pfad in ihrem paths[]-Array fuehren."
           }
+        }
+      },
+      "SchedulerEnabledUpdate": {
+        "type": "object",
+        "required": ["name", "pathName", "enabled"],
+        "properties": {
+          "name": { "type": "string", "description": "Name des (Script-)Schedulers." },
+          "pathName": { "type": "string", "description": "Name des Pfads, fuer den der Zustand geaendert wurde." },
+          "enabled": { "type": "boolean" }
         }
       },
       "UsageLimit": {

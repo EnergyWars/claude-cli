@@ -8,6 +8,7 @@ import com.wafflehq.commander.data.api.UsageLimit
 import com.wafflehq.commander.data.settings.SettingsRepository
 import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,8 @@ private const val USAGE_POLL_INTERVAL_MS = 60_000L
 data class ProjectHomeUiState(
     val availablePaths: List<String> = emptyList(),
     val usageLimits: List<UsageLimit> = emptyList(),
+    val usageLastUpdatedAt: Instant? = null,
+    val usageRefreshing: Boolean = false,
     val hasSchedulers: Boolean = false,
     val error: String? = null,
 )
@@ -49,6 +52,16 @@ class ProjectHomeViewModel @Inject constructor(
         viewModelScope.launch {
             usageRepository.usageLimits.collect { limits ->
                 _uiState.update { it.copy(usageLimits = limits) }
+            }
+        }
+        viewModelScope.launch {
+            usageRepository.lastUpdatedAt.collect { lastUpdatedAt ->
+                _uiState.update { it.copy(usageLastUpdatedAt = lastUpdatedAt) }
+            }
+        }
+        viewModelScope.launch {
+            usageRepository.isRefreshing.collect { refreshing ->
+                _uiState.update { it.copy(usageRefreshing = refreshing) }
             }
         }
         viewModelScope.launch {
@@ -99,6 +112,12 @@ class ProjectHomeViewModel @Inject constructor(
     fun onUsageBannerExpandedChanged(expanded: Boolean) {
         viewModelScope.launch {
             settingsRepository.setUsageBannerExpanded(expanded)
+        }
+    }
+
+    fun refreshUsage() {
+        viewModelScope.launch {
+            usageRepository.refresh()
         }
     }
 }

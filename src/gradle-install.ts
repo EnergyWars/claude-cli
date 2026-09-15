@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { delimiter, join } from 'node:path';
 
 import { buildClaudeArgs } from './launch.js';
 
@@ -26,6 +27,44 @@ function hasWarnings(output: string): boolean {
   }
   // Kotlinc emits "w: <file>: <message>" per line instead of the word "warning".
   return output.split('\n').some((line) => /^\s*w:\s/.test(line));
+}
+
+function isOnPath(executable: string): boolean {
+  const names = process.platform === 'win32' ? [`${executable}.exe`, `${executable}.bat`] : [executable];
+  return (process.env.PATH ?? '')
+    .split(delimiter)
+    .filter((dir) => dir.length > 0)
+    .some((dir) => names.some((name) => existsSync(join(dir, name))));
+}
+
+function defaultSdkDirs(): string[] {
+  const home = homedir();
+  if (process.platform === 'darwin') {
+    return [join(home, 'Library', 'Android', 'sdk')];
+  }
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
+    return [join(localAppData, 'Android', 'Sdk')];
+  }
+  return [join(home, 'Android', 'Sdk')];
+}
+
+/** Loest den adb-Pfad auf: PATH hat Vorrang, sonst ANDROID_HOME/ANDROID_SDK_ROOT/Standard-SDK-Verzeichnis. */
+export function resolveAdbExecutable(): string {
+  if (isOnPath('adb')) {
+    return 'adb';
+  }
+  const adbBinaryName = process.platform === 'win32' ? 'adb.exe' : 'adb';
+  const sdkDirs = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT, ...defaultSdkDirs()].filter(
+    (dir): dir is string => typeof dir === 'string' && dir.length > 0,
+  );
+  for (const sdkDir of sdkDirs) {
+    const candidate = join(sdkDir, 'platform-tools', adbBinaryName);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return 'adb';
 }
 
 export function parseAdbDevices(output: string): string[] {
@@ -156,9 +195,9 @@ function runFixAgent(cwd: string, message: string): Promise<void> {
   });
 }
 
-function listAdbDevices(): Promise<string[]> {
+function listAdbDevices(adbExecutable: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    const child = spawn('adb', ['devices']);
+    const child = spawn(adbExecutable, ['devices']);
     let output = '';
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8');
@@ -174,9 +213,9 @@ function listAdbDevices(): Promise<string[]> {
   });
 }
 
-function readDeviceName(serial: string): Promise<string> {
+function readDeviceName(adbExecutable: string, serial: string): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawn('adb', ['-s', serial, 'shell', 'getprop', 'ro.product.model']);
+    const child = spawn(adbExecutable, ['-s', serial, 'shell', 'getprop', 'ro.product.model']);
     let output = '';
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8');
@@ -202,9 +241,9 @@ export function formatInstallSummary(
   return `Installiert auf ${String(installed.length)} ${noun}: ${list}`;
 }
 
-function installApk(serial: string, apkPath: string): Promise<void> {
+function installApk(adbExecutable: string, serial: string, apkPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('adb', ['-s', serial, 'install', '-r', apkPath], { stdio: 'inherit' });
+    const child = spawn(adbExecutable, ['-s', serial, 'install', '-r', apkPath], { stdio: 'inherit' });
     child.on('error', reject);
     child.on('exit', (code) => {
       if (code === 0) {
@@ -227,7 +266,8 @@ export async function buildAndInstall(
   const apkPath = findApk(cwd, buildType);
   console.log(`APK: ${apkPath}`);
 
-  const devices = await listAdbDevices();
+  const adbExecutable = resolveAdbExecutable();
+  const devices = await listAdbDevices(adbExecutable);
   if (devices.length === 0) {
     console.log('Keine adb-Geraete gefunden.');
     return;
@@ -235,9 +275,9 @@ export async function buildAndInstall(
 
   const installed: { serial: string; name: string }[] = [];
   for (const serial of devices) {
-    const name = await readDeviceName(serial);
+    const name = await readDeviceName(adbExecutable, serial);
     try {
-      await installApk(serial, apkPath);
+      await installApk(adbExecutable, serial, apkPath);
       console.log(`Installiert auf ${name} (${serial}).`);
       installed.push({ serial, name });
     } catch (error) {

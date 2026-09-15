@@ -11,14 +11,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.UsageLimit
@@ -26,7 +30,9 @@ import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
+import java.time.Instant
 
+private const val USAGE_PACE_WARNING_THRESHOLD = 100
 private const val USAGE_ROLE_ERROR_THRESHOLD = 90
 private const val USAGE_ROLE_WARNING_THRESHOLD = 70
 
@@ -41,6 +47,9 @@ fun UsageLimitBanner(
     limits: List<UsageLimit>,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    lastUpdatedAt: Instant?,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (limits.isEmpty()) return
@@ -63,13 +72,31 @@ fun UsageLimitBanner(
                     text = stringResource(R.string.usage_banner_title),
                     style = MaterialTheme.typography.labelLarge,
                     color = AppTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
+                if (refreshing) {
+                    CircularProgressIndicator(modifier = Modifier.padding(AppSpacing.sm))
+                } else {
+                    AppIconButton(
+                        icon = Icons.Outlined.Refresh,
+                        contentDescription = stringResource(R.string.usage_banner_refresh),
+                        role = AppRole.Neutral,
+                        onClick = onRefresh,
+                    )
+                }
                 Icon(
                     imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     contentDescription = stringResource(
                         if (expanded) R.string.usage_banner_collapse else R.string.usage_banner_expand,
                     ),
                     tint = AppTheme.colors.onSurfaceVariant,
+                )
+            }
+            if (lastUpdatedAt != null) {
+                Text(
+                    text = stringResource(R.string.usage_banner_last_updated, formatClockTime(lastUpdatedAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTheme.colors.onSurfaceVariant,
                 )
             }
             if (expanded) {
@@ -82,6 +109,7 @@ fun UsageLimitBanner(
 @Composable
 private fun UsageLimitRow(limit: UsageLimit) {
     val roleColors = AppTheme.colors.forRole(usageRoleFor(limit.percentUsed))
+    val resetAt = remember(limit.resetsAt) { parseUsageResetAt(limit.resetsAt) }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -102,9 +130,38 @@ private fun UsageLimitRow(limit: UsageLimit) {
             trackColor = AppTheme.colors.surfaceVariant,
         )
         Text(
-            text = stringResource(R.string.usage_banner_resets_at, limit.resetsAt),
+            text = if (resetAt != null) {
+                val countdown = usageResetCountdown(resetAt)
+                val hoursText = pluralStringResource(R.plurals.usage_hours_short, countdown.hours, countdown.hours)
+                val minutesText = pluralStringResource(
+                    R.plurals.usage_minutes_short,
+                    countdown.minutes,
+                    countdown.minutes,
+                )
+                val relative = when {
+                    countdown.hours > 0 && countdown.minutes > 0 ->
+                        stringResource(R.string.usage_banner_resets_in, hoursText, minutesText)
+                    countdown.hours > 0 -> stringResource(R.string.usage_banner_resets_in_single, hoursText)
+                    else -> stringResource(R.string.usage_banner_resets_in_single, minutesText)
+                }
+                stringResource(R.string.usage_banner_resets_at_time, formatUsageResetClockTime(resetAt), relative)
+            } else {
+                stringResource(R.string.usage_banner_resets_at, limit.resetsAt)
+            },
             style = MaterialTheme.typography.bodySmall,
             color = AppTheme.colors.onSurfaceVariant,
         )
+        val pace = resetAt?.let { computeWeeklyUsagePace(limit, it) }
+        if (pace != null) {
+            Text(
+                text = stringResource(R.string.usage_banner_pace, pace.paceRatioPercent),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (pace.paceRatioPercent > USAGE_PACE_WARNING_THRESHOLD) {
+                    AppTheme.colors.forRole(AppRole.Warning).accent
+                } else {
+                    AppTheme.colors.onSurfaceVariant
+                },
+            )
+        }
     }
 }

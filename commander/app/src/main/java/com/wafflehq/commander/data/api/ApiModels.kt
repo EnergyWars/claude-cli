@@ -156,6 +156,7 @@ data class SchedulerSummary(
     val description: String,
     val cron: String,
     val paths: List<String>,
+    val enabled: Boolean = true,
 )
 
 @Serializable
@@ -165,7 +166,11 @@ data class ScriptSchedulerSummary(
     val cron: String,
     val paths: List<String>,
     val script: String,
+    val enabled: Boolean = true,
 )
+
+@Serializable
+data class SchedulerEnabledUpdate(val name: String, val pathName: String, val enabled: Boolean)
 
 @Serializable
 data class PathSchedulerList(

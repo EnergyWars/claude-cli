@@ -566,6 +566,98 @@ test('POST /paths/:pathName/schedulers/:name/trigger: 401 ohne Authorization-Hea
   assert.equal(res.status, 401);
 });
 
+test('GET /paths/:pathName/schedulers: enthaelt "enabled: true" ohne vorherige Deaktivierung', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers`, { headers: authHeaders() });
+  const body = (await res.json()) as { schedulers: { name: string; enabled: boolean }[] };
+  assert.deepEqual(
+    body.schedulers.map((entry) => ({ name: entry.name, enabled: entry.enabled })),
+    [{ name: 'nightly-sync', enabled: true }],
+  );
+});
+
+test('POST .../schedulers/:name/disable + /enable: aendert nur config.json-unabhaengig die DB, sichtbar in GET /paths/:pathName/schedulers', async () => {
+  const disableRes = await fetch(
+    `${baseUrl()}/paths/default/schedulers/nightly-sync/disable`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  assert.equal(disableRes.status, 200);
+  assert.deepEqual(await disableRes.json(), {
+    name: 'nightly-sync',
+    pathName: 'default',
+    enabled: false,
+  });
+
+  const listAfterDisable = (await (
+    await fetch(`${baseUrl()}/paths/default/schedulers`, { headers: authHeaders() })
+  ).json()) as { schedulers: { name: string; enabled: boolean }[] };
+  assert.equal(listAfterDisable.schedulers[0]?.enabled, false);
+
+  const enableRes = await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/enable`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(enableRes.status, 200);
+  assert.deepEqual(await enableRes.json(), {
+    name: 'nightly-sync',
+    pathName: 'default',
+    enabled: true,
+  });
+
+  const listAfterEnable = (await (
+    await fetch(`${baseUrl()}/paths/default/schedulers`, { headers: authHeaders() })
+  ).json()) as { schedulers: { name: string; enabled: boolean }[] };
+  assert.equal(listAfterEnable.schedulers[0]?.enabled, true);
+});
+
+test('POST .../schedulers/:name/disable: 400 falls der Scheduler fuer diesen Pfad nicht konfiguriert ist', async () => {
+  const res = await fetch(`${baseUrl()}/paths/other/schedulers/nightly-sync/disable`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST .../schedulers/:name/disable: 404 bei unbekanntem Scheduler-Namen bzw. Pfad', async () => {
+  const unknownScheduler = await fetch(
+    `${baseUrl()}/paths/default/schedulers/doesnotexist/disable`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  assert.equal(unknownScheduler.status, 404);
+
+  const unknownPath = await fetch(
+    `${baseUrl()}/paths/doesnotexist/schedulers/nightly-sync/disable`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  assert.equal(unknownPath.status, 404);
+});
+
+test('POST .../schedulers/:name/disable: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/disable`, {
+    method: 'POST',
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST .../schedulers/:name/trigger: manueller Trigger funktioniert weiterhin, auch wenn der Scheduler fuer diesen Pfad deaktiviert ist', async () => {
+  const disableRes = await fetch(
+    `${baseUrl()}/paths/default/schedulers/nightly-sync/disable`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  assert.equal(disableRes.status, 200);
+  try {
+    const res = await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/trigger`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 202);
+  } finally {
+    await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/enable`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+  }
+});
+
 test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "scheduler:<name>" im Verlauf', async () => {
   const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
   const schedulerFixture = createFixtureRoot({
@@ -622,6 +714,132 @@ test('Scheduler: cron-Trigger startet automatisch headless claude-Laeufe als "sc
       process.env.CL_ROOT_DIR = previousRoot;
     }
     process.env.PATH = previousPath;
+  }
+});
+
+test('Scheduler: ein per DB deaktivierter Pfad loest beim automatischen cron-Trigger nicht mehr aus, config.json bleibt unveraendert', async () => {
+  const schedulerMock = createMockClaude({ outputChunks: ['scheduler-output'], exitCode: 0 });
+  const schedulerFixture = createFixtureRoot({
+    schedulers: [
+      {
+        name: 'ticker',
+        description: 'Laeuft jede Sekunde',
+        cron: '* * * * * *',
+        paths: ['default'],
+        model: 'sonnet',
+      },
+    ],
+    schedulerContexts: { ticker: '# Ticker-Context\n' },
+  });
+  const configJsonBefore = readFileSync(join(schedulerFixture.rootDir, 'config.json'), 'utf8');
+  const previousRoot = process.env.CL_ROOT_DIR;
+  const previousPath = process.env.PATH;
+  process.env.CL_ROOT_DIR = schedulerFixture.rootDir;
+  process.env.PATH = pathWithMock(schedulerMock.binDir);
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    const disableRes = await fetch(`${url}/paths/default/schedulers/ticker/disable`, {
+      method: 'POST',
+      headers,
+    });
+    assert.equal(disableRes.status, 200);
+
+    await sleep(1300);
+
+    const commandsRes = await fetch(`${url}/commands/default`, { headers });
+    const commandsBody = (await commandsRes.json()) as { commands: { agent: string }[] };
+    const schedulerRuns = commandsBody.commands.filter((entry) => entry.agent === 'scheduler:ticker');
+    assert.deepEqual(
+      schedulerRuns,
+      [],
+      'ein deaktivierter Scheduler darf beim cron-Zeitpunkt keinen Lauf starten',
+    );
+
+    assert.equal(
+      readFileSync(join(schedulerFixture.rootDir, 'config.json'), 'utf8'),
+      configJsonBefore,
+      'config.json darf durch das Deaktivieren nicht veraendert werden',
+    );
+  } finally {
+    await server.close();
+    schedulerMock.cleanup();
+    schedulerFixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+    process.env.PATH = previousPath;
+  }
+});
+
+test('Script-Scheduler: ein per DB deaktivierter Pfad loest beim automatischen cron-Trigger nicht mehr aus', async () => {
+  const fixture = createFixtureRoot({
+    scriptSchedulers: [
+      {
+        name: 'ticker-script',
+        description: 'Laeuft jede Sekunde',
+        cron: '* * * * * *',
+        paths: ['default'],
+        script: 'echo script-scheduler-output',
+      },
+    ],
+  });
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+    const headers = { Authorization: `Bearer ${confirmBody.token}` };
+
+    const disableRes = await fetch(
+      `${url}/paths/default/script-schedulers/ticker-script/disable`,
+      { method: 'POST', headers },
+    );
+    assert.equal(disableRes.status, 200);
+
+    await sleep(1300);
+
+    const commandsRes = await fetch(`${url}/commands/default`, { headers });
+    const commandsBody = (await commandsRes.json()) as { commands: { agent: string }[] };
+    const runs = commandsBody.commands.filter(
+      (entry) => entry.agent === 'script-scheduler:ticker-script',
+    );
+    assert.deepEqual(
+      runs,
+      [],
+      'ein deaktivierter Script-Scheduler darf beim cron-Zeitpunkt keinen Lauf starten',
+    );
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
   }
 });
 
@@ -2721,6 +2939,49 @@ test('GET /paths/:pathName/schedulers + POST .../script-schedulers/:name/trigger
     assert.equal(state.status, 'completed');
     assert.equal(state.agent, 'script-scheduler:auto-commit-hourly');
     assert.match(state.output, /script-trigger-output/);
+
+    const disableRes = await fetch(
+      `${url}/paths/default/script-schedulers/auto-commit-hourly/disable`,
+      { method: 'POST', headers },
+    );
+    assert.equal(disableRes.status, 200);
+    assert.deepEqual(await disableRes.json(), {
+      name: 'auto-commit-hourly',
+      pathName: 'default',
+      enabled: false,
+    });
+    const listAfterDisable = (await (
+      await fetch(`${url}/paths/default/schedulers`, { headers })
+    ).json()) as { scriptSchedulers: { name: string; enabled: boolean }[] };
+    assert.equal(listAfterDisable.scriptSchedulers[0]?.enabled, false);
+
+    const enableRes = await fetch(
+      `${url}/paths/default/script-schedulers/auto-commit-hourly/enable`,
+      { method: 'POST', headers },
+    );
+    assert.equal(enableRes.status, 200);
+    const listAfterEnable = (await (
+      await fetch(`${url}/paths/default/schedulers`, { headers })
+    ).json()) as { scriptSchedulers: { name: string; enabled: boolean }[] };
+    assert.equal(listAfterEnable.scriptSchedulers[0]?.enabled, true);
+
+    const disableWrongPathRes = await fetch(
+      `${url}/paths/other/script-schedulers/auto-commit-hourly/disable`,
+      { method: 'POST', headers },
+    );
+    assert.equal(disableWrongPathRes.status, 400);
+
+    const disableUnknownNameRes = await fetch(
+      `${url}/paths/default/script-schedulers/doesnotexist/disable`,
+      { method: 'POST', headers },
+    );
+    assert.equal(disableUnknownNameRes.status, 404);
+
+    const disableUnauthorizedRes = await fetch(
+      `${url}/paths/default/script-schedulers/auto-commit-hourly/disable`,
+      { method: 'POST' },
+    );
+    assert.equal(disableUnauthorizedRes.status, 401);
 
     const wrongPathRes = await fetch(
       `${url}/paths/other/script-schedulers/auto-commit-hourly/trigger`,

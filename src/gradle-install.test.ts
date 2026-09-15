@@ -10,6 +10,7 @@ import {
   findLatestBuildTimestamp,
   formatInstallSummary,
   parseAdbDevices,
+  resolveAdbExecutable,
   runUnitTests,
 } from './gradle-install.js';
 import { createMockAdb, pathWithMockAdb } from './test-support/mock-adb.js';
@@ -41,6 +42,139 @@ test('parseAdbDevices: leere Geraeteliste liefert leeres Array', () => {
 
 test('parseAdbDevices: fehlender Header liefert leeres Array', () => {
   assert.deepEqual(parseAdbDevices('irgendwas unerwartetes\n'), []);
+});
+
+function withEnv(overrides: Record<string, string | undefined>, fn: () => void): void {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of Object.keys(overrides)) {
+    previous[key] = process.env[key];
+  }
+  try {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+test('resolveAdbExecutable: adb im PATH hat Vorrang vor ANDROID_HOME', () => {
+  const adb = createMockAdb();
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-resolve-adb-path-'));
+  try {
+    withEnv(
+      {
+        PATH: pathWithMockAdb(adb.binDir),
+        ANDROID_HOME: join(cwd, 'unrelated-sdk'),
+        ANDROID_SDK_ROOT: undefined,
+      },
+      () => {
+        assert.equal(resolveAdbExecutable(), 'adb');
+      },
+    );
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('resolveAdbExecutable: nutzt ANDROID_HOME/platform-tools/adb wenn nicht im PATH', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-resolve-adb-home-'));
+  try {
+    const platformTools = join(cwd, 'sdk', 'platform-tools');
+    mkdirSync(platformTools, { recursive: true });
+    const adbPath = join(platformTools, 'adb');
+    writeFileSync(adbPath, '');
+    withEnv(
+      {
+        PATH: '/usr/bin:/bin',
+        ANDROID_HOME: join(cwd, 'sdk'),
+        ANDROID_SDK_ROOT: undefined,
+        HOME: join(cwd, 'empty-home'),
+      },
+      () => {
+        assert.equal(resolveAdbExecutable(), adbPath);
+      },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('resolveAdbExecutable: nutzt ANDROID_SDK_ROOT, wenn ANDROID_HOME fehlt', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-resolve-adb-sdkroot-'));
+  try {
+    const platformTools = join(cwd, 'sdk', 'platform-tools');
+    mkdirSync(platformTools, { recursive: true });
+    const adbPath = join(platformTools, 'adb');
+    writeFileSync(adbPath, '');
+    withEnv(
+      {
+        PATH: '/usr/bin:/bin',
+        ANDROID_HOME: undefined,
+        ANDROID_SDK_ROOT: join(cwd, 'sdk'),
+        HOME: join(cwd, 'empty-home'),
+      },
+      () => {
+        assert.equal(resolveAdbExecutable(), adbPath);
+      },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('resolveAdbExecutable: nutzt Standard-SDK-Verzeichnis, wenn keine Env-Variable gesetzt ist', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-resolve-adb-default-'));
+  try {
+    const platformTools = join(cwd, 'Android', 'Sdk', 'platform-tools');
+    mkdirSync(platformTools, { recursive: true });
+    const adbPath = join(platformTools, 'adb');
+    writeFileSync(adbPath, '');
+    withEnv(
+      {
+        PATH: '/usr/bin:/bin',
+        ANDROID_HOME: undefined,
+        ANDROID_SDK_ROOT: undefined,
+        HOME: cwd,
+      },
+      () => {
+        assert.equal(resolveAdbExecutable(), adbPath);
+      },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('resolveAdbExecutable: faellt auf "adb" zurueck, wenn nirgends gefunden', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-resolve-adb-none-'));
+  try {
+    withEnv(
+      {
+        PATH: '/usr/bin:/bin',
+        ANDROID_HOME: undefined,
+        ANDROID_SDK_ROOT: undefined,
+        HOME: join(cwd, 'empty-home'),
+      },
+      () => {
+        assert.equal(resolveAdbExecutable(), 'adb');
+      },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test('formatInstallSummary: nennt Anzahl und Namen der Geraete', () => {

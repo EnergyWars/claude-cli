@@ -23,6 +23,7 @@ import {
   insertGeneratingTicket,
   insertSystemMetric,
   insertTicket,
+  isSchedulerDisabled,
   listAllTickets,
   listCommandCosts,
   listCommands,
@@ -34,6 +35,7 @@ import {
   openDatabase,
   setCommandPid,
   setPendingTotpSecret,
+  setSchedulerEnabled,
   updateCommandOutput,
   updateFeedback,
   updateTicket,
@@ -1194,4 +1196,38 @@ test('deleteFeedback: entfernt den Eintrag und liefert true, sonst false', () =>
   assert.equal(deleteFeedback(db, feedback.id), true);
   assert.equal(getFeedback(db, feedback.id), undefined);
   assert.equal(deleteFeedback(db, feedback.id), false);
+});
+
+test('isSchedulerDisabled: standardmaessig aktiviert (kein Eintrag)', () => {
+  assert.equal(isSchedulerDisabled(db, 'scheduler', 'nightly-sync', 'default'), false);
+});
+
+test('setSchedulerEnabled(false) + isSchedulerDisabled: deaktiviert nur diese Kombination aus kind/name/path', () => {
+  setSchedulerEnabled(db, 'scheduler', 'nightly-sync', 'default', false);
+  assert.equal(isSchedulerDisabled(db, 'scheduler', 'nightly-sync', 'default'), true);
+  assert.equal(
+    isSchedulerDisabled(db, 'scheduler', 'nightly-sync', 'other'),
+    false,
+    'ein anderer Pfad bleibt unbeeinflusst',
+  );
+  assert.equal(
+    isSchedulerDisabled(db, 'script-scheduler', 'nightly-sync', 'default'),
+    false,
+    'derselbe Name unter anderem kind bleibt unbeeinflusst',
+  );
+  setSchedulerEnabled(db, 'scheduler', 'nightly-sync', 'default', true);
+});
+
+test('setSchedulerEnabled(true): aktiviert einen zuvor deaktivierten Eintrag wieder (loescht die Zeile)', () => {
+  setSchedulerEnabled(db, 'script-scheduler', 'auto-commit-hourly', 'default', false);
+  assert.equal(isSchedulerDisabled(db, 'script-scheduler', 'auto-commit-hourly', 'default'), true);
+  setSchedulerEnabled(db, 'script-scheduler', 'auto-commit-hourly', 'default', true);
+  assert.equal(isSchedulerDisabled(db, 'script-scheduler', 'auto-commit-hourly', 'default'), false);
+});
+
+test('setSchedulerEnabled(false) ist idempotent (zweimal deaktivieren wirft nicht)', () => {
+  setSchedulerEnabled(db, 'scheduler', 'idempotent', 'default', false);
+  setSchedulerEnabled(db, 'scheduler', 'idempotent', 'default', false);
+  assert.equal(isSchedulerDisabled(db, 'scheduler', 'idempotent', 'default'), true);
+  setSchedulerEnabled(db, 'scheduler', 'idempotent', 'default', true);
 });

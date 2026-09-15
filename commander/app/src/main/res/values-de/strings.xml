@@ -50,7 +50,21 @@
     <string name="usage_banner_title">Nutzung</string>
     <string name="usage_banner_expand">Nutzung anzeigen</string>
     <string name="usage_banner_collapse">Nutzung ausblenden</string>
+    <string name="usage_banner_refresh">Nutzung aktualisieren</string>
+    <string name="usage_banner_last_updated">Zuletzt aktualisiert um %1$s</string>
     <string name="usage_banner_resets_at">Setzt zurück %1$s</string>
+    <string name="usage_banner_resets_at_time">Setzt zurück um %1$s (%2$s)</string>
+    <string name="usage_banner_resets_in">in %1$s und %2$s</string>
+    <string name="usage_banner_resets_in_single">in %1$s</string>
+    <plurals name="usage_hours_short">
+        <item quantity="one">%d Stunde</item>
+        <item quantity="other">%d Stunden</item>
+    </plurals>
+    <plurals name="usage_minutes_short">
+        <item quantity="one">%d Minute</item>
+        <item quantity="other">%d Minuten</item>
+    </plurals>
+    <string name="usage_banner_pace">Damit liegst du bei ca. %1$d %% deines Nutzungstempos für diesen Zeitraum</string>
 
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
@@ -108,6 +122,8 @@
     <string name="schedulers_trigger_confirm_title">Scheduler jetzt ausführen?</string>
     <string name="schedulers_trigger_confirm_body">„%1$s“ jetzt ausführen, nur für dieses Projekt?</string>
     <string name="schedulers_trigger_confirm_confirm">Ausführen</string>
+    <string name="schedulers_enabled_label">Aktiviert (automatischer Zeitplan)</string>
+    <string name="schedulers_disabled_label">Deaktiviert für dieses Projekt</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>
@@ -147,6 +163,8 @@
     <string name="command_detail_output_copy">Output kopieren</string>
     <string name="command_detail_output_copied">Output kopiert</string>
     <string name="command_detail_output_empty">Noch keine Ausgabe.</string>
+    <string name="command_detail_output_expand">Output anzeigen</string>
+    <string name="command_detail_output_collapse">Output ausblenden</string>
     <string name="command_detail_exit_code">Exit-Code: %1$d</string>
     <string name="command_detail_started_at">Gestartet: %1$s</string>
     <string name="command_detail_duration">Dauer: %1$s</string>
@@ -156,6 +174,7 @@
     <string name="command_detail_stop_confirm_body">Der laufende Prozess wird sofort beendet.</string>
     <string name="command_detail_stop_confirm_confirm">Stoppen</string>
     <string name="command_detail_cost">Kosten: %1$s</string>
+    <string name="command_detail_tokens">Tokens gesamt: %1$s</string>
 
     <string name="tickets_title">Tickets</string>
     <string name="tickets_empty">Noch keine Tickets.</string>

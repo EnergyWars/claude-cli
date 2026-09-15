@@ -25,6 +25,7 @@ data class SchedulersUiState(
     val error: String? = null,
     val triggeringName: String? = null,
     val startedCommandId: String? = null,
+    val updatingName: String? = null,
 )
 
 @HiltViewModel
@@ -81,5 +82,32 @@ class SchedulersViewModel @Inject constructor(
 
     fun consumeStartedCommand() {
         _uiState.update { it.copy(startedCommandId = null) }
+    }
+
+    fun setEnabled(name: String, kind: SchedulerKind, enabled: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(updatingName = name) }
+            try {
+                when (kind) {
+                    SchedulerKind.AGENT -> api.setSchedulerEnabled(pathName, name, enabled)
+                    SchedulerKind.SCRIPT -> api.setScriptSchedulerEnabled(pathName, name, enabled)
+                }
+                _uiState.update { current ->
+                    current.copy(
+                        updatingName = null,
+                        schedulers = current.schedulers.map {
+                            if (kind == SchedulerKind.AGENT && it.name == name) it.copy(enabled = enabled) else it
+                        },
+                        scriptSchedulers = current.scriptSchedulers.map {
+                            if (kind == SchedulerKind.SCRIPT && it.name == name) it.copy(enabled = enabled) else it
+                        },
+                    )
+                }
+            } catch (error: ApiException) {
+                _uiState.update {
+                    it.copy(updatingName = null, error = error.message ?: "Unbekannter Fehler.")
+                }
+            }
+        }
     }
 }

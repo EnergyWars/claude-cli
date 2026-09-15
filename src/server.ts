@@ -34,6 +34,7 @@ import {
   insertConfigVersion,
   insertFeedback,
   insertGeneratingTicket,
+  isSchedulerDisabled,
   isTicketStatus,
   listAllTickets,
   listCommandCosts,
@@ -48,6 +49,7 @@ import {
   setCommandPid,
   setConfigPointer,
   setPendingTotpSecret,
+  setSchedulerEnabled,
   TICKET_STATUSES,
   updateCommandOutput,
   updateFeedback,
@@ -55,6 +57,7 @@ import {
   type CommandRow,
   type ConfigVersionSummary,
   type CostEntry,
+  type SchedulerKind,
   type TicketRow,
   type TicketStatus,
   type TicketUpdate,
@@ -1890,6 +1893,9 @@ function triggerScheduler(db: DatabaseSync, config: Config, scheduler: Scheduler
       );
       continue;
     }
+    if (isSchedulerDisabled(db, 'scheduler', scheduler.name, pathName)) {
+      continue;
+    }
     triggerSchedulerForPath(db, scheduler, pathEntry, systemPrompt);
   }
 }
@@ -1970,19 +1976,73 @@ function triggerScriptScheduler(
       );
       continue;
     }
+    if (isSchedulerDisabled(db, 'script-scheduler', scriptScheduler.name, pathName)) {
+      continue;
+    }
     triggerScriptSchedulerForPath(db, scriptScheduler, pathEntry);
   }
 }
 
-function handleGetPathSchedulers(config: Config, res: ServerResponse, pathName: string): void {
+/** `enabled` kommt aus `t_scheduler_disabled` (siehe `src/db.ts`) - `config.json` kennt diesen Zustand nicht, er ist rein DB-seitig pro Pfad gepflegt (siehe "Scheduler deaktivieren/aktivieren"). */
+function handleGetPathSchedulers(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+): void {
   try {
     sendJson(res, 200, {
-      schedulers: listSchedulersForPath(config, pathName),
-      scriptSchedulers: listScriptSchedulersForPath(config, pathName),
+      schedulers: listSchedulersForPath(config, pathName).map((scheduler) => ({
+        ...scheduler,
+        enabled: !isSchedulerDisabled(db, 'scheduler', scheduler.name, pathName),
+      })),
+      scriptSchedulers: listScriptSchedulersForPath(config, pathName).map((scheduler) => ({
+        ...scheduler,
+        enabled: !isSchedulerDisabled(db, 'script-scheduler', scheduler.name, pathName),
+      })),
     });
   } catch (error) {
     sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
   }
+}
+
+/**
+ * Aktiviert/deaktiviert einen (Script-)Scheduler nur fuer genau ein Projekt (`pathName`), ohne
+ * `config.json` anzufassen - die Aenderung landet ausschliesslich in `t_scheduler_disabled`. Ein
+ * deaktivierter Scheduler loest **nur** beim automatischen Cron-Zeitplan nicht mehr aus (siehe
+ * `triggerScheduler`/`triggerScriptScheduler`); ein manueller Trigger ueber
+ * `POST /paths/:pathName/schedulers/:name/trigger` bleibt unabhaengig davon weiterhin moeglich.
+ */
+function handlePostSchedulerEnabled(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  kind: SchedulerKind,
+  schedulerName: string,
+  pathName: string,
+  enabled: boolean,
+): void {
+  let paths: string[];
+  try {
+    resolvePathEntry(config, pathName);
+    paths =
+      kind === 'scheduler'
+        ? resolveScheduler(config, schedulerName).paths
+        : resolveScriptScheduler(config, schedulerName).paths;
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+  if (!paths.includes(pathName)) {
+    const label = kind === 'scheduler' ? 'Scheduler' : 'Script-Scheduler';
+    sendJson(res, 400, {
+      error: `${label} "${schedulerName}" ist fuer Pfad "${pathName}" nicht konfiguriert.`,
+    });
+    return;
+  }
+
+  setSchedulerEnabled(db, kind, schedulerName, pathName, enabled);
+  sendJson(res, 200, { name: schedulerName, pathName, enabled });
 }
 
 /**
@@ -2300,7 +2360,7 @@ async function handleRequest(
       segments[0] === 'paths' &&
       segments[2] === 'schedulers'
     ) {
-      handleGetPathSchedulers(config, res, segments[1] ?? '');
+      handleGetPathSchedulers(db, config, res, segments[1] ?? '');
     } else if (
       method === 'POST' &&
       segments.length === 5 &&
@@ -2313,10 +2373,42 @@ async function handleRequest(
       method === 'POST' &&
       segments.length === 5 &&
       segments[0] === 'paths' &&
+      segments[2] === 'schedulers' &&
+      (segments[4] === 'enable' || segments[4] === 'disable')
+    ) {
+      handlePostSchedulerEnabled(
+        db,
+        config,
+        res,
+        'scheduler',
+        segments[3] ?? '',
+        segments[1] ?? '',
+        segments[4] === 'enable',
+      );
+    } else if (
+      method === 'POST' &&
+      segments.length === 5 &&
+      segments[0] === 'paths' &&
       segments[2] === 'script-schedulers' &&
       segments[4] === 'trigger'
     ) {
       handlePostScriptSchedulerTrigger(db, config, res, segments[3] ?? '', segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 5 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'script-schedulers' &&
+      (segments[4] === 'enable' || segments[4] === 'disable')
+    ) {
+      handlePostSchedulerEnabled(
+        db,
+        config,
+        res,
+        'script-scheduler',
+        segments[3] ?? '',
+        segments[1] ?? '',
+        segments[4] === 'enable',
+      );
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -2470,6 +2562,12 @@ function printEndpoints(config: Config, port: number): void {
   );
   console.log(
     `  POST ${base}/paths/:pathName/script-schedulers/:name/trigger (manueller Trigger, nur fuer diesen einen Pfad)`,
+  );
+  console.log(
+    `  POST ${base}/paths/:pathName/schedulers/:name/enable|disable        (nur fuer diesen einen Pfad, in der DB, config.json bleibt unveraendert)`,
+  );
+  console.log(
+    `  POST ${base}/paths/:pathName/script-schedulers/:name/enable|disable (nur fuer diesen einen Pfad, in der DB, config.json bleibt unveraendert)`,
   );
   console.log(`  GET  ${base}/paths/:pathName/remote-sessions`);
   console.log(

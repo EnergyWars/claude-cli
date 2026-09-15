@@ -96,6 +96,9 @@ fun ProjectHomeScreen(
                 limits = state.usageLimits,
                 expanded = usageBannerExpanded,
                 onExpandedChange = viewModel::onUsageBannerExpandedChanged,
+                lastUpdatedAt = state.usageLastUpdatedAt,
+                refreshing = state.usageRefreshing,
+                onRefresh = viewModel::refreshUsage,
             )
 
             Row(

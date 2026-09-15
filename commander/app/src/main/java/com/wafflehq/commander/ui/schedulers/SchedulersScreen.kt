@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -100,8 +101,11 @@ fun SchedulersScreen(
                     name = scheduler.name,
                     description = scheduler.description,
                     cron = scheduler.cron,
+                    enabled = scheduler.enabled,
                     triggering = state.triggeringName == scheduler.name,
+                    updatingEnabled = state.updatingName == scheduler.name,
                     onClick = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.AGENT) },
+                    onEnabledChange = { viewModel.setEnabled(scheduler.name, SchedulerKind.AGENT, it) },
                 )
             }
             state.scriptSchedulers.forEach { scheduler ->
@@ -109,8 +113,11 @@ fun SchedulersScreen(
                     name = scheduler.name,
                     description = scheduler.description,
                     cron = scheduler.cron,
+                    enabled = scheduler.enabled,
                     triggering = state.triggeringName == scheduler.name,
+                    updatingEnabled = state.updatingName == scheduler.name,
                     onClick = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.SCRIPT) },
+                    onEnabledChange = { viewModel.setEnabled(scheduler.name, SchedulerKind.SCRIPT, it) },
                 )
             }
         }
@@ -122,8 +129,11 @@ private fun SchedulerRow(
     name: String,
     description: String,
     cron: String,
+    enabled: Boolean,
     triggering: Boolean,
+    updatingEnabled: Boolean,
     onClick: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
 ) {
     AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -143,7 +153,23 @@ private fun SchedulerRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTheme.colors.onSurfaceVariant,
                 )
+                Text(
+                    text = stringResource(
+                        if (enabled) R.string.schedulers_enabled_label else R.string.schedulers_disabled_label,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (enabled) {
+                        AppTheme.colors.onSurfaceVariant
+                    } else {
+                        AppTheme.colors.forRole(AppRole.Warning).accent
+                    },
+                )
             }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange,
+                enabled = !updatingEnabled,
+            )
             if (triggering) {
                 CircularProgressIndicator(modifier = Modifier.padding(AppSpacing.sm))
             } else {

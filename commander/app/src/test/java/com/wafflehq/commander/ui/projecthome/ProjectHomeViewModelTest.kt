@@ -128,6 +128,46 @@ class ProjectHomeViewModelTest {
     }
 
     @Test
+    fun `usageLastUpdatedAt is set after the initial load and updates again on refreshUsage`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getManifest() } returns EMPTY_MANIFEST
+            coEvery { getPathSchedulers(any()) } returns EMPTY_PATH_SCHEDULERS
+            coEvery { getUsage() } returns emptyList()
+        }
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), UsageRepository(api))
+        dispatcher.scheduler.runCurrent()
+
+        val firstUpdate = viewModel.uiState.value.usageLastUpdatedAt
+        assertEquals(true, firstUpdate != null)
+
+        viewModel.refreshUsage()
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(true, viewModel.uiState.value.usageLastUpdatedAt != null)
+    }
+
+    @Test
+    fun `refreshUsage triggers an additional fetch on demand`() = runTest(dispatcher) {
+        var callCount = 0
+        val api = mockk<ClServerApi> {
+            coEvery { getManifest() } returns EMPTY_MANIFEST
+            coEvery { getPathSchedulers(any()) } returns EMPTY_PATH_SCHEDULERS
+            coEvery { getUsage() } coAnswers {
+                callCount += 1
+                listOf(UsageLimit("Current session", callCount * 10, "x"))
+            }
+        }
+        val viewModel = ProjectHomeViewModel(api, fakeSettingsRepository(), UsageRepository(api))
+        dispatcher.scheduler.runCurrent()
+        assertEquals(10, viewModel.uiState.value.usageLimits.first().percentUsed)
+
+        viewModel.refreshUsage()
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(20, viewModel.uiState.value.usageLimits.first().percentUsed)
+    }
+
+    @Test
     fun `exposes the persisted usage banner expanded state`() = runTest(dispatcher) {
         val api = mockk<ClServerApi> {
             coEvery { getManifest() } returns EMPTY_MANIFEST

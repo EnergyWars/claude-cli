@@ -50,7 +50,21 @@
     <string name="usage_banner_title">Usage</string>
     <string name="usage_banner_expand">Show usage</string>
     <string name="usage_banner_collapse">Hide usage</string>
+    <string name="usage_banner_refresh">Refresh usage</string>
+    <string name="usage_banner_last_updated">Last updated at %1$s</string>
     <string name="usage_banner_resets_at">Resets %1$s</string>
+    <string name="usage_banner_resets_at_time">Resets at %1$s (%2$s)</string>
+    <string name="usage_banner_resets_in">in %1$s and %2$s</string>
+    <string name="usage_banner_resets_in_single">in %1$s</string>
+    <plurals name="usage_hours_short">
+        <item quantity="one">%d hour</item>
+        <item quantity="other">%d hours</item>
+    </plurals>
+    <plurals name="usage_minutes_short">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <string name="usage_banner_pace">That puts you at about %1$d %% of your usage pace for this period</string>
 
     <string name="commands_title">Commands</string>
     <string name="commands_empty">No commands.</string>
@@ -108,6 +122,8 @@
     <string name="schedulers_trigger_confirm_title">Run scheduler now?</string>
     <string name="schedulers_trigger_confirm_body">Run \"%1$s\" now, for this project only?</string>
     <string name="schedulers_trigger_confirm_confirm">Run</string>
+    <string name="schedulers_enabled_label">Enabled (automatic schedule)</string>
+    <string name="schedulers_disabled_label">Disabled for this project</string>
 
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">No files.</string>
@@ -147,6 +163,8 @@
     <string name="command_detail_output_copy">Copy output</string>
     <string name="command_detail_output_copied">Output copied</string>
     <string name="command_detail_output_empty">No output yet.</string>
+    <string name="command_detail_output_expand">Show output</string>
+    <string name="command_detail_output_collapse">Hide output</string>
     <string name="command_detail_exit_code">Exit code: %1$d</string>
     <string name="command_detail_started_at">Started: %1$s</string>
     <string name="command_detail_duration">Duration: %1$s</string>
@@ -156,6 +174,7 @@
     <string name="command_detail_stop_confirm_body">The running process is terminated immediately.</string>
     <string name="command_detail_stop_confirm_confirm">Stop</string>
     <string name="command_detail_cost">Cost: %1$s</string>
+    <string name="command_detail_tokens">Total tokens: %1$s</string>
 
     <string name="tickets_title">Tickets</string>
     <string name="tickets_empty">No tickets yet.</string>

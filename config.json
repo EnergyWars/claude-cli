@@ -262,7 +262,7 @@
       "name": "app-store-review-0100",
       "description": "Daily App-Store review",
       "cron": "0 1 * * *",
-      "paths": ["periodical"],
+      "paths": ["periodical", "carfinder"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },
@@ -286,7 +286,7 @@
       "name": "suggestion-check-0230",
       "description": "3-Daily suggestion check",
       "cron": "30 2 * * 5,1",
-      "paths": ["periodical"],
+      "paths": ["periodical", "carfinder"],
       "model": "sonnet",
       "contexts": ["main", "dev/code"]
     },

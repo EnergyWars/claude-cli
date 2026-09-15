@@ -60,4 +60,38 @@ class UsageRepositoryTest {
         repository.refresh()
         assertEquals(20, repository.usageLimits.value.first().percentUsed)
     }
+
+    @Test
+    fun `lastUpdatedAt starts null and is set after a successful refresh`() = runTest {
+        val api = mockk<ClServerApi> { coEvery { getUsage() } returns emptyList() }
+        val repository = UsageRepository(api)
+
+        assertEquals(null, repository.lastUpdatedAt.value)
+
+        repository.refresh()
+
+        assertEquals(true, repository.lastUpdatedAt.value != null)
+    }
+
+    @Test
+    fun `lastUpdatedAt is not set after a failed refresh`() = runTest {
+        val api = mockk<ClServerApi> { coEvery { getUsage() } throws ApiException(500, "Serverfehler.") }
+        val repository = UsageRepository(api)
+
+        repository.refresh()
+
+        assertEquals(null, repository.lastUpdatedAt.value)
+    }
+
+    @Test
+    fun `isRefreshing is false before and after refresh completes`() = runTest {
+        val api = mockk<ClServerApi> { coEvery { getUsage() } returns emptyList() }
+        val repository = UsageRepository(api)
+
+        assertEquals(false, repository.isRefreshing.value)
+
+        repository.refresh()
+
+        assertEquals(false, repository.isRefreshing.value)
+    }
 }

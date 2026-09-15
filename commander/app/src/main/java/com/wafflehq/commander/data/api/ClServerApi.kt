@@ -247,6 +247,16 @@ class ClServerApi @Inject constructor(
     suspend fun triggerScriptScheduler(pathName: String, name: String): CommandAccepted =
         authedPost("", "paths", pathName, "script-schedulers", name, "trigger")
 
+    suspend fun setSchedulerEnabled(pathName: String, name: String, enabled: Boolean): SchedulerEnabledUpdate =
+        authedPost("", "paths", pathName, "schedulers", name, if (enabled) "enable" else "disable")
+
+    suspend fun setScriptSchedulerEnabled(
+        pathName: String,
+        name: String,
+        enabled: Boolean,
+    ): SchedulerEnabledUpdate =
+        authedPost("", "paths", pathName, "script-schedulers", name, if (enabled) "enable" else "disable")
+
     suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
         authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions
 
