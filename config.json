@@ -264,7 +264,7 @@
       "cron": "0 1 * * *",
       "paths": ["periodical", "carfinder"],
       "model": "sonnet",
-      "contexts": ["main", "dev/code"]
+      "contexts": ["main"]
     },
     {
       "name": "architecture-review-0130",
@@ -312,7 +312,7 @@
       "cron": "0 4 * * *",
       "paths": ["periodical"],
       "model": "sonnet",
-      "contexts": ["main", "dev/code"]
+      "contexts": ["main"]
     },
     {
       "name": "code-review-0500",
