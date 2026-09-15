@@ -809,6 +809,46 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getAllSchedulers requests the project-independent endpoint and parses instructions and path statuses`() =
+        runBlocking {
+            server.enqueue(
+                MockResponse(
+                    body = """{"schedulers":[{"name":"nightly-sync","description":"Sync","cron":"0 0 3 * * *","paths":["myapp","other"],"instructions":"# Context\n","pathStatuses":[{"pathName":"myapp","enabled":true},{"pathName":"other","enabled":false}]}]}""",
+                ),
+            )
+
+            val result = apiWithConnection().getAllSchedulers()
+
+            assertEquals(1, result.schedulers.size)
+            val scheduler = result.schedulers[0]
+            assertEquals("nightly-sync", scheduler.name)
+            assertEquals("# Context\n", scheduler.instructions)
+            assertEquals(listOf("myapp", "other"), scheduler.paths)
+            assertEquals(false, scheduler.pathStatuses.single { it.pathName == "other" }.enabled)
+            val recorded = server.takeRequest()
+            assertEquals("/schedulers", recorded.target)
+        }
+
+    @Test
+    fun `getAllScriptSchedulers requests the project-independent endpoint and parses the script and path statuses`() =
+        runBlocking {
+            server.enqueue(
+                MockResponse(
+                    body = """{"scriptSchedulers":[{"name":"auto-commit","description":"Auto-Commit","cron":"0 * * * *","paths":["myapp"],"script":"echo hi","pathStatuses":[{"pathName":"myapp","enabled":true}]}]}""",
+                ),
+            )
+
+            val result = apiWithConnection().getAllScriptSchedulers()
+
+            assertEquals(1, result.scriptSchedulers.size)
+            val scheduler = result.scriptSchedulers[0]
+            assertEquals("echo hi", scheduler.script)
+            assertEquals(true, scheduler.pathStatuses.single().enabled)
+            val recorded = server.takeRequest()
+            assertEquals("/script-schedulers", recorded.target)
+        }
+
+    @Test
     fun `triggerScheduler posts to the path-scoped trigger endpoint`() = runBlocking {
         server.enqueue(MockResponse(code = 202, body = """{"id":"abc-123"}"""))
 

@@ -42,7 +42,15 @@ fun AgentsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Column(modifier = Modifier.padding(AppSpacing.lg), verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+            Column(
+                modifier = Modifier.padding(
+                    start = AppSpacing.lg,
+                    top = AppSpacing.lg,
+                    end = AppSpacing.lg,
+                    bottom = AppSpacing.lg + AppSpacing.bottomSafeArea,
+                ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
+            ) {
                 val error = state.error
                 if (error != null) {
                     AppBanner(title = stringResource(R.string.setup_error_title), body = error, role = AppRole.Error)

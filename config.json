@@ -307,6 +307,14 @@
       "contexts": ["main", "dev/code"]
     },
     {
+      "name": "ai-tutorial-check-0400",
+      "description": "Daily AI-Tutorial check",
+      "cron": "0 4 * * *",
+      "paths": ["periodical"],
+      "model": "sonnet",
+      "contexts": ["main", "dev/code"]
+    },
+    {
       "name": "code-review-0500",
       "description": "Daily Code-Review",
       "cron": "0 5 * * *",

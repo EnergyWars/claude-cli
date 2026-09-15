@@ -19,4 +19,7 @@ object AppSpacing {
     val lg = 16.dp
     val xl = 24.dp
     val xxl = 32.dp
+
+    /** Extra Freiraum unter dem letzten Listenelement, damit es nicht mit der System-Zurueck-Geste/-Taste kollidiert. */
+    val bottomSafeArea = 50.dp
 }

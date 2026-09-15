@@ -960,12 +960,42 @@ function handleGetManifest(config: Config, res: ServerResponse): void {
   });
 }
 
-function handleGetSchedulers(config: Config, res: ServerResponse): void {
-  sendJson(res, 200, { schedulers: listSchedulers(config) });
+/** Auflösung fuer {@link handleGetSchedulers}/{@link handleGetScriptSchedulers} - je zugeordnetem Pfad der DB-gestuetzte Enabled-Status, analog zu {@link handleGetPathSchedulers}. */
+function resolveSchedulerPathStatuses(
+  db: DatabaseSync,
+  kind: SchedulerKind,
+  name: string,
+  paths: string[],
+): { pathName: string; enabled: boolean }[] {
+  return paths.map((pathName) => ({
+    pathName,
+    enabled: !isSchedulerDisabled(db, kind, name, pathName),
+  }));
 }
 
-function handleGetScriptSchedulers(config: Config, res: ServerResponse): void {
-  sendJson(res, 200, { scriptSchedulers: listScriptSchedulers(config) });
+function handleGetSchedulers(db: DatabaseSync, config: Config, res: ServerResponse): void {
+  const schedulers = listSchedulers(config).map((scheduler) => {
+    let instructions: string;
+    try {
+      instructions = buildSchedulerSystemPrompt(resolveScheduler(config, scheduler.name));
+    } catch (error) {
+      instructions = `Auftragstext konnte nicht aufgeloest werden: ${(error as Error).message}`;
+    }
+    return {
+      ...scheduler,
+      instructions,
+      pathStatuses: resolveSchedulerPathStatuses(db, 'scheduler', scheduler.name, scheduler.paths),
+    };
+  });
+  sendJson(res, 200, { schedulers });
+}
+
+function handleGetScriptSchedulers(db: DatabaseSync, config: Config, res: ServerResponse): void {
+  const scriptSchedulers = listScriptSchedulers(config).map((scheduler) => ({
+    ...scheduler,
+    pathStatuses: resolveSchedulerPathStatuses(db, 'script-scheduler', scheduler.name, scheduler.paths),
+  }));
+  sendJson(res, 200, { scriptSchedulers });
 }
 
 interface ConfigState {
@@ -2320,9 +2350,9 @@ async function handleRequest(
       bodyText = await readRequestBody(req);
       handlePutConfigPointer(db, configState, schedulerState, res, bodyText);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'schedulers') {
-      handleGetSchedulers(config, res);
+      handleGetSchedulers(db, config, res);
     } else if (method === 'GET' && segments.length === 1 && segments[0] === 'script-schedulers') {
-      handleGetScriptSchedulers(config, res);
+      handleGetScriptSchedulers(db, config, res);
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'commands') {
       handleGetCommands(
         db,
@@ -2518,10 +2548,10 @@ function printEndpoints(config: Config, port: number): void {
   console.log(`  GET  ${base}/paths`);
   console.log(`  GET  ${base}/manifest`);
   console.log(
-    `  GET  ${base}/schedulers          (name, description, cron, paths je konfiguriertem Scheduler)`,
+    `  GET  ${base}/schedulers          (name, description, cron, paths, instructions, pathStatuses - projektuebergreifend)`,
   );
   console.log(
-    `  GET  ${base}/script-schedulers   (name, description, cron, paths, script je konfiguriertem Script-Scheduler)`,
+    `  GET  ${base}/script-schedulers   (name, description, cron, paths, script, pathStatuses - projektuebergreifend)`,
   );
   console.log(`  GET  ${base}/config`);
   console.log(

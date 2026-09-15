@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -92,7 +93,10 @@ fun HistoryScreen(
                 )
             }
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = AppSpacing.bottomSafeArea),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
+            ) {
                 items(state.commands, key = { it.id }) { command ->
                     HistoryRow(
                         command = command,

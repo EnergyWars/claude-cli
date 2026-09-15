@@ -2,6 +2,7 @@ package com.wafflehq.commander.ui.projectselect
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -65,7 +66,10 @@ fun ProjectSelectScreen(
                 )
             }
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = AppSpacing.bottomSafeArea),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+            ) {
                 items(state.paths, key = { it }) { path ->
                     SettingsListRow(title = path, subtitle = null, onClick = { viewModel.selectProject(path) })
                 }

@@ -1,8 +1,8 @@
-package com.wafflehq.commander.ui.stats
+package com.wafflehq.commander.ui.schedulers
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,7 +13,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -21,21 +20,21 @@ import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppCard
 import com.wafflehq.commander.ui.components.SettingsScaffold
-import com.wafflehq.commander.ui.history.formatTimestamp
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
 import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
-fun StatsScreen(
+fun AllSchedulersScreen(
     onBack: () -> Unit,
-    viewModel: StatsViewModel = hiltViewModel(),
+    onOpenDetail: (name: String, kind: SchedulerKind) -> Unit,
+    viewModel: AllSchedulersViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     SettingsScaffold(
-        title = stringResource(R.string.stats_title),
+        title = stringResource(R.string.all_schedulers_title),
         onBack = onBack,
         backDescription = stringResource(R.string.label_back),
     ) { padding ->
@@ -59,57 +58,65 @@ fun StatsScreen(
 
             if (state.loading) {
                 CircularProgressIndicator()
-            } else {
-                val stats = state.stats
-                if (stats != null) {
-                    StatRow(
-                        label = stringResource(R.string.stats_running_agents),
-                        value = stats.runningAgents.toString(),
-                    )
-                    StatRow(
-                        label = stringResource(R.string.stats_agents_in_window, formatWindowHours(stats.windowHours)),
-                        value = stats.agentsInWindow.toString(),
-                    )
-                    StatRow(
-                        label = stringResource(R.string.stats_last_debug_build),
-                        value = stats.lastDebugBuildAt?.let(::formatTimestamp)
-                            ?: stringResource(R.string.stats_no_build_yet),
-                    )
-                    StatRow(
-                        label = stringResource(R.string.stats_last_release_build),
-                        value = stats.lastReleaseBuildAt?.let(::formatTimestamp)
-                            ?: stringResource(R.string.stats_no_build_yet),
-                    )
-                }
+            } else if (state.schedulers.isEmpty() && state.scriptSchedulers.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.all_schedulers_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppTheme.colors.onSurfaceVariant,
+                )
+            }
+
+            state.schedulers.forEach { scheduler ->
+                AllSchedulersRow(
+                    name = scheduler.name,
+                    description = scheduler.description,
+                    cron = scheduler.cron,
+                    paths = scheduler.paths,
+                    onClick = { onOpenDetail(scheduler.name, SchedulerKind.AGENT) },
+                )
+            }
+            state.scriptSchedulers.forEach { scheduler ->
+                AllSchedulersRow(
+                    name = scheduler.name,
+                    description = scheduler.description,
+                    cron = scheduler.cron,
+                    paths = scheduler.paths,
+                    onClick = { onOpenDetail(scheduler.name, SchedulerKind.SCRIPT) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun StatRow(label: String, value: String) {
-    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
-        Row(
+private fun AllSchedulersRow(
+    name: String,
+    description: String,
+    cron: String,
+    paths: List<String>,
+    onClick: () -> Unit,
+) {
+    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(AppSpacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
         ) {
+            Text(name, style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.onSurface)
+            if (description.isNotBlank()) {
+                Text(description, style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.onSurfaceVariant)
+            }
             Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.schedulers_cron_label, cron),
+                style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
             )
             Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                color = AppTheme.colors.onSurface,
+                text = stringResource(R.string.all_schedulers_paths_label, paths.joinToString(", ")),
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTheme.colors.onSurfaceVariant,
             )
         }
     }
 }
-
-private fun formatWindowHours(hours: Double): String =
-    if (hours == hours.toLong().toDouble()) hours.toLong().toString() else hours.toString()

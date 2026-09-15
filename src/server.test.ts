@@ -416,11 +416,18 @@ test('GET /paths: 401 ohne Authorization-Header', async () => {
   assert.equal(res.status, 401);
 });
 
-test('GET /schedulers: listet name, description, cron und paths aus config.json', async () => {
+test('GET /schedulers: listet name, description, cron, paths, aufgeloesten Auftragstext und Pfad-Status', async () => {
   const res = await fetch(`${baseUrl()}/schedulers`, { headers: authHeaders() });
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
-    schedulers: { name: string; description: string; cron: string; paths: string[] }[];
+    schedulers: {
+      name: string;
+      description: string;
+      cron: string;
+      paths: string[];
+      instructions: string;
+      pathStatuses: { pathName: string; enabled: boolean }[];
+    }[];
   };
   assert.deepEqual(body.schedulers, [
     {
@@ -428,8 +435,73 @@ test('GET /schedulers: listet name, description, cron und paths aus config.json'
       description: 'Sync ueber Nacht',
       cron: '0 0 1 1 *',
       paths: ['default'],
+      instructions: '# Nightly-Sync-Context\n',
+      pathStatuses: [{ pathName: 'default', enabled: true }],
     },
   ]);
+});
+
+test('GET /schedulers: pathStatuses spiegelt den DB-gestuetzten Enabled-Status pro Pfad', async () => {
+  await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/disable`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  try {
+    const res = await fetch(`${baseUrl()}/schedulers`, { headers: authHeaders() });
+    const body = (await res.json()) as {
+      schedulers: { pathStatuses: { pathName: string; enabled: boolean }[] }[];
+    };
+    assert.deepEqual(body.schedulers[0]?.pathStatuses, [{ pathName: 'default', enabled: false }]);
+  } finally {
+    await fetch(`${baseUrl()}/paths/default/schedulers/nightly-sync/enable`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+  }
+});
+
+test('GET /schedulers: instructions enthaelt einen Fehlertext, falls der scheduler/<name>.md-Context fehlt', async () => {
+  const fixture = createFixtureRoot({
+    schedulers: [
+      {
+        name: 'broken-scheduler',
+        description: 'Kaputter Scheduler',
+        cron: '0 0 * * *',
+        paths: ['default'],
+      },
+    ],
+  });
+  rmSync(join(fixture.rootDir, 'scheduler', 'broken-scheduler.md'));
+  const previousRoot = process.env.CL_ROOT_DIR;
+  process.env.CL_ROOT_DIR = fixture.rootDir;
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const url = `http://localhost:${server.port.toString()}`;
+    const setupRes = await fetch(`${url}/auth/setup`, { method: 'POST' });
+    const setupBody = (await setupRes.json()) as { secret: string };
+    const confirmRes = await fetch(`${url}/auth/setup/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: generateTotp(setupBody.secret) }),
+    });
+    const confirmBody = (await confirmRes.json()) as { token: string };
+
+    const res = await fetch(`${url}/schedulers`, {
+      headers: { Authorization: `Bearer ${confirmBody.token}` },
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { schedulers: { instructions: string }[] };
+    assert.match(body.schedulers[0]?.instructions ?? '', /^Auftragstext konnte nicht aufgeloest werden:/);
+  } finally {
+    await server.close();
+    fixture.cleanup();
+    if (previousRoot === undefined) {
+      delete process.env.CL_ROOT_DIR;
+    } else {
+      process.env.CL_ROOT_DIR = previousRoot;
+    }
+  }
 });
 
 test('GET /schedulers: 401 ohne Authorization-Header', async () => {
@@ -2837,6 +2909,7 @@ test('GET /script-schedulers: listet name, description, cron, paths und script a
         cron: string;
         paths: string[];
         script: string;
+        pathStatuses: { pathName: string; enabled: boolean }[];
       }[];
     };
     assert.deepEqual(body.scriptSchedulers, [
@@ -2846,6 +2919,7 @@ test('GET /script-schedulers: listet name, description, cron, paths und script a
         cron: '0 * * * *',
         paths: ['default'],
         script: 'echo hi',
+        pathStatuses: [{ pathName: 'default', enabled: true }],
       },
     ]);
 

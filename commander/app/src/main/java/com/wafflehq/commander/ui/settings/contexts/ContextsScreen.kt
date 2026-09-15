@@ -42,7 +42,15 @@ fun ContextsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Column(modifier = Modifier.padding(AppSpacing.lg), verticalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+            Column(
+                modifier = Modifier.padding(
+                    start = AppSpacing.lg,
+                    top = AppSpacing.lg,
+                    end = AppSpacing.lg,
+                    bottom = AppSpacing.lg + AppSpacing.bottomSafeArea,
+                ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
+            ) {
                 AppButton(
                     text = stringResource(R.string.settings_contexts_new),
                     role = AppRole.Primary,

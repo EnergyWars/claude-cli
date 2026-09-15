@@ -60,7 +60,12 @@ fun SetupScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(AppSpacing.xl),
+                .padding(
+                    start = AppSpacing.xl,
+                    top = AppSpacing.xl,
+                    end = AppSpacing.xl,
+                    bottom = AppSpacing.xl + AppSpacing.bottomSafeArea,
+                ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
             Text(

@@ -24,6 +24,7 @@ import com.wafflehq.commander.ui.components.SettingsRowDivider
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRole
+import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
@@ -34,6 +35,7 @@ fun SettingsScreen(
     onOpenConfig: () -> Unit,
     onOpenTokenCosts: () -> Unit,
     onOpenSystemMetrics: () -> Unit,
+    onOpenAllSchedulers: () -> Unit,
     onDisconnected: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -48,7 +50,8 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = AppSpacing.bottomSafeArea),
         ) {
             SettingsListContent(
                 displayLabel = stringResource(R.string.settings_display_title),
@@ -71,6 +74,12 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_system_metrics_title),
                 subtitle = stringResource(R.string.settings_system_metrics_sub),
                 onClick = onOpenSystemMetrics,
+            )
+            SettingsRowDivider()
+            SettingsListRow(
+                title = stringResource(R.string.settings_all_schedulers_title),
+                subtitle = stringResource(R.string.settings_all_schedulers_sub),
+                onClick = onOpenAllSchedulers,
             )
             SettingsGroupDivider()
             SettingsGroup(

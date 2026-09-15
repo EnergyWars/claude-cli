@@ -1,5 +1,6 @@
 package com.wafflehq.commander.ui.schedulers
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,7 @@ private data class PendingTrigger(val name: String, val kind: SchedulerKind)
 fun SchedulersScreen(
     onBack: () -> Unit,
     onCommandStarted: (commandId: String, pathName: String) -> Unit,
+    onOpenDetail: (name: String, kind: SchedulerKind) -> Unit,
     viewModel: SchedulersViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -78,7 +80,12 @@ fun SchedulersScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(AppSpacing.lg),
+                .padding(
+                    start = AppSpacing.lg,
+                    top = AppSpacing.lg,
+                    end = AppSpacing.lg,
+                    bottom = AppSpacing.lg + AppSpacing.bottomSafeArea,
+                ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
             val error = state.error
@@ -104,7 +111,8 @@ fun SchedulersScreen(
                     enabled = scheduler.enabled,
                     triggering = state.triggeringName == scheduler.name,
                     updatingEnabled = state.updatingName == scheduler.name,
-                    onClick = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.AGENT) },
+                    onOpenDetail = { onOpenDetail(scheduler.name, SchedulerKind.AGENT) },
+                    onTrigger = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.AGENT) },
                     onEnabledChange = { viewModel.setEnabled(scheduler.name, SchedulerKind.AGENT, it) },
                 )
             }
@@ -116,7 +124,8 @@ fun SchedulersScreen(
                     enabled = scheduler.enabled,
                     triggering = state.triggeringName == scheduler.name,
                     updatingEnabled = state.updatingName == scheduler.name,
-                    onClick = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.SCRIPT) },
+                    onOpenDetail = { onOpenDetail(scheduler.name, SchedulerKind.SCRIPT) },
+                    onTrigger = { pendingTrigger = PendingTrigger(scheduler.name, SchedulerKind.SCRIPT) },
                     onEnabledChange = { viewModel.setEnabled(scheduler.name, SchedulerKind.SCRIPT, it) },
                 )
             }
@@ -132,10 +141,11 @@ private fun SchedulerRow(
     enabled: Boolean,
     triggering: Boolean,
     updatingEnabled: Boolean,
-    onClick: () -> Unit,
+    onOpenDetail: () -> Unit,
+    onTrigger: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
 ) {
-    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth()) {
+    AppCard(role = AppRole.Neutral, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenDetail)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -177,7 +187,7 @@ private fun SchedulerRow(
                     icon = Icons.Outlined.PlayArrow,
                     contentDescription = name,
                     role = AppRole.Primary,
-                    onClick = onClick,
+                    onClick = onTrigger,
                 )
             }
         }

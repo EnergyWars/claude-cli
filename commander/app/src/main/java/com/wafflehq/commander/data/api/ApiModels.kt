@@ -178,6 +178,35 @@ data class PathSchedulerList(
     val scriptSchedulers: List<ScriptSchedulerSummary>,
 )
 
+@Serializable
+data class SchedulerPathStatus(val pathName: String, val enabled: Boolean)
+
+@Serializable
+data class SchedulerOverview(
+    val name: String,
+    val description: String,
+    val cron: String,
+    val paths: List<String>,
+    val instructions: String,
+    val pathStatuses: List<SchedulerPathStatus>,
+)
+
+@Serializable
+data class ScriptSchedulerOverview(
+    val name: String,
+    val description: String,
+    val cron: String,
+    val paths: List<String>,
+    val script: String,
+    val pathStatuses: List<SchedulerPathStatus>,
+)
+
+@Serializable
+data class SchedulerOverviewList(val schedulers: List<SchedulerOverview>)
+
+@Serializable
+data class ScriptSchedulerOverviewList(val scriptSchedulers: List<ScriptSchedulerOverview>)
+
 const val HOSTED_TYPE_FILE = "file"
 const val HOSTED_TYPE_PATH = "path"
 

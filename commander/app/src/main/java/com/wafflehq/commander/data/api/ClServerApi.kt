@@ -241,6 +241,10 @@ class ClServerApi @Inject constructor(
     suspend fun getPathSchedulers(pathName: String): PathSchedulerList =
         authedGet("paths", pathName, "schedulers")
 
+    suspend fun getAllSchedulers(): SchedulerOverviewList = authedGet("schedulers")
+
+    suspend fun getAllScriptSchedulers(): ScriptSchedulerOverviewList = authedGet("script-schedulers")
+
     suspend fun triggerScheduler(pathName: String, name: String): CommandAccepted =
         authedPost("", "paths", pathName, "schedulers", name, "trigger")
 

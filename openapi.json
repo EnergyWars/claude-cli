@@ -275,8 +275,8 @@
     },
     "/schedulers": {
       "get": {
-        "summary": "Listet alle konfigurierten Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfade)",
-        "description": "Scheduler aus config.json (schedulers[]) fuehren periodisch einen headless claude-Lauf aus (Cron-Ausdruck in croner-Syntax, inkl. optionalem Sekunden-Feld). Diese Route liefert nur die Metadaten (nicht die Contexts/Permissions). Jeder Lauf erscheint wie ein normaler Agent-Lauf unter agent: \"scheduler:<name>\" in GET /commands/:pathName und GET /state/:id.",
+        "summary": "Listet alle konfigurierten Scheduler projektuebergreifend (inkl. aufgeloestem Auftragstext und Pfad-Status)",
+        "description": "Scheduler aus config.json (schedulers[]) fuehren periodisch einen headless claude-Lauf aus (Cron-Ausdruck in croner-Syntax, inkl. optionalem Sekunden-Feld). Im Gegensatz zu GET /paths/{pathName}/schedulers liefert diese Route ALLE Scheduler unabhaengig von einem einzelnen Pfad, inkl. instructions (der tatsaechlich aufgeloeste Auftragstext) und pathStatuses (Enabled-Status je zugeordnetem Pfad) - Grundlage fuer eine zentrale, projektuebergreifende Scheduler-Uebersicht. Jeder Lauf erscheint wie ein normaler Agent-Lauf unter agent: \"scheduler:<name>\" in GET /commands/:pathName und GET /state/:id.",
         "operationId": "listSchedulers",
         "responses": {
           "200": {
@@ -298,8 +298,8 @@
     },
     "/script-schedulers": {
       "get": {
-        "summary": "Listet alle konfigurierten Script-Scheduler (Name, Beschreibung, Cron-Ausdruck, Pfade, Script)",
-        "description": "Script-Scheduler aus config.json (scriptSchedulers[]) fuehren periodisch einen Bash-Befehl per Shell aus - analog zu schedulers[], aber ohne claude-Agenten (kein model/contexts noetig). Jeder Lauf erscheint wie ein Pfad-Command unter agent: \"script-scheduler:<name>\" in GET /commands/:pathName und GET /state/:id (nicht als Agent-Lauf gezaehlt, siehe GET /stats/:pathName).",
+        "summary": "Listet alle konfigurierten Script-Scheduler projektuebergreifend (inkl. Pfad-Status)",
+        "description": "Script-Scheduler aus config.json (scriptSchedulers[]) fuehren periodisch einen Bash-Befehl per Shell aus - analog zu schedulers[], aber ohne claude-Agenten (kein model/contexts noetig). Im Gegensatz zu GET /paths/{pathName}/schedulers liefert diese Route ALLE Script-Scheduler unabhaengig von einem einzelnen Pfad, inkl. pathStatuses (Enabled-Status je zugeordnetem Pfad). Jeder Lauf erscheint wie ein Pfad-Command unter agent: \"script-scheduler:<name>\" in GET /commands/:pathName und GET /state/:id (nicht als Agent-Lauf gezaehlt, siehe GET /stats/:pathName).",
         "operationId": "listScriptSchedulers",
         "responses": {
           "200": {
@@ -2037,13 +2037,60 @@
           }
         }
       },
+      "SchedulerPathStatus": {
+        "type": "object",
+        "required": ["pathName", "enabled"],
+        "properties": {
+          "pathName": { "type": "string", "description": "Name eines Eintrags aus config.json (paths[].name), der diesen (Script-)Scheduler fuehrt." },
+          "enabled": {
+            "type": "boolean",
+            "description": "Aus t_scheduler_disabled (DB, nicht config.json) - false bedeutet: der automatische Cron-Trigger loest fuer diesen einen Pfad nicht aus."
+          }
+        }
+      },
+      "SchedulerWithDetails": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Scheduler" },
+          {
+            "type": "object",
+            "required": ["instructions", "pathStatuses"],
+            "properties": {
+              "instructions": {
+                "type": "string",
+                "description": "Der pro Lauf tatsaechlich aufgeloeste Auftragstext (scheduler/<name>.md-Context plus etwaige zusaetzlich referenzierte contexts) - bei einem Aufloesungsfehler stattdessen ein Fehlertext, der mit \"Auftragstext konnte nicht aufgeloest werden:\" beginnt."
+              },
+              "pathStatuses": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/SchedulerPathStatus" },
+                "description": "Enabled-Status je Pfad aus paths[], projektuebergreifend in einem Aufruf."
+              }
+            }
+          }
+        ]
+      },
+      "ScriptSchedulerWithDetails": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ScriptScheduler" },
+          {
+            "type": "object",
+            "required": ["pathStatuses"],
+            "properties": {
+              "pathStatuses": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/SchedulerPathStatus" },
+                "description": "Enabled-Status je Pfad aus paths[], projektuebergreifend in einem Aufruf."
+              }
+            }
+          }
+        ]
+      },
       "SchedulerList": {
         "type": "object",
         "required": ["schedulers"],
         "properties": {
           "schedulers": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Scheduler" }
+            "items": { "$ref": "#/components/schemas/SchedulerWithDetails" }
           }
         }
       },
@@ -2077,7 +2124,7 @@
         "properties": {
           "scriptSchedulers": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/ScriptScheduler" }
+            "items": { "$ref": "#/components/schemas/ScriptSchedulerWithDetails" }
           }
         }
       },

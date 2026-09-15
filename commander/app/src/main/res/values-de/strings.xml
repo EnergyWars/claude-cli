@@ -125,6 +125,15 @@
     <string name="schedulers_enabled_label">Aktiviert (automatischer Zeitplan)</string>
     <string name="schedulers_disabled_label">Deaktiviert für dieses Projekt</string>
 
+    <string name="all_schedulers_title">Alle Scheduler</string>
+    <string name="all_schedulers_empty">Für kein Projekt sind Scheduler konfiguriert.</string>
+    <string name="all_schedulers_paths_label">Projekte: %1$s</string>
+
+    <string name="scheduler_detail_title">Scheduler-Details</string>
+    <string name="scheduler_detail_instructions_label">Ausführungstext</string>
+    <string name="scheduler_detail_script_label">Skript</string>
+    <string name="scheduler_detail_projects_label">Projekte</string>
+
     <string name="downloads_title">Downloads</string>
     <string name="downloads_files_empty">Keine Dateien.</string>
     <string name="download_status_downloading">Wird heruntergeladen…</string>
@@ -234,6 +243,8 @@
     <string name="settings_token_costs_sub">Kostenübersicht über alle Projekte</string>
     <string name="settings_system_metrics_title">System-Metriken</string>
     <string name="settings_system_metrics_sub">CPU- und Arbeitsspeicher-Auslastung über Zeit</string>
+    <string name="settings_all_schedulers_title">Alle Scheduler</string>
+    <string name="settings_all_schedulers_sub">Scheduler-Übersicht über alle Projekte</string>
     <string name="settings_config_json_label">config.json</string>
     <string name="settings_config_save">Speichern</string>
     <string name="settings_config_saved_title">Gespeichert</string>

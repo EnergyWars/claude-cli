@@ -47,7 +47,12 @@ fun ContextEditScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(AppSpacing.lg),
+                .padding(
+                    start = AppSpacing.lg,
+                    top = AppSpacing.lg,
+                    end = AppSpacing.lg,
+                    bottom = AppSpacing.lg + AppSpacing.bottomSafeArea,
+                ),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
             if (state.loading) {

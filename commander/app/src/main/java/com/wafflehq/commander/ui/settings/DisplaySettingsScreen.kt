@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
+import com.wafflehq.commander.ui.theme.AppSpacing
 
 @Composable
 fun DisplaySettingsScreen(
@@ -31,7 +32,8 @@ fun DisplaySettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = AppSpacing.bottomSafeArea),
         )
     }
 }

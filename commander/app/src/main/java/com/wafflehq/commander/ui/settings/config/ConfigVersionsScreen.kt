@@ -56,7 +56,8 @@ fun ConfigVersionsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = AppSpacing.bottomSafeArea),
         ) {
             if (state.loading) {
                 CircularProgressIndicator(modifier = Modifier.padding(AppSpacing.lg))

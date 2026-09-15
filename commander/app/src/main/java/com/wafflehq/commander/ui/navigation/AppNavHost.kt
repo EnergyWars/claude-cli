@@ -36,6 +36,9 @@ import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
 import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
+import com.wafflehq.commander.ui.schedulers.AllSchedulersScreen
+import com.wafflehq.commander.ui.schedulers.SchedulerDetailScreen
+import com.wafflehq.commander.ui.schedulers.SchedulerKind
 import com.wafflehq.commander.ui.schedulers.SchedulersScreen
 import com.wafflehq.commander.ui.settings.DisplaySettingsScreen
 import com.wafflehq.commander.ui.settings.SettingsScreen
@@ -66,6 +69,8 @@ object Routes {
     const val STATS = "stats/{pathName}"
     const val REMOTE_SESSIONS = "remote_sessions/{pathName}"
     const val SCHEDULERS = "schedulers/{pathName}"
+    const val ALL_SCHEDULERS = "all_schedulers"
+    const val SCHEDULER_DETAIL = "scheduler_detail/{kind}/{name}"
     const val FEEDBACK = "feedback/{pathName}"
     const val COLLECT = "collect/{pathName}"
     const val SETTINGS = "settings"
@@ -107,6 +112,9 @@ object Routes {
     fun remoteSessions(pathName: String): String = "remote_sessions/${Uri.encode(pathName)}"
 
     fun schedulers(pathName: String): String = "schedulers/${Uri.encode(pathName)}"
+
+    fun schedulerDetail(name: String, kind: SchedulerKind): String =
+        "scheduler_detail/${kind.name}/${Uri.encode(name)}"
 
     fun feedback(pathName: String): String = "feedback/${Uri.encode(pathName)}"
 
@@ -316,7 +324,23 @@ fun AppNavHost() {
             SchedulersScreen(
                 onBack = { navController.popBackStack() },
                 onCommandStarted = { commandId, pathName -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
+                onOpenDetail = { name, kind -> navController.navigate(Routes.schedulerDetail(name, kind)) },
             )
+        }
+        composable(Routes.ALL_SCHEDULERS) {
+            AllSchedulersScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDetail = { name, kind -> navController.navigate(Routes.schedulerDetail(name, kind)) },
+            )
+        }
+        composable(
+            route = Routes.SCHEDULER_DETAIL,
+            arguments = listOf(
+                navArgument("kind") { type = NavType.StringType },
+                navArgument("name") { type = NavType.StringType },
+            ),
+        ) {
+            SchedulerDetailScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.FEEDBACK,
@@ -338,6 +362,7 @@ fun AppNavHost() {
                 onOpenConfig = { navController.navigate(Routes.SETTINGS_CONFIG) },
                 onOpenTokenCosts = { navController.navigate(Routes.TOKEN_COSTS) },
                 onOpenSystemMetrics = { navController.navigate(Routes.SYSTEM_METRICS) },
+                onOpenAllSchedulers = { navController.navigate(Routes.ALL_SCHEDULERS) },
                 onDisconnected = { navController.navigate(Routes.SETUP) { popUpTo(0) } },
             )
         }
