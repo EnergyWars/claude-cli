@@ -1,4 +1,4 @@
-/goal Mache ein ausführliches Review der gesamten App, aber achte dabei ausschließlich auf folgende Aspekte:
+/goal Mache ein ausführliches der App seit dem timestamp des letzten review/architecture-<timestamp>.md. Falls es keinen gibt, prüfe die gesamte App. Aber achte dabei ausschließlich auf folgende Aspekte:
 
 1. Ist die Softwarearchitektur sauber?
 2. Ist alles, was in der lib sein könnte auch wirklich in der Lib?

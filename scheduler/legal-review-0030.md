@@ -1,4 +1,4 @@
-/goal Mache ein ausführliches Review der gesamten App, aber achte dabei ausschließlich auf folgende Aspekte:
+/goal Mache ein ausführliches der App seit dem timestamp des letzten review/legal-<timestamp>.md. Aber achte dabei ausschließlich auf folgende Aspekte:
 
 1. Sind Dinge enthalten, die bei kommerziellen Vermarktung der App Probleme bereiten könnten?
 2. Sind alle rechtlichen Voraussetzungen gegeben, um die App kommerziell in den App-Store zu bringen?

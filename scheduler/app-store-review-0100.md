@@ -1,4 +1,4 @@
-/goal Mache ein ausführliches Review der gesamten App, aber achte dabei ausschließlich auf folgende Aspekte:
+/goal Mache ein ausführliches der App seit dem timestamp des letzten review/news-<timestamp>. Falls es keinen gibt, prüfe die gesamte App. Achte dabei ausschließlich auf folgende Aspekte:
 
 1. Ist die app technisch dafür geeignet, jetzt in den Appstore hochgeladen zu werden?
 2. Ist die app rechtlich dafür geeignet, jetzt in den Appstore hochgeladen zu werden?

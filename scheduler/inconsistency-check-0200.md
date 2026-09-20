@@ -1,4 +1,4 @@
-/goal Mache ein ausführliches Review der gesamten App, aber achte dabei ausschließlich auf folgende Aspekte:
+/goal Mache ein ausführliches der App seit dem timestamp des letzten review/inconsistencies-<timestamp>.md. Aber achte dabei ausschließlich auf folgende Aspekte:
 
 1. Werden an irgendeiner Stelle Farben oder Library-Elemente inkonsistent verwendet (ohne guten Grund)?
 2. Gibt es irgendwas, das nicht in den Rest der App rein passt, was nicht explizit gewünscht ist?

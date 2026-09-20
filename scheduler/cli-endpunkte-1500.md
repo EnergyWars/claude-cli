@@ -1,4 +1,4 @@
-/goal Mache ein ausführliches Review der gesamten App, aber achte dabei ausschließlich auf folgende Aspekte:
+/goal ache ein ausführliches der App seit dem timestamp des letzten review/usability-<timestamp>.md. Aber achte dabei ausschließlich auf folgende Aspekte:
 
 1. Ist das Onboarding vollständig für jedes Modul und alle Grundfunktionen?
 2. Passen alle Beschreibungen in dem Onboarding zum aktuellen Stand der Entwicklung?
