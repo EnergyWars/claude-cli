@@ -136,13 +136,9 @@ interface GradleBuildResult {
   output: string;
 }
 
-function resolveGradlewExecutable(cwd: string): string {
-  return existsSync(join(cwd, 'gradlew_')) ? './gradlew_' : './gradlew';
-}
-
 function runGradleTask(cwd: string, task: string): Promise<GradleBuildResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(resolveGradlewExecutable(cwd), [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('./gradlew', [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
 
     const handleChunk = (chunk: Buffer): void => {
