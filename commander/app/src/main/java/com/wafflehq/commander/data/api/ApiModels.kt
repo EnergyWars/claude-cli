@@ -315,6 +315,12 @@ data class RemoteAgentSession(
 @Serializable
 data class RemoteSessionList(val sessions: List<RemoteAgentSession>)
 
+@Serializable
+data class GoalFile(val name: String, val content: String, val timestamp: String)
+
+@Serializable
+data class GoalList(val goals: List<GoalFile>)
+
 private const val REMOTE_SESSION_KIND_BACKGROUND = "background"
 
 /** True for `--bg`-started sessions, which carry a short `id` usable with `claude attach/logs/stop/rm`. */

@@ -410,6 +410,14 @@ Startet direkt über die API eine volle Claude-Code-Session mit aktiviertem Remo
 
 Implementiert in `src/remote-session.ts` (`startRemoteSession(cwd, name?)`, `listRemoteSessions(cwd?)`, reine `spawn`-Wrapper ohne DB-Anbindung – die Session-ID wird per Regex aus der stdout/stderr-Ausgabe von `claude --bg --remote-control` gelesen, `claude agents --json`s Ausgabe wird direkt geparst und gegen ein Mindest-Schema validiert) und `src/server.ts` (Routing, Body-Validierung).
 
+## Goals (`GET /paths/<pathName>/goals`)
+
+Listet alle Markdown-Dateien aus dem Unterverzeichnis `goals/` im Dateisystem-Verzeichnis eines Pfad-Eintrags samt komplettem Inhalt – gedacht für einen Client (`commander`), der die dort abgelegten `/goal`-Anweisungen anzeigt und per Knopfdruck kopierbar macht.
+
+Antwort `200 { "goals": [{ "name": "<datei>.md", "content": "<voller Inhalt>", "timestamp": "<ISO-mtime>" }] }`, alphabetisch nach Dateiname sortiert. Berücksichtigt werden nur direkte Dateien mit Endung `.md` (unabhängig von Groß-/Kleinschreibung, also auch `.MD`); Unterordner (nicht rekursiv), Dateien anderer Endungen und Symlinks werden ignoriert, Dateien größer als 1 MiB übersprungen. Fehlt `goals/`, ist die Liste leer (kein Fehler). 401 ohne gültiges JWT, 404 bei unbekanntem `pathName`. Der reale Dateisystem-Pfad wird nie ausgegeben.
+
+Implementiert in `src/goals.ts` (`listGoalFiles(projectDirectory)`) und `src/server.ts` (`handleGetGoals`, Routing, Endpunkt-Ausgabe beim Start); Schema `GoalList`/`GoalFile` in `openapi.json`.
+
 ## Manifest (`GET /manifest`)
 
 Liefert die gesamte per `config.json` gesteuerte Oberfläche in einem einzigen Aufruf – gedacht als Grundlage für eine spätere, voll dynamische Remote-Steuerung (z. B. per App), ohne dass diese die Struktur von `config.json` kennen oder mehrere Endpunkte kombinieren muss:

@@ -1985,6 +1985,51 @@ test('GET /paths/default/remote-sessions: 401 ohne Authorization-Header', async 
   assert.equal(res.status, 401);
 });
 
+test('GET /paths/paged/goals: liefert alle goals/*.md mit Inhalt, sortiert und ohne andere Dateien', async () => {
+  const goalsDir = join(pagedDir, 'goals');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    const betaPath = join(goalsDir, 'beta.MD');
+    writeFileSync(betaPath, '# Beta\n\nInhalt B');
+    const betaMtime = new Date('2026-04-05T06:07:08.000Z');
+    utimesSync(betaPath, betaMtime, betaMtime);
+    writeFileSync(join(goalsDir, 'alpha.md'), 'Inhalt A');
+    writeFileSync(join(goalsDir, 'notes.txt'), 'ignoriert');
+
+    const res = await fetch(`${baseUrl()}/paths/paged/goals`, { headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      goals: { name: string; content: string; timestamp: string }[];
+    };
+    assert.deepEqual(
+      body.goals.map((goal) => [goal.name, goal.content]),
+      [
+        ['alpha.md', 'Inhalt A'],
+        ['beta.MD', '# Beta\n\nInhalt B'],
+      ],
+    );
+    assert.equal(body.goals[1]?.timestamp, betaMtime.toISOString());
+  } finally {
+    rmSync(goalsDir, { recursive: true, force: true });
+  }
+});
+
+test('GET /paths/paged/goals: liefert eine leere Liste ohne goals-Verzeichnis', async () => {
+  const res = await fetch(`${baseUrl()}/paths/paged/goals`, { headers: authHeaders() });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { goals: [] });
+});
+
+test('GET /paths/doesnotexist/goals: 404 bei unbekanntem Pfad', async () => {
+  const res = await fetch(`${baseUrl()}/paths/doesnotexist/goals`, { headers: authHeaders() });
+  assert.equal(res.status, 404);
+});
+
+test('GET /paths/paged/goals: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/paged/goals`);
+  assert.equal(res.status, 401);
+});
+
 test('POST /paths/default/remote-sessions: startet eine Remote-Control-Session und liefert die ID', async () => {
   const startMock = createMockClaude({
     outputChunks: ['backgrounded · abc123f9 (idle — send a prompt to start)\n'],

@@ -65,6 +65,7 @@ fun ProjectHomeScreen(
     onOpenCollect: (pathName: String) -> Unit,
     onOpenStats: (pathName: String) -> Unit,
     onOpenRemoteSessions: (pathName: String) -> Unit,
+    onOpenGoals: (pathName: String) -> Unit,
     onOpenSchedulers: (pathName: String) -> Unit,
     onOpenSettings: () -> Unit,
     viewModel: ProjectHomeViewModel = hiltViewModel(),
@@ -171,6 +172,11 @@ fun ProjectHomeScreen(
                 title = stringResource(R.string.project_home_remote_sessions),
                 subtitle = null,
                 onClick = { onOpenRemoteSessions(projectName) },
+            )
+            SettingsListRow(
+                title = stringResource(R.string.project_home_goals),
+                subtitle = null,
+                onClick = { onOpenGoals(projectName) },
             )
             if (state.hasSchedulers) {
                 SettingsListRow(

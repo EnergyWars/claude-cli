@@ -44,6 +44,7 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 - **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
 - **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
 - **Remote-Sitzungen** – aktive Claude-Code-Sessions dieses Projekts anzeigen und eine neue mit Remote Control starten (siehe unten).
+- **Goals** – alle Markdown-Dateien aus `goals/` des aktuellen Projekts mit Inhalt anzeigen und einzeln kopieren (siehe unten).
 - **Scheduler** (nur sichtbar, wenn das aktuelle Projekt mindestens einen (Script-)Scheduler führt) – konfigurierte (Script-)Scheduler manuell nur für dieses eine Projekt anstoßen (siehe unten).
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
@@ -131,6 +132,12 @@ Erreichbar über den „Statistik"-Eintrag im Projekt-Hub, immer auf das aktuell
 - **Letzter Release-Build:** wie oben, für die Release-APK.
 
 Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
+
+## Goals
+
+Erreichbar über den „Goals"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /paths/<pathName>/goals`, siehe `../FEATURES.md`, Goals).
+
+Listet jede Markdown-Datei aus dem `goals/`-Verzeichnis des Projekts (beliebiger Dateiname, Endung `.md`/`.MD`) als Karte: Dateiname, Änderungszeitpunkt (Geräte-Zeitzone), Kopieren-Button und der komplette Inhalt in Monospace. Der Kopieren-Button legt den vollständigen Dateiinhalt in die Zwischenablage und bestätigt das mit einem kurzen Hinweis. Ohne Goal-Dateien erscheint ein zweizeiliger Leerzustand; Ladezustand und Fehleranzeige wie bei den übrigen Screens. Lädt einmalig beim Öffnen (kein Live-Polling).
 
 ## Remote-Sitzungen
 

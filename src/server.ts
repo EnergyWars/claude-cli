@@ -95,6 +95,7 @@ import {
 import { resolveDatabaseDirectory } from './env.js';
 import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
 import { findLatestBuildTimestamp } from './gradle-install.js';
+import { listGoalFiles } from './goals.js';
 import { signJwt, verifyJwt } from './jwt.js';
 import {
   buildSchedulerSystemPrompt,
@@ -1253,6 +1254,18 @@ function handlePostPathCommand(
       completeCommand(db, id, 'failed', null, message);
       publishCommandState(db, id);
     });
+}
+
+function handleGetGoals(config: Config, res: ServerResponse, pathName: string): void {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  sendJson(res, 200, { goals: listGoalFiles(pathEntry.path) });
 }
 
 async function handleGetRemoteSessions(
@@ -2443,6 +2456,13 @@ async function handleRequest(
       method === 'GET' &&
       segments.length === 3 &&
       segments[0] === 'paths' &&
+      segments[2] === 'goals'
+    ) {
+      handleGetGoals(config, res, segments[1] ?? '');
+    } else if (
+      method === 'GET' &&
+      segments.length === 3 &&
+      segments[0] === 'paths' &&
       segments[2] === 'remote-sessions'
     ) {
       await handleGetRemoteSessions(config, res, segments[1] ?? '');
@@ -2598,6 +2618,9 @@ function printEndpoints(config: Config, port: number): void {
   );
   console.log(
     `  POST ${base}/paths/:pathName/script-schedulers/:name/enable|disable (nur fuer diesen einen Pfad, in der DB, config.json bleibt unveraendert)`,
+  );
+  console.log(
+    `  GET  ${base}/paths/:pathName/goals (alle goals/*.md des Pfads mit Inhalt)`,
   );
   console.log(`  GET  ${base}/paths/:pathName/remote-sessions`);
   console.log(

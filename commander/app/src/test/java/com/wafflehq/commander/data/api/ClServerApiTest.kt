@@ -768,6 +768,44 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `getGoals requests the path-scoped endpoint and parses the goal files`() = runBlocking {
+        server.enqueue(
+            MockResponse(
+                body = """{"goals":[{"name":"alpha.md","content":"# Alpha\n\nText","timestamp":"2026-04-05T06:07:08.000Z"},{"name":"beta.MD","content":"","timestamp":"2026-04-06T06:07:08.000Z"}]}""",
+            ),
+        )
+
+        val result = apiWithConnection().getGoals("myapp")
+
+        assertEquals(2, result.size)
+        assertEquals("alpha.md", result[0].name)
+        assertEquals("# Alpha\n\nText", result[0].content)
+        assertEquals("2026-04-05T06:07:08.000Z", result[0].timestamp)
+        assertEquals("", result[1].content)
+        val recorded = server.takeRequest()
+        assertEquals("GET", recorded.method)
+        assertEquals("/paths/myapp/goals", recorded.target)
+    }
+
+    @Test
+    fun `getGoals returns an empty list when the project has no goal files`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"goals":[]}"""))
+
+        val result = apiWithConnection().getGoals("myapp")
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `getGoals encodes special characters in the path name`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"goals":[]}"""))
+
+        apiWithConnection().getGoals("my app")
+
+        assertEquals("/paths/my%20app/goals", server.takeRequest().target)
+    }
+
+    @Test
     fun `startRemoteSession posts without a body field when no name is given`() = runBlocking {
         server.enqueue(MockResponse(code = 201, body = """{"id":"abc123f9","output":"backgrounded"}"""))
 

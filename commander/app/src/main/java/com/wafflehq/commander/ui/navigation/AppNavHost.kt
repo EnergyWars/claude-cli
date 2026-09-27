@@ -34,6 +34,7 @@ import com.wafflehq.commander.ui.login.LoginScreen
 import com.wafflehq.commander.ui.metrics.SystemMetricsScreen
 import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
+import com.wafflehq.commander.ui.goals.GoalsScreen
 import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
 import com.wafflehq.commander.ui.schedulers.AllSchedulersScreen
@@ -68,6 +69,7 @@ object Routes {
     const val HISTORY = "history/{pathName}"
     const val STATS = "stats/{pathName}"
     const val REMOTE_SESSIONS = "remote_sessions/{pathName}"
+    const val GOALS = "goals/{pathName}"
     const val SCHEDULERS = "schedulers/{pathName}"
     const val ALL_SCHEDULERS = "all_schedulers"
     const val SCHEDULER_DETAIL = "scheduler_detail/{kind}/{name}"
@@ -110,6 +112,8 @@ object Routes {
     fun stats(pathName: String): String = "stats/${Uri.encode(pathName)}"
 
     fun remoteSessions(pathName: String): String = "remote_sessions/${Uri.encode(pathName)}"
+
+    fun goals(pathName: String): String = "goals/${Uri.encode(pathName)}"
 
     fun schedulers(pathName: String): String = "schedulers/${Uri.encode(pathName)}"
 
@@ -208,6 +212,7 @@ fun AppNavHost() {
                 onOpenCollect = { pathName -> navController.navigate(Routes.collect(pathName)) },
                 onOpenStats = { pathName -> navController.navigate(Routes.stats(pathName)) },
                 onOpenRemoteSessions = { pathName -> navController.navigate(Routes.remoteSessions(pathName)) },
+                onOpenGoals = { pathName -> navController.navigate(Routes.goals(pathName)) },
                 onOpenSchedulers = { pathName -> navController.navigate(Routes.schedulers(pathName)) },
                 onOpenSettings = openSettings,
             )
@@ -316,6 +321,12 @@ fun AppNavHost() {
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
         ) {
             RemoteSessionsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = Routes.GOALS,
+            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
+        ) {
+            GoalsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.SCHEDULERS,

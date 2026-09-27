@@ -46,6 +46,7 @@
     <string name="project_home_stats">Statistics</string>
     <string name="project_home_remote_sessions">Remote sessions</string>
     <string name="project_home_schedulers">Schedulers</string>
+    <string name="project_home_goals">Goals</string>
 
     <string name="usage_banner_title">Usage</string>
     <string name="usage_banner_expand">Show usage</string>
@@ -115,6 +116,12 @@
     <string name="remote_sessions_kind_background">Background · ID: %1$s</string>
     <string name="remote_sessions_started_at">Started %1$s</string>
     <string name="remote_sessions_waiting_for">Waiting: %1$s</string>
+
+    <string name="goals_title">Goals</string>
+    <string name="goals_empty">No goal files found.\nAdd Markdown files under goals/ in the project.</string>
+    <string name="goals_copy">Copy content</string>
+    <string name="goals_copied">Content copied</string>
+    <string name="goals_modified_at">Modified %1$s</string>
 
     <string name="schedulers_title">Schedulers</string>
     <string name="schedulers_empty">No schedulers configured for this project.</string>

@@ -893,6 +893,44 @@
         }
       }
     },
+    "/paths/{pathName}/goals": {
+      "get": {
+        "summary": "Listet alle Markdown-Dateien aus goals/ dieses Pfads mit Inhalt",
+        "description": "Liest das Unterverzeichnis goals/ im Dateisystem-Verzeichnis des Pfad-Eintrags (nur direkte Dateien mit Endung .md, unabhaengig von Gross-/Kleinschreibung, nicht rekursiv, keine Symlinks, Dateien groesser als 1 MiB werden uebersprungen) und liefert Name, kompletten Inhalt und mtime je Datei, alphabetisch sortiert. Ein fehlendes goals-Verzeichnis ergibt eine leere Liste.",
+        "operationId": "listGoals",
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Die Goal-Dateien dieses Pfads.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GoalList" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/paths/{pathName}/remote-sessions": {
       "get": {
         "summary": "Listet die aktiven Claude-Code-Sessions in diesem Pfad-Verzeichnis",
@@ -2525,6 +2563,25 @@
           "status": { "type": "string" },
           "waitingFor": { "type": "string" },
           "state": { "type": "string" }
+        }
+      },
+      "GoalFile": {
+        "type": "object",
+        "required": ["name", "content", "timestamp"],
+        "properties": {
+          "name": { "type": "string", "description": "Dateiname inklusive Endung, z. B. feature-a.md." },
+          "content": { "type": "string", "description": "Kompletter Dateiinhalt (UTF-8)." },
+          "timestamp": { "type": "string", "format": "date-time", "description": "mtime der Datei (ISO 8601)." }
+        }
+      },
+      "GoalList": {
+        "type": "object",
+        "required": ["goals"],
+        "properties": {
+          "goals": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GoalFile" }
+          }
         }
       },
       "RemoteSessionList": {
