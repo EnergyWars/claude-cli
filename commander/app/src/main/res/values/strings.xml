@@ -118,10 +118,18 @@
     <string name="remote_sessions_waiting_for">Waiting: %1$s</string>
 
     <string name="goals_title">Goals</string>
-    <string name="goals_empty">No goal files found.\nAdd Markdown files under goals/ in the project.</string>
-    <string name="goals_copy">Copy content</string>
-    <string name="goals_copied">Content copied</string>
-    <string name="goals_modified_at">Modified %1$s</string>
+    <string name="goals_empty">No goals found.\nAdd goal folders under goals/&lt;date&gt;-&lt;slug&gt;/ in the project.</string>
+    <string name="goals_copy">Copy command</string>
+    <string name="goals_copied">Command copied</string>
+    <string name="goals_status_ready">Ready</string>
+    <string name="goals_status_blocked">Blocked</string>
+    <string name="goals_start">Start</string>
+    <string name="goals_progress">%1$d/%2$d done, %3$d running</string>
+    <string name="goals_status_running">Running</string>
+    <string name="goals_start_interactive">Interactive</string>
+    <string name="goals_session_started">Interactive session started</string>
+    <string name="goals_expand">Expand</string>
+    <string name="goals_collapse">Collapse</string>
 
     <string name="schedulers_title">Schedulers</string>
     <string name="schedulers_empty">No schedulers configured for this project.</string>

@@ -21,7 +21,7 @@ export interface RunCliOptions {
 export async function runCli(args: string[], options: RunCliOptions = {}): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(tsxBin, [entryPoint, ...args], {
-      env: { ...process.env, ...options.env },
+      env: { ...process.env, CL_ADB_HOST: '', ...options.env },
       cwd: options.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

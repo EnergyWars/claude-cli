@@ -133,6 +133,7 @@ const RESERVED_COMMAND_NAMES = new Set<string>([
   'totp',
   'inst',
   'instr',
+  'connect',
   'ticket',
   'collect',
   'stats',

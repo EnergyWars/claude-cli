@@ -6,6 +6,8 @@ export interface MockAdbOptions {
   devicesOutput?: string;
   failSerials?: string[];
   deviceNames?: Record<string, string>;
+  connectOutput?: string;
+  mdnsOutput?: string;
 }
 
 export interface MockAdb {
@@ -23,6 +25,8 @@ export function createMockAdb(options: MockAdbOptions = {}): MockAdb {
     devicesOutput = 'List of devices attached\n\n',
     failSerials = [],
     deviceNames = {},
+    connectOutput = '',
+    mdnsOutput = '',
   } = options;
   const binDir = mkdtempSync(join(tmpdir(), 'cl-mock-adb-'));
   const logFile = join(binDir, 'adb.log');
@@ -34,6 +38,14 @@ if [ "$1" = "devices" ]; then
   cat <<'MOCK_ADB_DEVICES_EOF'
 ${devicesOutput}
 MOCK_ADB_DEVICES_EOF
+  exit 0
+fi
+if [ "$1" = "connect" ]; then
+  echo ${shellQuote(connectOutput)}
+  exit 0
+fi
+if [ "$1" = "mdns" ]; then
+  echo ${shellQuote(mdnsOutput)}
   exit 0
 fi
 if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "getprop" ]; then

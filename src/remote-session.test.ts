@@ -70,6 +70,31 @@ test('startRemoteSession: haengt einen uebergebenen Namen als "--remote-control=
   }
 });
 
+test('startRemoteSession: haengt einen Prompt nach "--" an', async () => {
+  const logDir = mkdtempSync(join(tmpdir(), 'cl-remote-session-log-'));
+  const logFile = join(logDir, 'args.log');
+  const mock = createMockClaude({
+    outputChunks: ['backgrounded · xyz98765 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    await startRemoteSession('/tmp', 'mein-name', '/goal Tu etwas');
+    assert.deepEqual(readFirstLoggedArgs(logFile), [
+      '--bg',
+      '--remote-control=mein-name',
+      '--',
+      '/goal Tu etwas',
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+    rmSync(logDir, { recursive: true, force: true });
+  }
+});
+
 test('startRemoteSession: wirft bei nicht-null Exit-Code', async () => {
   const mock = createMockClaude({ outputChunks: ['kaputt'], exitCode: 1 });
   const previousPath = process.env.PATH;
@@ -140,6 +165,28 @@ test('listRemoteSessions: filtert Eintraege, die nicht dem Schema entsprechen', 
   try {
     const sessions = await listRemoteSessions();
     assert.equal(sessions.length, 2);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
+});
+
+test('listRemoteSessions: akzeptiert Background-Sessions ohne pid', async () => {
+  const withoutPid = {
+    id: 'ad2b3a5d',
+    cwd: '/home/user/project',
+    kind: 'background',
+    startedAt: 1_700_000_200_000,
+    sessionId: 'ad2b3a5d-9993-46bf-b9cb-cfa16b966c8e',
+    name: 'goal:path:folder/G01.md',
+    state: 'working',
+  };
+  const mock = createMockClaude({ rawOutput: JSON.stringify([withoutPid]), exitCode: 0 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    const sessions = await listRemoteSessions();
+    assert.deepEqual(sessions, [withoutPid]);
   } finally {
     process.env.PATH = previousPath;
     mock.cleanup();

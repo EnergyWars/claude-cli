@@ -17,10 +17,17 @@ export function parseBackgroundSessionId(output: string): string {
   return match[1];
 }
 
-export async function startRemoteSession(cwd: string, name?: string): Promise<RemoteSessionStart> {
+export async function startRemoteSession(
+  cwd: string,
+  name?: string,
+  prompt?: string,
+): Promise<RemoteSessionStart> {
   const remoteControlFlag =
     name !== undefined && name.trim() !== '' ? `--remote-control=${name}` : '--remote-control';
   const args = ['--bg', remoteControlFlag];
+  if (prompt !== undefined && prompt.trim() !== '') {
+    args.push('--', prompt);
+  }
 
   const { exitCode, output } = await new Promise<{ exitCode: number | null; output: string }>(
     (resolve, reject) => {
@@ -49,7 +56,7 @@ export async function startRemoteSession(cwd: string, name?: string): Promise<Re
 }
 
 export interface RemoteAgentSession {
-  pid: number;
+  pid?: number;
   id?: string;
   cwd: string;
   kind: string;
@@ -67,7 +74,7 @@ function isRemoteAgentSession(value: unknown): value is RemoteAgentSession {
   }
   const record = value as Record<string, unknown>;
   return (
-    typeof record.pid === 'number' &&
+    (record.pid === undefined || typeof record.pid === 'number') &&
     typeof record.cwd === 'string' &&
     typeof record.kind === 'string' &&
     typeof record.startedAt === 'number' &&

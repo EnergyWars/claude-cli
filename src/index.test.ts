@@ -1012,6 +1012,44 @@ test('cl task doesnotexist: unbekannter Task bricht mit Fehler und Exit != 0 ab'
   assert.match(result.stderr, /doesnotexist/);
 });
 
+test('cl connect: bricht ohne IP und ohne CL_ADB_HOST mit Fehler ab', async () => {
+  const result = await runCli(['connect'], { env: baseEnv() });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /CL_ADB_HOST/);
+});
+
+test('cl connect <ip>: verbindet ueber den mDNS-Port', async () => {
+  const adb = createMockAdb({
+    mdnsOutput: 'adb-X\t_adb-tls-connect._tcp.\t127.0.0.1:40123',
+    devicesOutput: 'List of devices attached\n127.0.0.1:40123\tdevice\n',
+  });
+  try {
+    const result = await runCli(['connect', '127.0.0.1'], {
+      env: { CL_ROOT_DIR: fixture.rootDir, PATH: pathWithMockAdb(adb.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Erfolgreich verbunden mit 127\.0\.0\.1:40123/);
+  } finally {
+    adb.cleanup();
+  }
+});
+
+test('cl connect: nutzt CL_ADB_HOST, wenn keine IP angegeben ist', async () => {
+  const adb = createMockAdb({
+    mdnsOutput: 'adb-X\t_adb-tls-connect._tcp.\t127.0.0.1:40123',
+    devicesOutput: 'List of devices attached\n127.0.0.1:40123\tdevice\n',
+  });
+  try {
+    const result = await runCli(['connect'], {
+      env: { CL_ROOT_DIR: fixture.rootDir, CL_ADB_HOST: '127.0.0.1', PATH: pathWithMockAdb(adb.binDir) },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /Erfolgreich verbunden/);
+  } finally {
+    adb.cleanup();
+  }
+});
+
 test('cl inst: baut per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'cl-cli-inst-'));
   writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });

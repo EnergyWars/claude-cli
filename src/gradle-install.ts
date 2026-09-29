@@ -3,6 +3,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
+import { connectConfiguredAdb } from './adb-connect.js';
 import { buildClaudeArgs } from './launch.js';
 
 export type GradleBuildType = 'debug' | 'release';
@@ -263,6 +264,7 @@ export async function buildAndInstall(
   console.log(`APK: ${apkPath}`);
 
   const adbExecutable = resolveAdbExecutable();
+  await connectConfiguredAdb(adbExecutable);
   const devices = await listAdbDevices(adbExecutable);
   if (devices.length === 0) {
     console.log('Keine adb-Geraete gefunden.');

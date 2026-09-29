@@ -261,8 +261,17 @@ class ClServerApi @Inject constructor(
     ): SchedulerEnabledUpdate =
         authedPost("", "paths", pathName, "script-schedulers", name, if (enabled) "enable" else "disable")
 
-    suspend fun getGoals(pathName: String): List<GoalFile> =
-        authedGet<GoalList>("paths", pathName, "goals").goals
+    suspend fun getGoals(pathName: String): List<GoalListGroup> =
+        authedGet<GoalListsResponse>("paths", pathName, "goals").goalLists
+
+    suspend fun startGoal(pathName: String, folder: String, fileName: String): CommandAccepted =
+        authedPost("", "paths", pathName, "goals", folder, fileName, "start")
+
+    suspend fun startGoalInteractive(pathName: String, folder: String, fileName: String): RemoteSessionStart =
+        authedPost(
+            json.encodeToString(GoalStartRequest(interactive = true)),
+            "paths", pathName, "goals", folder, fileName, "start",
+        )
 
     suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
         authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions

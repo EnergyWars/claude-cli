@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
-import { insertCommand, openDatabase, setCommandPid } from './db.js';
+import { insertCommand, openDatabase, setCommandPid, setGoalSessionId } from './db.js';
 import { startServer, type RunningServer } from './server.js';
 import { generateTotp } from './totp.js';
 import { createFixtureRoot, type Fixture } from './test-support/fixture-config.js';
@@ -1985,39 +1985,59 @@ test('GET /paths/default/remote-sessions: 401 ohne Authorization-Header', async 
   assert.equal(res.status, 401);
 });
 
-test('GET /paths/paged/goals: liefert alle goals/*.md mit Inhalt, sortiert und ohne andere Dateien', async () => {
-  const goalsDir = join(pagedDir, 'goals');
+function goalFrontmatter(id: string, title: string, dependsOn: string): string {
+  return `---
+id: ${id}
+title: ${title}
+description: Beschreibung von ${title}.
+date: 2026-09-29
+dependsOn: [${dependsOn}]
+---
+
+# ${id} – ${title}
+*Voraussetzung: ${dependsOn || 'keine'}*
+
+\`\`\`text
+/goal Tu etwas fuer ${title}.
+
+Erledigt ist das Ziel erst, wenn Claude im Transcript alles Folgende belegt hat:
+1. Nachweis erbracht.
+\`\`\`
+`;
+}
+
+test('GET /paths/paged/goals: gruppiert goals/<ordner>/*.md, liest PLAN.md und berechnet den Abhaengigkeits-Status', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-feature');
   mkdirSync(goalsDir, { recursive: true });
   try {
-    const betaPath = join(goalsDir, 'beta.MD');
-    writeFileSync(betaPath, '# Beta\n\nInhalt B');
-    const betaMtime = new Date('2026-04-05T06:07:08.000Z');
-    utimesSync(betaPath, betaMtime, betaMtime);
-    writeFileSync(join(goalsDir, 'alpha.md'), 'Inhalt A');
+    writeFileSync(join(goalsDir, 'PLAN.md'), '# Plan: Feature\n\n*Datum: 2026-09-29*\n');
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+    writeFileSync(join(goalsDir, 'G02-zweites.md'), goalFrontmatter('G02', 'Zweites', 'G01'));
     writeFileSync(join(goalsDir, 'notes.txt'), 'ignoriert');
 
     const res = await fetch(`${baseUrl()}/paths/paged/goals`, { headers: authHeaders() });
     assert.equal(res.status, 200);
     const body = (await res.json()) as {
-      goals: { name: string; content: string; timestamp: string }[];
+      goalLists: { folder: string; planTitle?: string; goals: { id: string; status: string }[] }[];
     };
+    const group = body.goalLists.find((entry) => entry.folder === '2026-09-29-feature');
+    assert.equal(group?.planTitle, 'Feature');
     assert.deepEqual(
-      body.goals.map((goal) => [goal.name, goal.content]),
+      group.goals.map((goal) => [goal.id, goal.status]),
       [
-        ['alpha.md', 'Inhalt A'],
-        ['beta.MD', '# Beta\n\nInhalt B'],
+        ['G01', 'ready'],
+        ['G02', 'blocked'],
       ],
     );
-    assert.equal(body.goals[1]?.timestamp, betaMtime.toISOString());
   } finally {
-    rmSync(goalsDir, { recursive: true, force: true });
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
   }
 });
 
 test('GET /paths/paged/goals: liefert eine leere Liste ohne goals-Verzeichnis', async () => {
   const res = await fetch(`${baseUrl()}/paths/paged/goals`, { headers: authHeaders() });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { goals: [] });
+  assert.deepEqual(await res.json(), { goalLists: [] });
 });
 
 test('GET /paths/doesnotexist/goals: 404 bei unbekanntem Pfad', async () => {
@@ -2027,6 +2047,255 @@ test('GET /paths/doesnotexist/goals: 404 bei unbekanntem Pfad', async () => {
 
 test('GET /paths/paged/goals: 401 ohne Authorization-Header', async () => {
   const res = await fetch(`${baseUrl()}/paths/paged/goals`);
+  assert.equal(res.status, 401);
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: startet ein "ready" Goal headless und schliesst mit "completed" ab', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-start');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const res = await fetch(`${baseUrl()}/paths/paged/goals/2026-09-29-start/G01-erstes.md/start`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 202);
+    const { id } = (await res.json()) as { id: string };
+
+    await sleep(300);
+
+    const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+    const state = (await stateRes.json()) as { status: string; agent: string; command: string };
+    assert.equal(state.status, 'completed');
+    assert.equal(state.agent, 'goal:paged:2026-09-29-start/G01-erstes.md');
+    assert.match(state.command, /^\/goal Tu etwas fuer Erstes\./);
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: 409 wenn eine Voraussetzung noch nicht erfuellt ist', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-blocked');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+    writeFileSync(join(goalsDir, 'G02-zweites.md'), goalFrontmatter('G02', 'Zweites', 'G01'));
+
+    const res = await fetch(`${baseUrl()}/paths/paged/goals/2026-09-29-blocked/G02-zweites.md/start`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as { error: string };
+    assert.match(body.error, /G01/);
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: 409 wenn dasselbe Goal bereits laeuft', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-concurrent');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const url = `${baseUrl()}/paths/paged/goals/2026-09-29-concurrent/G01-erstes.md/start`;
+    const [first, second] = await Promise.all([
+      fetch(url, { method: 'POST', headers: authHeaders() }),
+      fetch(url, { method: 'POST', headers: authHeaders() }),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    assert.deepEqual(statuses, [202, 409]);
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+function goalSession(id: string, state = 'blocked') {
+  return {
+    id,
+    cwd: pagedDir,
+    kind: 'background',
+    startedAt: 1_700_000_000_000,
+    sessionId: `${id}-e1ab-4ed7-9d04-79696f05ec1d`,
+    name: 'automatisch abgeleiteter Titel',
+    state,
+  };
+}
+
+function seedGoalSession(agent: string, sessionId: string): void {
+  const seedDb = openDatabase(join(fixture.rootDir, 'db'));
+  setGoalSessionId(seedDb, agent, sessionId);
+  seedDb.close();
+}
+
+test('POST /paths/paged/goals/:folder/:fileName/start: interactive=true startet eine Remote-Control-Session mit dem /goal-Prompt', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-interactive');
+  mkdirSync(goalsDir, { recursive: true });
+  const logFile = join(mkdtempSync(join(tmpdir(), 'cl-goal-interactive-log-')), 'args.log');
+  const mock = createMockClaude({
+    outputChunks: ['backgrounded · goal1234 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const res = await fetch(
+      `${baseUrl()}/paths/paged/goals/2026-09-29-interactive/G01-erstes.md/start`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ interactive: true }),
+      },
+    );
+    assert.equal(res.status, 201);
+    const body = (await res.json()) as { id: string };
+    assert.equal(body.id, 'goal1234');
+
+    const loggedArgs = readFileSync(logFile, 'utf8');
+    assert.match(loggedArgs, /--remote-control=goal:paged:2026-09-29-interactive\/G01-erstes\.md/);
+    assert.match(loggedArgs, /\/goal Tu etwas fuer Erstes\./);
+  } finally {
+    process.env.PATH = previous;
+    mock.cleanup();
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: interactive=true liefert 409, wenn die Session schon laeuft', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-interactive-running');
+  mkdirSync(goalsDir, { recursive: true });
+  seedGoalSession('goal:paged:2026-09-29-interactive-running/G01-erstes.md', 'run12345');
+  const mock = createMockClaude({
+    rawOutput: JSON.stringify([goalSession('run12345')]),
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const res = await fetch(
+      `${baseUrl()}/paths/paged/goals/2026-09-29-interactive-running/G01-erstes.md/start`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ interactive: true }),
+      },
+    );
+    assert.equal(res.status, 409);
+  } finally {
+    process.env.PATH = previous;
+    mock.cleanup();
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: 400 bei ungueltigem Body', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-badbody');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+    const url = `${baseUrl()}/paths/paged/goals/2026-09-29-badbody/G01-erstes.md/start`;
+    const headers = authHeaders({ 'Content-Type': 'application/json' });
+
+    const notJson = await fetch(url, { method: 'POST', headers, body: '{kaputt' });
+    assert.equal(notJson.status, 400);
+    const notObject = await fetch(url, { method: 'POST', headers, body: '[1]' });
+    assert.equal(notObject.status, 400);
+    const wrongType = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ interactive: 'ja' }),
+    });
+    assert.equal(wrongType.status, 400);
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('GET /paths/paged/goals: liefert totalCount und running (headless Command und interaktive Session)', async () => {
+  const folder = '2026-09-29-progress';
+  const goalsDir = join(pagedDir, 'goals', folder);
+  mkdirSync(goalsDir, { recursive: true });
+  seedGoalSession(`goal:paged:${folder}/G02-zweites.md`, 'run22222');
+  seedGoalSession(`goal:paged:${folder}/G03-drittes.md`, 'fin33333');
+  const mock = createMockClaude({
+    rawOutput: JSON.stringify([goalSession('run22222'), goalSession('fin33333', 'done')]),
+    exitCode: 0,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+    writeFileSync(join(goalsDir, 'G02-zweites.md'), goalFrontmatter('G02', 'Zweites', ''));
+    writeFileSync(join(goalsDir, 'G03-drittes.md'), goalFrontmatter('G03', 'Drittes', ''));
+
+    interface Body {
+      goalLists: { folder: string; totalCount: number; goals: { id: string; running: boolean }[] }[];
+    }
+    const fetchGroup = async () => {
+      const res = await fetch(`${baseUrl()}/paths/paged/goals`, { headers: authHeaders() });
+      const body = (await res.json()) as Body;
+      return body.goalLists.find((entry) => entry.folder === folder);
+    };
+
+    const first = await fetchGroup();
+    assert.equal(first?.totalCount, 3);
+    assert.deepEqual(
+      first.goals.map((goal) => [goal.id, goal.running]),
+      [
+        ['G01', false],
+        ['G02', true],
+        ['G03', false],
+      ],
+    );
+
+    rmSync(join(goalsDir, 'G01-erstes.md'));
+    const second = await fetchGroup();
+    assert.equal(second?.totalCount, 3);
+    assert.equal(second.goals.length, 2);
+  } finally {
+    process.env.PATH = previous;
+    mock.cleanup();
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: 404 bei unbekannter Datei, unbekanntem Ordner oder Pfad', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-notfound');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const missingFile = await fetch(
+      `${baseUrl()}/paths/paged/goals/2026-09-29-notfound/G99-fehlt.md/start`,
+      { method: 'POST', headers: authHeaders() },
+    );
+    assert.equal(missingFile.status, 404);
+
+    const missingFolder = await fetch(
+      `${baseUrl()}/paths/paged/goals/gibt-es-nicht/G01-erstes.md/start`,
+      { method: 'POST', headers: authHeaders() },
+    );
+    assert.equal(missingFolder.status, 404);
+
+    const missingPath = await fetch(
+      `${baseUrl()}/paths/doesnotexist/goals/2026-09-29-notfound/G01-erstes.md/start`,
+      { method: 'POST', headers: authHeaders() },
+    );
+    assert.equal(missingPath.status, 404);
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
+test('POST /paths/paged/goals/:folder/:fileName/start: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/paths/paged/goals/x/G01-erstes.md/start`, { method: 'POST' });
   assert.equal(res.status, 401);
 });
 

@@ -768,28 +768,41 @@ class ClServerApiTest {
     }
 
     @Test
-    fun `getGoals requests the path-scoped endpoint and parses the goal files`() = runBlocking {
+    fun `getGoals requests the path-scoped endpoint and parses grouped goal lists`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"goals":[{"name":"alpha.md","content":"# Alpha\n\nText","timestamp":"2026-04-05T06:07:08.000Z"},{"name":"beta.MD","content":"","timestamp":"2026-04-06T06:07:08.000Z"}]}""",
+                body = """{"goalLists":[{"folder":"2026-09-27-feature","planTitle":"Feature","planDate":"2026-09-27","totalCount":3,"goals":[""" +
+                    """{"id":"G01","fileName":"G01-erstes.md","title":"Erstes","description":"Beschreibung","date":"2026-09-27",""" +
+                    """"dependsOn":[],"command":"/goal Tu etwas.","content":"---\nid: G01\n---\n","timestamp":"2026-04-05T06:07:08.000Z",""" +
+                    """"legacy":false,"status":"ready","missingDependencies":[],"running":true},""" +
+                    """{"id":"G02","fileName":"G02-zweites.md","title":"Zweites","description":"","date":"2026-09-27",""" +
+                    """"dependsOn":["G01"],"command":"/goal Tu etwas anderes.","content":"","timestamp":"2026-04-06T06:07:08.000Z",""" +
+                    """"legacy":false,"status":"blocked","missingDependencies":["G01"]}]}]}""",
             ),
         )
 
         val result = apiWithConnection().getGoals("myapp")
 
-        assertEquals(2, result.size)
-        assertEquals("alpha.md", result[0].name)
-        assertEquals("# Alpha\n\nText", result[0].content)
-        assertEquals("2026-04-05T06:07:08.000Z", result[0].timestamp)
-        assertEquals("", result[1].content)
+        assertEquals(1, result.size)
+        assertEquals("2026-09-27-feature", result[0].folder)
+        assertEquals("Feature", result[0].planTitle)
+        assertEquals(2, result[0].goals.size)
+        assertEquals(3, result[0].totalCount)
+        assertTrue(result[0].goals[0].running)
+        assertFalse(result[0].goals[1].running)
+        assertEquals("G01", result[0].goals[0].id)
+        assertTrue(result[0].goals[0].isReady())
+        assertEquals(listOf("G01"), result[0].goals[1].dependsOn)
+        assertFalse(result[0].goals[1].isReady())
+        assertEquals(listOf("G01"), result[0].goals[1].missingDependencies)
         val recorded = server.takeRequest()
         assertEquals("GET", recorded.method)
         assertEquals("/paths/myapp/goals", recorded.target)
     }
 
     @Test
-    fun `getGoals returns an empty list when the project has no goal files`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"goals":[]}"""))
+    fun `getGoals returns an empty list when the project has no goal lists`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"goalLists":[]}"""))
 
         val result = apiWithConnection().getGoals("myapp")
 
@@ -798,11 +811,36 @@ class ClServerApiTest {
 
     @Test
     fun `getGoals encodes special characters in the path name`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"goals":[]}"""))
+        server.enqueue(MockResponse(body = """{"goalLists":[]}"""))
 
         apiWithConnection().getGoals("my app")
 
         assertEquals("/paths/my%20app/goals", server.takeRequest().target)
+    }
+
+    @Test
+    fun `startGoal posts to the folder- and file-scoped start endpoint`() = runBlocking {
+        server.enqueue(MockResponse(code = 202, body = """{"id":"cmd-1"}"""))
+
+        val result = apiWithConnection().startGoal("myapp", "2026-09-27-feature", "G01-erstes.md")
+
+        assertEquals("cmd-1", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/paths/myapp/goals/2026-09-27-feature/G01-erstes.md/start", recorded.target)
+    }
+
+    @Test
+    fun `startGoalInteractive posts interactive true to the start endpoint`() = runBlocking {
+        server.enqueue(MockResponse(code = 201, body = """{"id":"abc123f9","output":"backgrounded"}"""))
+
+        val result = apiWithConnection().startGoalInteractive("myapp", "2026-09-27-feature", "G01-erstes.md")
+
+        assertEquals("abc123f9", result.id)
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/paths/myapp/goals/2026-09-27-feature/G01-erstes.md/start", recorded.target)
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"interactive\":true"))
     }
 
     @Test

@@ -202,6 +202,20 @@ export function openDatabase(directory: string): DatabaseSync {
       PRIMARY KEY (kind, name, path_name)
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_goal_totals (
+      path TEXT NOT NULL,
+      folder TEXT NOT NULL,
+      total INTEGER NOT NULL,
+      PRIMARY KEY (path, folder)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS t_goal_sessions (
+      agent TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL
+    )
+  `);
   return db;
 }
 
@@ -403,7 +417,40 @@ export function listRunningCommandsWithPid(db: DatabaseSync): { id: string; pid:
 export const DEFAULT_STATS_WINDOW_HOURS = 24;
 
 const AGENT_COMMANDS_ONLY_CLAUSE =
-  "agent NOT LIKE 'path-command:%' AND agent NOT LIKE 'hook:%' AND agent NOT LIKE 'script-scheduler:%'";
+  "agent NOT LIKE 'path-command:%' AND agent NOT LIKE 'hook:%' AND agent NOT LIKE 'script-scheduler:%' AND agent NOT LIKE 'goal:%'";
+
+/** Verhindert, dass dasselbe Goal (eindeutig identifiziert durch den `agent`-Wert `goal:<pathName>:<ordner>/<datei>`) zweimal gleichzeitig gestartet wird. */
+export function hasRunningCommandWithAgent(db: DatabaseSync, agent: string): boolean {
+  const row = db
+    .prepare("SELECT 1 AS found FROM t_commands WHERE agent = ? AND status = 'running' LIMIT 1")
+    .get(agent);
+  return row !== undefined;
+}
+
+export function setGoalSessionId(db: DatabaseSync, agent: string, sessionId: string): void {
+  db.prepare(
+    `INSERT INTO t_goal_sessions (agent, session_id) VALUES (?, ?)
+     ON CONFLICT(agent) DO UPDATE SET session_id = excluded.session_id`,
+  ).run(agent, sessionId);
+}
+
+export function getGoalSessionId(db: DatabaseSync, agent: string): string | undefined {
+  const row = db.prepare('SELECT session_id FROM t_goal_sessions WHERE agent = ?').get(agent);
+  return row === undefined ? undefined : String(row.session_id);
+}
+
+/**
+ * Merkt die groesste je gesehene Goal-Anzahl eines Goal-Ordners (Goals loeschen sich nach Abschluss selbst,
+ * die Gesamtzahl ist daher nur aus dem bisherigen Maximum ableitbar) und liefert sie zurueck.
+ */
+export function recordGoalTotal(db: DatabaseSync, path: string, folder: string, currentCount: number): number {
+  db.prepare(
+    `INSERT INTO t_goal_totals (path, folder, total) VALUES (?, ?, ?)
+     ON CONFLICT(path, folder) DO UPDATE SET total = MAX(total, excluded.total)`,
+  ).run(path, folder, currentCount);
+  const row = db.prepare('SELECT total FROM t_goal_totals WHERE path = ? AND folder = ?').get(path, folder);
+  return Number(row?.total ?? currentCount);
+}
 
 /** Reine Agent-Laeufe (ohne Pfad-Commands) mit Status "running" fuer diesen Pfad. */
 export function countRunningAgents(db: DatabaseSync, path: string): number {

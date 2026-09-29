@@ -5,6 +5,14 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { Command } from 'commander';
 
+import {
+  ADB_HOST_ENV_VAR,
+  connectAdb,
+  DEFAULT_PORT_SPEC,
+  DEFAULT_SCAN_PARALLELISM,
+  DEFAULT_SCAN_TIMEOUT_MS,
+  resolveAdbHost,
+} from './adb-connect.js';
 import { collectAll, collectOne } from './collect.js';
 import {
   type AgentSummary,
@@ -39,7 +47,7 @@ import {
   type TicketStatus,
 } from './db.js';
 import { loadEnv, resolveDatabaseDirectory } from './env.js';
-import { buildAndInstall, findLatestBuildTimestamp, runUnitTests } from './gradle-install.js';
+import { buildAndInstall, findLatestBuildTimestamp, resolveAdbExecutable, runUnitTests } from './gradle-install.js';
 import { launchAgent, runTask } from './launch.js';
 import { DEFAULT_SERVER_PORT, resolveServerPort } from './server-port.js';
 import { startServer } from './server.js';
@@ -660,6 +668,36 @@ program
   .action(async () => {
     await buildAndInstall('release');
   });
+
+program
+  .command('connect')
+  .description(
+    `Verbindet adb per WLAN-Debugging mit dem Geraet unter der angegebenen IPv4-Adresse (mDNS, sonst Portscan); ohne Argument wird ${ADB_HOST_ENV_VAR} aus .env/Umgebung verwendet. Wird auch vor jedem "cl inst"/"cl instr" automatisch ausgefuehrt.`,
+  )
+  .argument('[ip]', 'IPv4-Adresse des Geraets.')
+  .option('--ports <spec>', 'Zu scannende Ports/Bereiche, z. B. "5555,30000-59999".', DEFAULT_PORT_SPEC)
+  .option('--timeout <ms>', 'Timeout pro Port beim Scan in Millisekunden.', String(DEFAULT_SCAN_TIMEOUT_MS))
+  .option('--parallel <n>', 'Anzahl parallel gescannter Ports.', String(DEFAULT_SCAN_PARALLELISM))
+  .option('--no-mdns', 'mDNS-Suche ueberspringen und direkt den Portscan starten.')
+  .action(
+    async (
+      ip: string | undefined,
+      options: { ports: string; timeout: string; parallel: string; mdns: boolean },
+    ) => {
+      const host = resolveAdbHost(ip);
+      if (host === undefined) {
+        throw new Error(
+          `Keine IP angegeben und ${ADB_HOST_ENV_VAR} ist nicht gesetzt (per .env-Datei im Projekt-Root oder als Umgebungsvariable konfigurierbar).`,
+        );
+      }
+      await connectAdb(resolveAdbExecutable(), host, {
+        portSpec: options.ports,
+        scanTimeoutMs: Number(options.timeout),
+        parallelism: Number(options.parallel),
+        useMdns: options.mdns,
+      });
+    },
+  );
 
 program
   .command('test')

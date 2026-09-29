@@ -325,8 +325,12 @@ fun AppNavHost() {
         composable(
             route = Routes.GOALS,
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            GoalsScreen(onBack = { navController.popBackStack() })
+        ) { entry ->
+            val pathName = checkNotNull(entry.arguments?.getString("pathName"))
+            GoalsScreen(
+                onBack = { navController.popBackStack() },
+                onGoalStarted = { commandId -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
+            )
         }
         composable(
             route = Routes.SCHEDULERS,

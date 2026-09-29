@@ -71,6 +71,20 @@ class ApiModelsTest {
     }
 
     @Test
+    fun `a failed goal run is not retryable, since retryAgentCommand cannot map it back to a manifest agent`() {
+        assertFalse(
+            commandState(agent = "goal:backend:2026-09-27-feature/G01-erstes.md", status = "failed").isRetryable(),
+        )
+    }
+
+    @Test
+    fun `a completed goal run is not retryable, since retryAgentCommand cannot map it back to a manifest agent`() {
+        assertFalse(
+            commandState(agent = "goal:backend:2026-09-27-feature/G01-erstes.md", status = "completed").isRetryable(),
+        )
+    }
+
+    @Test
     fun `the main agent maps back to its manifest command "cl"`() {
         assertEquals("cl", commandState(agent = "main", status = "failed").retryAgentCommand())
     }
@@ -100,5 +114,43 @@ class RemoteAgentSessionTest {
     @Test
     fun `an interactive session is not background`() {
         assertFalse(remoteAgentSession(kind = "interactive").isBackground())
+    }
+
+    private fun goalEntry(id: String, running: Boolean) = GoalEntry(
+        id = id,
+        fileName = "$id.md",
+        title = id,
+        description = "",
+        date = "2026-09-29",
+        dependsOn = emptyList(),
+        command = "/goal x",
+        content = "",
+        timestamp = "2026-09-29T00:00:00.000Z",
+        legacy = false,
+        status = "ready",
+        missingDependencies = emptyList(),
+        running = running,
+    )
+
+    @Test
+    fun `goal group progress counts done, overall and running goals`() {
+        val group = GoalListGroup(
+            folder = "f",
+            totalCount = 5,
+            goals = listOf(goalEntry("G03", running = true), goalEntry("G04", running = false), goalEntry("G05", false)),
+        )
+
+        assertEquals(2, group.doneCount())
+        assertEquals(5, group.overallCount())
+        assertEquals(1, group.runningCount())
+    }
+
+    @Test
+    fun `goal group progress never goes negative when the server omits totalCount`() {
+        val group = GoalListGroup(folder = "f", goals = listOf(goalEntry("G01", running = false)))
+
+        assertEquals(0, group.doneCount())
+        assertEquals(1, group.overallCount())
+        assertEquals(0, group.runningCount())
     }
 }

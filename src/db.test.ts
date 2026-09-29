@@ -18,12 +18,16 @@ import {
   getFeedback,
   getTicket,
   getTotpSecret,
+  hasRunningCommandWithAgent,
   insertCommand,
   insertFeedback,
   insertGeneratingTicket,
   insertSystemMetric,
   insertTicket,
   isSchedulerDisabled,
+  recordGoalTotal,
+  getGoalSessionId,
+  setGoalSessionId,
   listAllTickets,
   listCommandCosts,
   listCommands,
@@ -459,12 +463,39 @@ test('countRunningAgents: zaehlt nur Agent-Laeufe mit status "running" dieses Pf
       command: 'git add . && git commit -m x && git push',
       path: '/stats-project',
     });
+    insertCommand(statsDb, {
+      id: 'stats-running-goal',
+      agent: 'goal:stats-project:2026-09-27-feature/G01-erstes.md',
+      model: 'sonnet',
+      command: '/goal Tu etwas.',
+      path: '/stats-project',
+    });
 
     assert.equal(countRunningAgents(statsDb, '/stats-project'), 1);
     assert.equal(countRunningAgents(statsDb, '/other-project'), 1);
     assert.equal(countRunningAgents(statsDb, '/unknown-project'), 0);
   } finally {
     statsDb.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hasRunningCommandWithAgent: erkennt einen laufenden Command mit genau diesem agent-Wert', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-db-goal-running-'));
+  const goalDb = openDatabase(dir);
+  try {
+    const agent = 'goal:myapp:2026-09-27-feature/G01-erstes.md';
+    assert.equal(hasRunningCommandWithAgent(goalDb, agent), false);
+
+    insertCommand(goalDb, { id: 'goal-run-1', agent, model: 'sonnet', command: '/goal x', path: '/myapp' });
+    assert.equal(hasRunningCommandWithAgent(goalDb, agent), true);
+
+    completeCommand(goalDb, 'goal-run-1', 'completed', 0, 'fertig');
+    assert.equal(hasRunningCommandWithAgent(goalDb, agent), false);
+
+    assert.equal(hasRunningCommandWithAgent(goalDb, 'goal:myapp:andere-datei.md'), false);
+  } finally {
+    goalDb.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -1230,4 +1261,21 @@ test('setSchedulerEnabled(false) ist idempotent (zweimal deaktivieren wirft nich
   setSchedulerEnabled(db, 'scheduler', 'idempotent', 'default', false);
   assert.equal(isSchedulerDisabled(db, 'scheduler', 'idempotent', 'default'), true);
   setSchedulerEnabled(db, 'scheduler', 'idempotent', 'default', true);
+});
+
+test('recordGoalTotal: merkt das Maximum je Pfad und Ordner und sinkt nie', () => {
+  assert.equal(recordGoalTotal(db, '/p', 'a', 4), 4);
+  assert.equal(recordGoalTotal(db, '/p', 'a', 2), 4);
+  assert.equal(recordGoalTotal(db, '/p', 'a', 6), 6);
+  assert.equal(recordGoalTotal(db, '/p', 'b', 1), 1);
+  assert.equal(recordGoalTotal(db, '/q', 'a', 3), 3);
+});
+
+test('setGoalSessionId/getGoalSessionId: speichert je Agent die Session-ID und ueberschreibt sie', () => {
+  assert.equal(getGoalSessionId(db, 'goal:p:f/G01.md'), undefined);
+  setGoalSessionId(db, 'goal:p:f/G01.md', 'abc12345');
+  assert.equal(getGoalSessionId(db, 'goal:p:f/G01.md'), 'abc12345');
+  setGoalSessionId(db, 'goal:p:f/G01.md', 'def67890');
+  assert.equal(getGoalSessionId(db, 'goal:p:f/G01.md'), 'def67890');
+  assert.equal(getGoalSessionId(db, 'goal:p:f/G02.md'), undefined);
 });

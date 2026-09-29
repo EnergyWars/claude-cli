@@ -46,10 +46,10 @@ Einzige Quelle ist `AppRadius`:
 
 | Element | Token | Wert |
 |---|---|---|
-| Karte, Banner, Menü, Container-Fläche | `AppRadius.card` | 12 dp |
+| Karte, Banner, Menü, Container-Fläche | `AppRadius.card` | 20 dp |
 | Button (alle Varianten), Extended FAB | `AppRadius.button` | 20 dp |
-| Chip | `AppRadius.chip` | 8 dp |
-| Textfeld | `AppRadius.textField` | 4 dp |
+| Chip | `AppRadius.chip` | 6 dp |
+| Textfeld | `AppRadius.textField` | 14 dp |
 | Dialog | `AppRadius.dialog` | 28 dp |
 | Bottom Sheet (obere Ecken) | `AppRadius.sheet` | 28 dp |
 | Status-Pill, Zähl-Badge | `AppRadius.pill` | 999 dp |

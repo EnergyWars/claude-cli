@@ -30,6 +30,10 @@ import {
   getFeedback,
   getTicket,
   getTotpSecret,
+  getGoalSessionId,
+  hasRunningCommandWithAgent,
+  setGoalSessionId,
+  recordGoalTotal,
   insertCommand,
   insertConfigVersion,
   insertFeedback,
@@ -95,7 +99,7 @@ import {
 import { resolveDatabaseDirectory } from './env.js';
 import { EMBEDDED_CONFIG } from './generated/embedded-context.js';
 import { findLatestBuildTimestamp } from './gradle-install.js';
-import { listGoalFiles } from './goals.js';
+import { findGoalEntry, listGoalLists } from './goals.js';
 import { signJwt, verifyJwt } from './jwt.js';
 import {
   buildSchedulerSystemPrompt,
@@ -1256,7 +1260,12 @@ function handlePostPathCommand(
     });
 }
 
-function handleGetGoals(config: Config, res: ServerResponse, pathName: string): void {
+async function handleGetGoals(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+): Promise<void> {
   let pathEntry: PathEntry;
   try {
     pathEntry = resolvePathEntry(config, pathName);
@@ -1265,7 +1274,180 @@ function handleGetGoals(config: Config, res: ServerResponse, pathName: string): 
     return;
   }
 
-  sendJson(res, 200, { goals: listGoalFiles(pathEntry.path) });
+  const activeSessionIds = await listActiveSessionIds(pathEntry.path);
+  const goalLists = listGoalLists(pathEntry.path).map((list) => ({
+    ...list,
+    totalCount: recordGoalTotal(db, pathEntry.path, list.folder, list.goals.length),
+    goals: list.goals.map((goal) => {
+      const agent = goalAgentName(pathName, list.folder, goal.fileName);
+      return {
+        ...goal,
+        running: hasRunningCommandWithAgent(db, agent) || isInteractiveGoalRunning(db, agent, activeSessionIds),
+      };
+    }),
+  }));
+  sendJson(res, 200, { goalLists });
+}
+
+const FINISHED_SESSION_STATES: ReadonlySet<string> = new Set(['done', 'failed']);
+
+async function listActiveSessionIds(cwd: string): Promise<ReadonlySet<string>> {
+  try {
+    const sessions = await listRemoteSessions(cwd);
+    const ids = new Set<string>();
+    for (const session of sessions) {
+      if (session.state !== undefined && FINISHED_SESSION_STATES.has(session.state)) {
+        continue;
+      }
+      ids.add(session.sessionId);
+      if (session.id !== undefined) {
+        ids.add(session.id);
+      }
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
+
+function isInteractiveGoalRunning(
+  db: DatabaseSync,
+  agent: string,
+  activeSessionIds: ReadonlySet<string>,
+): boolean {
+  const sessionId = getGoalSessionId(db, agent);
+  return sessionId !== undefined && activeSessionIds.has(sessionId);
+}
+
+function parseGoalStartBody(bodyText: string): boolean {
+  if (bodyText.trim().length === 0) {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bodyText);
+  } catch {
+    throw new Error('Body ist kein gueltiges JSON.');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Body muss ein JSON-Objekt sein.');
+  }
+  const interactive = (parsed as Record<string, unknown>).interactive;
+  if (interactive !== undefined && typeof interactive !== 'boolean') {
+    throw new Error('Feld "interactive" muss ein Boolean sein, falls angegeben.');
+  }
+  return interactive === true;
+}
+
+function goalAgentName(pathName: string, folder: string, fileName: string): string {
+  return `goal:${pathName}:${folder}/${fileName}`;
+}
+
+async function handlePostGoalStart(
+  db: DatabaseSync,
+  config: Config,
+  res: ServerResponse,
+  pathName: string,
+  folder: string,
+  fileName: string,
+  bodyText: string,
+): Promise<void> {
+  let pathEntry: PathEntry;
+  try {
+    pathEntry = resolvePathEntry(config, pathName);
+  } catch (error) {
+    sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  let interactive: boolean;
+  try {
+    interactive = parseGoalStartBody(bodyText);
+  } catch (error) {
+    sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const found = findGoalEntry(pathEntry.path, folder, fileName);
+  if (found === undefined) {
+    sendJson(res, 404, { error: `Goal "${folder}/${fileName}" wurde in Pfad "${pathName}" nicht gefunden.` });
+    return;
+  }
+
+  if (found.entry.status === 'blocked') {
+    sendJson(res, 409, {
+      error: `Voraussetzungen nicht erfuellt: ${found.entry.missingDependencies.join(', ')}`,
+    });
+    return;
+  }
+
+  const agent = goalAgentName(pathName, folder, fileName);
+  if (hasRunningCommandWithAgent(db, agent)) {
+    sendJson(res, 409, { error: 'Goal laeuft bereits.' });
+    return;
+  }
+
+  if (interactive) {
+    if (isInteractiveGoalRunning(db, agent, await listActiveSessionIds(pathEntry.path))) {
+      sendJson(res, 409, { error: 'Goal laeuft bereits.' });
+      return;
+    }
+    const session = await startRemoteSession(pathEntry.path, agent, found.entry.command);
+    setGoalSessionId(db, agent, session.id);
+    sendJson(res, 201, session);
+    return;
+  }
+
+  const mainAgent = resolveAgentFrom(config, undefined);
+  const id = randomUUID();
+  insertCommand(db, {
+    id,
+    agent,
+    model: mainAgent.model,
+    command: found.entry.command,
+    path: pathEntry.path,
+  });
+  sendJson(res, 202, { id });
+
+  const outputPublisher = createOutputPublisher(db, id);
+  runHeadlessCommand(
+    buildSystemPrompt(mainAgent),
+    mainAgent.model,
+    found.entry.command,
+    pathEntry.path,
+    (output) => {
+      outputPublisher.push(output);
+    },
+    mainAgent.permissions,
+    (child) => {
+      runningProcesses.set(id, child);
+      if (child.pid !== undefined) {
+        setCommandPid(db, id, child.pid);
+      }
+    },
+  )
+    .then((result) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      const stopped = stopRequestedIds.delete(id);
+      completeCommand(
+        db,
+        id,
+        stopped ? 'stopped' : result.exitCode === 0 ? 'completed' : 'failed',
+        result.exitCode,
+        result.output,
+        result.usage,
+      );
+      publishCommandState(db, id);
+    })
+    .catch((error: unknown) => {
+      outputPublisher.cancel();
+      runningProcesses.delete(id);
+      stopRequestedIds.delete(id);
+      const message = error instanceof Error ? error.message : String(error);
+      completeCommand(db, id, 'failed', null, message);
+      publishCommandState(db, id);
+    });
 }
 
 async function handleGetRemoteSessions(
@@ -2458,7 +2640,24 @@ async function handleRequest(
       segments[0] === 'paths' &&
       segments[2] === 'goals'
     ) {
-      handleGetGoals(config, res, segments[1] ?? '');
+      await handleGetGoals(db, config, res, segments[1] ?? '');
+    } else if (
+      method === 'POST' &&
+      segments.length === 6 &&
+      segments[0] === 'paths' &&
+      segments[2] === 'goals' &&
+      segments[5] === 'start'
+    ) {
+      bodyText = await readRequestBody(req);
+      await handlePostGoalStart(
+        db,
+        config,
+        res,
+        segments[1] ?? '',
+        segments[3] ?? '',
+        segments[4] ?? '',
+        bodyText,
+      );
     } else if (
       method === 'GET' &&
       segments.length === 3 &&
@@ -2620,7 +2819,10 @@ function printEndpoints(config: Config, port: number): void {
     `  POST ${base}/paths/:pathName/script-schedulers/:name/enable|disable (nur fuer diesen einen Pfad, in der DB, config.json bleibt unveraendert)`,
   );
   console.log(
-    `  GET  ${base}/paths/:pathName/goals (alle goals/*.md des Pfads mit Inhalt)`,
+    `  GET  ${base}/paths/:pathName/goals (gruppierte Goal-Listen aus goals/<ordner>/*.md mit Abhaengigkeits-Status)`,
+  );
+  console.log(
+    `  POST ${base}/paths/:pathName/goals/:folder/:fileName/start (startet ein Goal headless, nur wenn "ready")`,
   );
   console.log(`  GET  ${base}/paths/:pathName/remote-sessions`);
   console.log(

@@ -1,1 +1,1 @@
-Du darfst auf keinen Fall gradle Befehle ausführen. Keine Unit-Tests, kein compile, kein build. Du sollst trotzdem alle tests aktuell halten. Validiere dafür extra nochmal, ob alles passt, nur ohne die Tests tatsächlich auszuführen.
+Diese Regel hat Vorrang vor allen anderen Aussagen zu Gradle, auch in CLAUDE.md oder context.md: Du darfst auf keinen Fall gradle Befehle ausführen. Keine Unit-Tests, kein compile, kein build. Du sollst trotzdem alle tests aktuell halten. Validiere dafür extra nochmal, ob alles passt, nur ohne die Tests tatsächlich auszuführen.

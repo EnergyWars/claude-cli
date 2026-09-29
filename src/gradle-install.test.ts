@@ -17,6 +17,8 @@ import { createMockAdb, pathWithMockAdb } from './test-support/mock-adb.js';
 import { createMockClaude } from './test-support/mock-claude.js';
 import { readGradlewCallCount, writeFakeGradlew } from './test-support/mock-gradlew.js';
 
+process.env.CL_ADB_HOST = '';
+
 test('parseAdbDevices: parst Serials aus normaler Ausgabe', () => {
   const output = 'List of devices attached\nemulator-5554\tdevice\nABC123\tdevice\n\n';
   assert.deepEqual(parseAdbDevices(output), ['emulator-5554', 'ABC123']);
@@ -294,6 +296,30 @@ test('buildAndInstall: baut, findet APK und installiert auf allen gefundenen Ger
       .sort();
     assert.deepEqual(installedSerials, ['ABC123', 'emulator-5554']);
   } finally {
+    process.env.PATH = previousPath;
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: verbindet vor dem Install per adb connect, wenn CL_ADB_HOST gesetzt ist', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-install-'));
+  writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });
+  const adb = createMockAdb({
+    mdnsOutput: 'adb-X\t_adb-tls-connect._tcp.\t127.0.0.1:40123',
+    devicesOutput: 'List of devices attached\n127.0.0.1:40123\tdevice\n',
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMockAdb(adb.binDir);
+  process.env.CL_ADB_HOST = '127.0.0.1';
+  try {
+    await buildAndInstall('debug', cwd);
+    const log = readFileSync(adb.logFile, 'utf8').trim().split('\n');
+    assert.equal(log[0], 'mdns services');
+    assert.equal(log[1], 'connect 127.0.0.1:40123');
+    assert.ok(log.indexOf('connect 127.0.0.1:40123') < log.findIndex((line) => line.includes(' install ')));
+  } finally {
+    process.env.CL_ADB_HOST = '';
     process.env.PATH = previousPath;
     adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });

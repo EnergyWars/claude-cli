@@ -895,8 +895,8 @@
     },
     "/paths/{pathName}/goals": {
       "get": {
-        "summary": "Listet alle Markdown-Dateien aus goals/ dieses Pfads mit Inhalt",
-        "description": "Liest das Unterverzeichnis goals/ im Dateisystem-Verzeichnis des Pfad-Eintrags (nur direkte Dateien mit Endung .md, unabhaengig von Gross-/Kleinschreibung, nicht rekursiv, keine Symlinks, Dateien groesser als 1 MiB werden uebersprungen) und liefert Name, kompletten Inhalt und mtime je Datei, alphabetisch sortiert. Ein fehlendes goals-Verzeichnis ergibt eine leere Liste.",
+        "summary": "Listet gruppierte Goal-Listen (goals/<ordner>/*.md) mit Abhaengigkeits-Status",
+        "description": "Liest jedes Unterverzeichnis von goals/ im Dateisystem-Verzeichnis des Pfad-Eintrags als eigene Goal-Liste (PLAN.md optional fuer Titel/Datum, G*.md je Goal). Jede Goal-Datei traegt einen Frontmatter-Kopf (id/title/description/date/dependsOn) oder wird ueber einen Legacy-Fallback aus Ueberschrift und \"Voraussetzung: ...\"-Zeile gelesen. status/missingDependencies werden serverseitig ausschliesslich aus den aktuell im Ordner vorhandenen Dateien berechnet: eine referenzierte Voraussetzung gilt als erfuellt, sobald ihre Datei nicht mehr existiert (jedes Goal loescht sich nach erfolgreichem Abschluss selbst, siehe POST .../start). Ein fehlendes goals-Verzeichnis ergibt eine leere Liste.",
         "operationId": "listGoals",
         "parameters": [
           {
@@ -909,10 +909,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Die Goal-Dateien dieses Pfads.",
+            "description": "Die Goal-Listen dieses Pfads.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/GoalList" }
+                "schema": { "$ref": "#/components/schemas/GoalListsResponse" }
               }
             }
           },
@@ -924,6 +924,91 @@
           },
           "404": {
             "description": "Kein Eintrag mit diesem Namen in config.json (paths[].name).",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/paths/{pathName}/goals/{folder}/{fileName}/start": {
+      "post": {
+        "summary": "Startet ein einzelnes Goal headless oder als interaktive Remote-Session",
+        "description": "Fuehrt den in der Goal-Datei hinterlegten /goal-Prompt headless aus (wie POST /, mit dem main-Agent aus config.json), sofern das Goal \"ready\" ist und nicht bereits laeuft. Mit Body {\"interactive\": true} wird stattdessen eine interaktive Remote-Control-Session (claude --bg --remote-control=<agent> -- <prompt>) im Pfad gestartet und mit 201 (RemoteSessionStart) beantwortet; der Sitzungsname entspricht dem agent-Wert. Headless antwortet sofort mit 202, Status/Output ueber GET /state/{id} bzw. GET /state/{id}/stream, abbrechbar ueber POST /state/{id}/stop. Der Command wird im Verlauf mit agent = \"goal:<pathName>:<folder>/<fileName>\" gefuehrt (wie path-command:/hook:/script-scheduler:-Praefixe von der Agenten-Statistik ausgeschlossen) - dieser Wert dient serverseitig auch als Sperre gegen doppeltes gleichzeitiges Starten desselben Goals.",
+        "operationId": "startGoal",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "interactive": { "type": "boolean", "description": "true startet eine interaktive Remote-Control-Session statt eines headless Commands (Standard: false)." }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pathName",
+            "in": "path",
+            "required": true,
+            "description": "Name eines Eintrags aus config.json (paths[].name).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "folder",
+            "in": "path",
+            "required": true,
+            "description": "Ordnername unter goals/ (einzelnes Pfadsegment, keine Verzeichniswechsel).",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "fileName",
+            "in": "path",
+            "required": true,
+            "description": "Dateiname der Goal-Datei innerhalb des Ordners, z. B. G01-erstes.md.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Nur bei interactive = true: Remote-Control-Session wurde gestartet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RemoteSessionStart" }
+              }
+            }
+          },
+          "202": {
+            "description": "Goal wurde headless gestartet, laeuft im Hintergrund weiter.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandAccepted" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body ist kein JSON-Objekt oder interactive ist kein Boolean.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Kein Eintrag mit diesem Pfad-Namen, oder kein Goal mit diesem Ordner/Dateinamen in diesem Pfad.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "409": {
+            "description": "Das Goal ist \"blocked\" (mindestens eine Voraussetzung noch nicht erfuellt) oder laeuft bereits.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -2548,9 +2633,8 @@
       },
       "RemoteAgentSession": {
         "type": "object",
-        "required": ["pid", "cwd", "kind", "startedAt", "sessionId", "name"],
+        "required": ["cwd", "kind", "startedAt", "sessionId", "name"],
         "properties": {
-          "pid": { "type": "integer" },
           "id": {
             "type": "string",
             "description": "Nur bei kind=\"background\" gesetzt - Kurz-ID fuer \"claude attach/logs/stop/rm\"."
@@ -2565,22 +2649,77 @@
           "state": { "type": "string" }
         }
       },
-      "GoalFile": {
+      "GoalEntry": {
         "type": "object",
-        "required": ["name", "content", "timestamp"],
+        "required": [
+          "id",
+          "fileName",
+          "title",
+          "description",
+          "date",
+          "dependsOn",
+          "command",
+          "content",
+          "timestamp",
+          "legacy",
+          "status",
+          "missingDependencies",
+          "running"
+        ],
         "properties": {
-          "name": { "type": "string", "description": "Dateiname inklusive Endung, z. B. feature-a.md." },
-          "content": { "type": "string", "description": "Kompletter Dateiinhalt (UTF-8)." },
-          "timestamp": { "type": "string", "format": "date-time", "description": "mtime der Datei (ISO 8601)." }
+          "id": { "type": "string", "description": "Goal-ID aus dem Frontmatter (bzw. aus dem Dateinamen-Praefix bei Legacy-Dateien ohne Frontmatter), z. B. \"G01\"." },
+          "fileName": { "type": "string", "description": "Dateiname inklusive Endung, z. B. G01-erstes.md." },
+          "title": { "type": "string" },
+          "description": { "type": "string", "description": "Ein-Satz-Beschreibung aus dem Frontmatter; leer bei Legacy-Dateien ohne Frontmatter." },
+          "date": { "type": "string", "description": "JJJJ-MM-TT aus dem Frontmatter, sonst das Datum der Datei-mtime." },
+          "dependsOn": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "IDs von Voraussetzungen aus demselben Goal-Ordner."
+          },
+          "command": { "type": "string", "description": "Der extrahierte /goal-Prompt-Text, wie er per POST .../start ausgefuehrt bzw. zum Kopieren angezeigt wird." },
+          "content": { "type": "string", "description": "Kompletter Dateiinhalt inkl. Frontmatter (UTF-8)." },
+          "timestamp": { "type": "string", "format": "date-time", "description": "mtime der Datei (ISO 8601)." },
+          "legacy": { "type": "boolean", "description": "true, wenn die Datei kein Frontmatter hatte und ueber den Fallback-Parser (Ueberschrift/Voraussetzung-Zeile) gelesen wurde." },
+          "status": {
+            "type": "string",
+            "enum": ["ready", "blocked"],
+            "description": "\"ready\", wenn keine der in dependsOn referenzierten IDs noch als Datei in diesem Ordner existiert, sonst \"blocked\". Wird ausschliesslich aus den aktuell vorhandenen Goal-Dateien berechnet."
+          },
+          "missingDependencies": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Teilmenge von dependsOn, deren Dateien noch existieren (also noch nicht abgeschlossen sind)."
+          },
+          "running": {
+            "type": "boolean",
+            "description": "true, wenn das Goal gerade laeuft: entweder als headless Command (t_commands mit agent = \"goal:<pathName>:<folder>/<fileName>\" im Status running) oder als interaktive Remote-Control-Session gleichen Namens (claude agents --json, best effort)."
+          }
         }
       },
-      "GoalList": {
+      "GoalListSummary": {
         "type": "object",
-        "required": ["goals"],
+        "required": ["folder", "totalCount", "goals"],
         "properties": {
+          "folder": { "type": "string", "description": "Ordnername unter goals/, z. B. 2026-09-27-perioden-modul-ausbau." },
+          "totalCount": { "type": "integer", "minimum": 0, "description": "Groesste je gesehene Anzahl von Goals in diesem Ordner (Goals loeschen sich nach Abschluss selbst). erledigt = totalCount - goals.length." },
+          "planTitle": { "type": "string", "description": "Titel aus PLAN.md dieses Ordners, falls vorhanden." },
+          "planDate": { "type": "string", "description": "Datum (JJJJ-MM-TT) aus PLAN.md dieses Ordners, falls vorhanden." },
           "goals": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/GoalFile" }
+            "items": { "$ref": "#/components/schemas/GoalEntry" },
+            "description": "Aufsteigend nach Dateiname sortiert."
+          }
+        }
+      },
+      "GoalListsResponse": {
+        "type": "object",
+        "required": ["goalLists"],
+        "properties": {
+          "goalLists": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GoalListSummary" },
+            "description": "Absteigend nach Ordnername sortiert (neueste Goal-Liste zuerst)."
           }
         }
       },

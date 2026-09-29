@@ -44,7 +44,7 @@ Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Proj
 - **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
 - **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
 - **Remote-Sitzungen** – aktive Claude-Code-Sessions dieses Projekts anzeigen und eine neue mit Remote Control starten (siehe unten).
-- **Goals** – alle Markdown-Dateien aus `goals/` des aktuellen Projekts mit Inhalt anzeigen und einzeln kopieren (siehe unten).
+- **Goals** – Goal-Listen (`goals/<ordner>/*.md`) des aktuellen Projekts gruppiert mit Abhängigkeits-Status anzeigen, Goals einklappbar mit Fortschritt („x/y erledigt, z laufende"), bereite Goals headless oder als interaktive Remote-Session starten oder den Befehl kopieren (siehe unten).
 - **Scheduler** (nur sichtbar, wenn das aktuelle Projekt mindestens einen (Script-)Scheduler führt) – konfigurierte (Script-)Scheduler manuell nur für dieses eine Projekt anstoßen (siehe unten).
 
 Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
@@ -135,9 +135,9 @@ Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige w
 
 ## Goals
 
-Erreichbar über den „Goals"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /paths/<pathName>/goals`, siehe `../FEATURES.md`, Goals).
+Erreichbar über den „Goals"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /paths/<pathName>/goals`, `POST /paths/<pathName>/goals/<ordner>/<datei>/start`, siehe `../FEATURES.md`, Goals).
 
-Listet jede Markdown-Datei aus dem `goals/`-Verzeichnis des Projekts (beliebiger Dateiname, Endung `.md`/`.MD`) als Karte: Dateiname, Änderungszeitpunkt (Geräte-Zeitzone), Kopieren-Button und der komplette Inhalt in Monospace. Der Kopieren-Button legt den vollständigen Dateiinhalt in die Zwischenablage und bestätigt das mit einem kurzen Hinweis. Ohne Goal-Dateien erscheint ein zweizeiliger Leerzustand; Ladezustand und Fehleranzeige wie bei den übrigen Screens. Lädt einmalig beim Öffnen (kein Live-Polling).
+Gruppiert nach Goal-Ordner (Titel aus `PLAN.md` falls vorhanden, sonst der Ordnername; darunter „x/y erledigt, z laufende"). Jede Sektion ist einklappbar (Tippen auf den Header) und standardmäßig eingeklappt; nur ausgeklappte Sektionen zeigen ihre Goals. Je Goal eine Karte: ID + Titel, Datum, Beschreibung, eine `AppChip` je Voraussetzung (grün = bereits erledigt/erfüllt, rot = blockiert noch), Status-Pill „Läuft"/„Bereit"/„Blockiert" sowie der vollständige `/goal`-Befehl in Monospace. Drei Aktionen: „Starten" (`AppButton`, deaktiviert solange das Goal blockiert ist, gerade läuft oder ein Start bereits läuft) führt das Goal direkt headless auf dem Server aus und öffnet danach `CommandDetailScreen` mit Live-Output (wie bei Pfad-Commands); „Interaktiv" (ebenso deaktiviert) startet stattdessen eine interaktive Remote-Control-Session mit dem `/goal`-Prompt (Toast „Interaktive Session gestartet"); „Kopieren" (bei laufendem Goal deaktiviert) legt den `/goal`-Befehl in die Zwischenablage. Der Status kommt ausschließlich vom Server und wird dort bei jedem Laden frisch aus den tatsächlich noch vorhandenen Goal-Dateien berechnet – die App selbst führt keine eigene Abhängigkeitslogik. Ohne Goals erscheint ein zweizeiliger Leerzustand; Ladezustand und Fehleranzeige wie bei den übrigen Screens. Lädt beim Öffnen und nach jedem Start neu (kein Live-Polling); nach dem Starten eines Goals aktualisiert sich die Nutzungslimits-Anzeige.
 
 ## Remote-Sitzungen
 
