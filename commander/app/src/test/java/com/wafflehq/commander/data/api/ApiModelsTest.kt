@@ -116,7 +116,7 @@ class RemoteAgentSessionTest {
         assertFalse(remoteAgentSession(kind = "interactive").isBackground())
     }
 
-    private fun goalEntry(id: String, running: Boolean) = GoalEntry(
+    private fun goalEntry(id: String, running: Boolean, status: String = "ready") = GoalEntry(
         id = id,
         fileName = "$id.md",
         title = id,
@@ -127,7 +127,7 @@ class RemoteAgentSessionTest {
         content = "",
         timestamp = "2026-09-29T00:00:00.000Z",
         legacy = false,
-        status = "ready",
+        status = status,
         missingDependencies = emptyList(),
         running = running,
     )
@@ -143,6 +143,23 @@ class RemoteAgentSessionTest {
         assertEquals(2, group.doneCount())
         assertEquals(5, group.overallCount())
         assertEquals(1, group.runningCount())
+        assertEquals(2, group.startableCount())
+    }
+
+    @Test
+    fun `startable count excludes blocked and running goals`() {
+        val group = GoalListGroup(
+            folder = "f",
+            totalCount = 4,
+            goals = listOf(
+                goalEntry("G01", running = false),
+                goalEntry("G02", running = true),
+                goalEntry("G03", running = false, status = "blocked"),
+                goalEntry("G04", running = false, status = "blocked"),
+            ),
+        )
+
+        assertEquals(1, group.startableCount())
     }
 
     @Test
@@ -152,5 +169,6 @@ class RemoteAgentSessionTest {
         assertEquals(0, group.doneCount())
         assertEquals(1, group.overallCount())
         assertEquals(0, group.runningCount())
+        assertEquals(1, group.startableCount())
     }
 }

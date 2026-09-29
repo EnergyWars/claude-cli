@@ -124,7 +124,7 @@
     <string name="goals_status_ready">Bereit</string>
     <string name="goals_status_blocked">Blockiert</string>
     <string name="goals_start">Starten</string>
-    <string name="goals_progress">%1$d/%2$d erledigt, %3$d laufende</string>
+    <string name="goals_progress">%1$d/%2$d erledigt, %3$d laufende, %4$d startbereit</string>
     <string name="goals_status_running">Läuft</string>
     <string name="goals_start_interactive">Interaktiv</string>
     <string name="goals_session_started">Interaktive Session gestartet</string>

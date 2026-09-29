@@ -352,6 +352,8 @@ fun GoalListGroup.overallCount(): Int = maxOf(totalCount, goals.size)
 
 fun GoalListGroup.runningCount(): Int = goals.count { it.running }
 
+fun GoalListGroup.startableCount(): Int = goals.count { it.isReady() && !it.running }
+
 @Serializable
 data class GoalListsResponse(val goalLists: List<GoalListGroup>)
 

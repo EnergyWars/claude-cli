@@ -45,6 +45,7 @@ import com.wafflehq.commander.data.api.doneCount
 import com.wafflehq.commander.data.api.isReady
 import com.wafflehq.commander.data.api.overallCount
 import com.wafflehq.commander.data.api.runningCount
+import com.wafflehq.commander.data.api.startableCount
 import com.wafflehq.commander.ui.components.AppBanner
 import com.wafflehq.commander.ui.components.AppButton
 import com.wafflehq.commander.ui.components.AppCard
@@ -188,6 +189,7 @@ private fun GoalGroupHeader(group: GoalListGroup, expanded: Boolean, onToggle: (
                     group.doneCount(),
                     group.overallCount(),
                     group.runningCount(),
+                    group.startableCount(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.onSurfaceVariant,
