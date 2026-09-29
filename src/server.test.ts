@@ -2112,7 +2112,7 @@ test('POST /paths/paged/goals/:folder/:fileName/start: 409 wenn dasselbe Goal be
   }
 });
 
-function goalSession(id: string, state = 'blocked') {
+function goalSession(id: string, state = 'working') {
   return {
     id,
     cwd: pagedDir,
@@ -2225,7 +2225,7 @@ test('GET /paths/paged/goals: liefert totalCount und running (headless Command u
   seedGoalSession(`goal:paged:${folder}/G02-zweites.md`, 'run22222');
   seedGoalSession(`goal:paged:${folder}/G03-drittes.md`, 'fin33333');
   const mock = createMockClaude({
-    rawOutput: JSON.stringify([goalSession('run22222'), goalSession('fin33333', 'done')]),
+    rawOutput: JSON.stringify([goalSession('run22222'), goalSession('fin33333', 'blocked')]),
     exitCode: 0,
   });
   const previous = process.env.PATH;

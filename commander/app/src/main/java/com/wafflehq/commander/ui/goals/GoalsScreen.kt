@@ -34,7 +34,10 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.wafflehq.commander.R
 import com.wafflehq.commander.data.api.GoalEntry
 import com.wafflehq.commander.data.api.GoalListGroup
@@ -72,6 +75,13 @@ fun GoalsScreen(
     val coroutineScope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.goals_copied)
     val sessionStartedMessage = stringResource(R.string.goals_session_started)
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.pollGoals()
+        }
+    }
 
     LaunchedEffect(state.startedCommandId) {
         val commandId = state.startedCommandId ?: return@LaunchedEffect

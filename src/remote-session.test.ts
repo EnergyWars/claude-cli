@@ -6,6 +6,8 @@ import { test } from 'node:test';
 
 import { createEmptyBinDir, createMockClaude, pathWithMock } from './test-support/mock-claude.js';
 import {
+  isProcessAlive,
+  isSessionActive,
   listRemoteSessions,
   parseBackgroundSessionId,
   startRemoteSession,
@@ -243,4 +245,38 @@ test('listRemoteSessions: wirft, wenn das JSON kein Array ist', async () => {
     process.env.PATH = previousPath;
     mock.cleanup();
   }
+});
+
+const BASE_SESSION = {
+  cwd: '/p',
+  kind: 'background',
+  startedAt: 1,
+  sessionId: 's1',
+  name: 'n',
+};
+
+test('isSessionActive: nur "working" und andere laufende Zustaende zaehlen als aktiv', () => {
+  for (const state of ['working', 'starting', 'queued', 'running']) {
+    assert.equal(isSessionActive({ ...BASE_SESSION, state }), true, state);
+  }
+  for (const state of ['blocked', 'done', 'failed', 'idle', 'stopped']) {
+    assert.equal(isSessionActive({ ...BASE_SESSION, state }), false, state);
+  }
+});
+
+test('isSessionActive: ohne state entscheidet status, ohne beides gilt die Session als aktiv', () => {
+  assert.equal(isSessionActive({ ...BASE_SESSION, status: 'idle' }), false);
+  assert.equal(isSessionActive({ ...BASE_SESSION, status: 'busy' }), true);
+  assert.equal(isSessionActive({ ...BASE_SESSION }), true);
+});
+
+test('isSessionActive: tote PID ist nie aktiv, lebende PID folgt dem Zustand', () => {
+  assert.equal(isSessionActive({ ...BASE_SESSION, pid: 1, state: 'working' }, () => false), false);
+  assert.equal(isSessionActive({ ...BASE_SESSION, pid: 1, state: 'working' }, () => true), true);
+  assert.equal(isSessionActive({ ...BASE_SESSION, pid: 1, state: 'blocked' }, () => true), false);
+});
+
+test('isProcessAlive: eigener Prozess lebt, unbelegte PID nicht', () => {
+  assert.equal(isProcessAlive(process.pid), true);
+  assert.equal(isProcessAlive(2_147_483_646), false);
 });

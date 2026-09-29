@@ -13,7 +13,10 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -326,5 +329,23 @@ class GoalsViewModelTest {
 
         assertNull(viewModel.uiState.value.startedSessionId)
         assertFalse(viewModel.uiState.value.loading)
+    }
+
+    @Test
+    fun `pollGoals reloads the goal groups periodically and picks up status changes`() = runTest(dispatcher) {
+        val running = listOf(group("2026-09-29-feature", goal("G01", "G01-erstes.md", running = true)))
+        val finished = listOf(group("2026-09-29-feature", goal("G01", "G01-erstes.md", running = false)))
+        val api = mockk<ClServerApi> {
+            coEvery { getGoals("myapp") } returnsMany listOf(running, finished)
+        }
+        val viewModel = viewModel(api)
+        assertEquals(running, viewModel.uiState.value.goalGroups)
+
+        val job = launch { viewModel.pollGoals() }
+        dispatcher.scheduler.advanceTimeBy(5_001)
+        dispatcher.scheduler.runCurrent()
+
+        assertEquals(finished, viewModel.uiState.value.goalGroups)
+        job.cancel()
     }
 }

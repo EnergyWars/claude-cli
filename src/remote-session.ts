@@ -125,3 +125,28 @@ export async function listRemoteSessions(cwd?: string): Promise<RemoteAgentSessi
 
   return parsed.filter(isRemoteAgentSession);
 }
+
+const ACTIVE_SESSION_STATES: ReadonlySet<string> = new Set(['working', 'starting', 'queued', 'running']);
+const IDLE_SESSION_STATUSES: ReadonlySet<string> = new Set(['idle', 'done', 'failed', 'stopped']);
+
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+export function isSessionActive(
+  session: RemoteAgentSession,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): boolean {
+  if (session.pid !== undefined && !isAlive(session.pid)) {
+    return false;
+  }
+  if (session.state !== undefined) {
+    return ACTIVE_SESSION_STATES.has(session.state);
+  }
+  return session.status === undefined || !IDLE_SESSION_STATUSES.has(session.status);
+}

@@ -9,11 +9,16 @@ import com.wafflehq.commander.data.api.GoalListGroup
 import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+private const val GOALS_POLL_INTERVAL_MS = 5_000L
 
 data class GoalsUiState(
     val goalGroups: List<GoalListGroup> = emptyList(),
@@ -87,6 +92,13 @@ class GoalsViewModel @Inject constructor(
             val goalGroups = api.getGoals(pathName)
             _uiState.update { it.copy(goalGroups = goalGroups) }
         } catch (_: ApiException) {
+        }
+    }
+
+    suspend fun pollGoals() {
+        while (currentCoroutineContext().isActive) {
+            delay(GOALS_POLL_INTERVAL_MS)
+            reloadGoals()
         }
     }
 

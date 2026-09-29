@@ -110,7 +110,7 @@ import {
   SCHEDULER_TRIGGER_PROMPT,
 } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
-import { listRemoteSessions, startRemoteSession } from './remote-session.js';
+import { isProcessAlive, isSessionActive, listRemoteSessions, startRemoteSession } from './remote-session.js';
 import { startSchedulers, type SchedulerRegistry } from './scheduler.js';
 import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
@@ -559,16 +559,6 @@ function handleGetState(db: DatabaseSync, res: ServerResponse, id: string): void
 /** Laufende Subprozesse je Command-ID, damit `POST /state/:id/stop` sie gezielt beenden kann. */
 const runningProcesses = new Map<string, ChildProcess>();
 
-/** true, wenn unter dieser PID noch ein Prozess existiert (Signal 0 sendet nichts, prueft nur). */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
 /**
  * Raeumt beim Serverstart Commands auf, die von einem frueheren Server-Prozess als "running" hinterlassen
  * wurden: `runningProcesses` ist In-Memory und geht bei jedem Neustart verloren, daher kann `POST /state/:id/stop`
@@ -580,7 +570,7 @@ function isProcessAlive(pid: number): boolean {
  */
 function reconcileOrphanedCommands(db: DatabaseSync): void {
   for (const { id, pid } of listRunningCommandsWithPid(db)) {
-    if (isProcessAlive(pid)) {
+    if (runningProcesses.has(id) || isProcessAlive(pid)) {
       continue;
     }
     const row = getCommand(db, id);
@@ -589,8 +579,9 @@ function reconcileOrphanedCommands(db: DatabaseSync): void {
       id,
       'stopped',
       null,
-      `${row?.output ?? ''}\n\n[System] Als verwaist erkannt (Prozess ${String(pid)} nach Server-Neustart nicht mehr aktiv) und automatisch auf "stopped" gesetzt.`,
+      `${row?.output ?? ''}\n\n[System] Als verwaist erkannt (Prozess ${String(pid)} nicht mehr aktiv) und automatisch auf "stopped" gesetzt.`,
     );
+    publishCommandState(db, id);
   }
 }
 
@@ -618,6 +609,8 @@ function handlePostStop(db: DatabaseSync, res: ServerResponse, id: string): void
 }
 
 const SSE_HEARTBEAT_MS = 15_000;
+
+const ORPHAN_SWEEP_INTERVAL_MS = 30_000;
 
 /** Pro Command-ID die offenen SSE-Antworten, die auf Output-Updates warten. */
 const commandSubscribers = new Map<string, Set<ServerResponse>>();
@@ -1289,14 +1282,12 @@ async function handleGetGoals(
   sendJson(res, 200, { goalLists });
 }
 
-const FINISHED_SESSION_STATES: ReadonlySet<string> = new Set(['done', 'failed']);
-
 async function listActiveSessionIds(cwd: string): Promise<ReadonlySet<string>> {
   try {
     const sessions = await listRemoteSessions(cwd);
     const ids = new Set<string>();
     for (const session of sessions) {
-      if (session.state !== undefined && FINISHED_SESSION_STATES.has(session.state)) {
+      if (!isSessionActive(session)) {
         continue;
       }
       ids.add(session.sessionId);
@@ -2858,6 +2849,10 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
   const db = openDatabase(resolveDatabaseDirectory());
   ensureConfigBootstrapped(db);
   reconcileOrphanedCommands(db);
+  const orphanSweep = setInterval(() => {
+    reconcileOrphanedCommands(db);
+  }, ORPHAN_SWEEP_INTERVAL_MS);
+  orphanSweep.unref();
   let effectiveConfig = resolveEffectiveConfig(db);
   if (pathsOverride) {
     effectiveConfig = applyPathsOverride(effectiveConfig, pathsOverride);
@@ -2905,6 +2900,7 @@ export function startServer(port: number, pathsOverride?: PathEntry[]): RunningS
   const close = async (): Promise<void> => {
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
+    clearInterval(orphanSweep);
     metricsLogger.stop();
     schedulerState.registry.stop();
     schedulerState.scriptRegistry.stop();
