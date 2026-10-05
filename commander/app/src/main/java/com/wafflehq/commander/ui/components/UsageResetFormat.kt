@@ -20,14 +20,15 @@ private val MONTH_ABBREVIATIONS = mapOf(
 )
 
 private val CLOCK_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
+private val EXHAUSTION_FORMATTER = DateTimeFormatter.ofPattern("EEE HH:mm")
 
 private const val WEEKLY_LABEL_PREFIX = "current week"
 private const val WEEKLY_WINDOW_HOURS = 7 * 24L
-private const val MIN_ELAPSED_HOURS_FOR_PACE = 0.1
+private const val MIN_ELAPSED_HOURS_FOR_PACE = 6.0
 
 data class UsageCountdown(val hours: Int, val minutes: Int)
 
-data class UsagePace(val paceRatioPercent: Int, val elapsedHours: Double)
+data class UsagePace(val paceRatioPercent: Int, val elapsedHours: Double, val exhaustionAt: Instant?)
 
 fun parseUsageResetAt(resetsAt: String, referenceInstant: Instant = Instant.now()): ZonedDateTime? {
     val match = USAGE_RESET_PATTERN.matchEntire(resetsAt.trim()) ?: return null
@@ -79,5 +80,15 @@ fun computeWeeklyUsagePace(limit: UsageLimit, resetAt: ZonedDateTime, now: Insta
     if (elapsedHours < MIN_ELAPSED_HOURS_FOR_PACE) return null
     val expectedPercent = 100.0 * elapsedHours / WEEKLY_WINDOW_HOURS
     val paceRatioPercent = (limit.percentUsed / expectedPercent * 100).roundToInt()
-    return UsagePace(paceRatioPercent, elapsedHours)
+    return UsagePace(paceRatioPercent, elapsedHours, projectExhaustion(limit.percentUsed, elapsedHours, now, resetAt.toInstant()))
 }
+
+private fun projectExhaustion(percentUsed: Int, elapsedHours: Double, now: Instant, resetAt: Instant): Instant? {
+    if (percentUsed <= 0) return null
+    val hoursUntilFull = (100 - percentUsed).coerceAtLeast(0) * elapsedHours / percentUsed
+    val exhaustionAt = now.plusMillis((hoursUntilFull * 3_600_000.0).toLong())
+    return exhaustionAt.takeIf { it.isBefore(resetAt) }
+}
+
+fun formatUsageExhaustion(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
+    ZonedDateTime.ofInstant(instant, zone).format(EXHAUSTION_FORMATTER)

@@ -8,8 +8,11 @@ import { createEmptyBinDir, createMockClaude, pathWithMock } from './test-suppor
 import {
   isProcessAlive,
   isSessionActive,
+  isSessionRunning,
+  killRemoteSession,
   listRemoteSessions,
   parseBackgroundSessionId,
+  sessionActivity,
   startRemoteSession,
 } from './remote-session.js';
 
@@ -63,7 +66,7 @@ test('startRemoteSession: haengt einen uebergebenen Namen als "--remote-control=
   const previousPath = process.env.PATH;
   process.env.PATH = pathWithMock(mock.binDir);
   try {
-    await startRemoteSession('/tmp', 'mein-name');
+    await startRemoteSession('/tmp', { name: 'mein-name' });
     assert.deepEqual(readFirstLoggedArgs(logFile), ['--bg', '--remote-control=mein-name']);
   } finally {
     process.env.PATH = previousPath;
@@ -83,13 +86,60 @@ test('startRemoteSession: haengt einen Prompt nach "--" an', async () => {
   const previousPath = process.env.PATH;
   process.env.PATH = pathWithMock(mock.binDir);
   try {
-    await startRemoteSession('/tmp', 'mein-name', '/goal Tu etwas');
+    await startRemoteSession('/tmp', { name: 'mein-name', prompt: '/goal Tu etwas' });
     assert.deepEqual(readFirstLoggedArgs(logFile), [
       '--bg',
       '--remote-control=mein-name',
       '--',
       '/goal Tu etwas',
     ]);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+    rmSync(logDir, { recursive: true, force: true });
+  }
+});
+
+test('startRemoteSession: uebergibt ein Modell als "--model <model>" vor dem Prompt', async () => {
+  const logDir = mkdtempSync(join(tmpdir(), 'cl-remote-session-log-'));
+  const logFile = join(logDir, 'args.log');
+  const mock = createMockClaude({
+    outputChunks: ['backgrounded · xyz98765 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    await startRemoteSession('/tmp', { name: 'mein-name', prompt: '/goal Tu etwas', model: 'sonnet' });
+    assert.deepEqual(readFirstLoggedArgs(logFile), [
+      '--bg',
+      '--remote-control=mein-name',
+      '--model',
+      'sonnet',
+      '--',
+      '/goal Tu etwas',
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+    rmSync(logDir, { recursive: true, force: true });
+  }
+});
+
+test('startRemoteSession: laesst "--model" bei leerem Modell weg', async () => {
+  const logDir = mkdtempSync(join(tmpdir(), 'cl-remote-session-log-'));
+  const logFile = join(logDir, 'args.log');
+  const mock = createMockClaude({
+    outputChunks: ['backgrounded · xyz98765 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    await startRemoteSession('/tmp', { model: '  ' });
+    assert.deepEqual(readFirstLoggedArgs(logFile), ['--bg', '--remote-control']);
   } finally {
     process.env.PATH = previousPath;
     mock.cleanup();
@@ -279,4 +329,105 @@ test('isSessionActive: tote PID ist nie aktiv, lebende PID folgt dem Zustand', (
 test('isProcessAlive: eigener Prozess lebt, unbelegte PID nicht', () => {
   assert.equal(isProcessAlive(process.pid), true);
   assert.equal(isProcessAlive(2_147_483_646), false);
+});
+
+test('sessionActivity: waitingFor, status "waiting" oder state "blocked" bedeuten Warten auf Antwort', () => {
+  assert.equal(sessionActivity({ ...BASE_SESSION, waitingFor: 'permission' }), 'waiting');
+  assert.equal(sessionActivity({ ...BASE_SESSION, status: 'waiting' }), 'waiting');
+  assert.equal(sessionActivity({ ...BASE_SESSION, state: 'blocked' }), 'waiting');
+});
+
+test('sessionActivity: laufende Zustaende bedeuten Arbeiten', () => {
+  for (const state of ['working', 'starting', 'queued', 'running']) {
+    assert.equal(sessionActivity({ ...BASE_SESSION, state }), 'working', state);
+  }
+});
+
+test('sessionActivity: Warten hat Vorrang vor Arbeiten', () => {
+  assert.equal(sessionActivity({ ...BASE_SESSION, state: 'working', waitingFor: 'input' }), 'waiting');
+});
+
+test('sessionActivity: ohne Hinweis oder im Leerlauf gilt die Session als fertig', () => {
+  assert.equal(sessionActivity({ ...BASE_SESSION }), 'idle');
+  assert.equal(sessionActivity({ ...BASE_SESSION, status: 'idle', state: 'idle' }), 'idle');
+});
+
+test('isSessionRunning: mit PID entscheidet, ob der Prozess lebt', () => {
+  assert.equal(isSessionRunning({ ...BASE_SESSION, pid: 5 }, () => true), true);
+  assert.equal(isSessionRunning({ ...BASE_SESSION, pid: 5 }, () => false), false);
+});
+
+test('isSessionRunning: ohne PID zaehlen nur beendete Status als nicht laufend', () => {
+  assert.equal(isSessionRunning({ ...BASE_SESSION }), true);
+  assert.equal(isSessionRunning({ ...BASE_SESSION, status: 'idle' }), true);
+  for (const status of ['done', 'failed', 'stopped']) {
+    assert.equal(isSessionRunning({ ...BASE_SESSION, status }), false, status);
+  }
+});
+
+test('killRemoteSession: sendet SIGTERM an die PID einer Session ohne Kurz-ID', async () => {
+  const calls: [number, string][] = [];
+  await killRemoteSession({ ...BASE_SESSION, kind: 'interactive', pid: 4242 }, (pid, signal) => {
+    calls.push([pid, signal]);
+  });
+  assert.deepEqual(calls, [[4242, 'SIGTERM']]);
+});
+
+test('killRemoteSession: ignoriert ESRCH (Prozess existiert nicht mehr)', async () => {
+  await killRemoteSession({ ...BASE_SESSION, pid: 4242 }, () => {
+    throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+  });
+});
+
+test('killRemoteSession: reicht andere Fehler weiter', async () => {
+  await assert.rejects(
+    () =>
+      killRemoteSession({ ...BASE_SESSION, pid: 4242 }, () => {
+        throw Object.assign(new Error('denied'), { code: 'EPERM' });
+      }),
+    /denied/,
+  );
+});
+
+test('killRemoteSession: verweigert Sessions ohne Kurz-ID und ohne gueltige PID', async () => {
+  const neverCalled = (): void => {
+    assert.fail('kill darf nicht aufgerufen werden');
+  };
+  await assert.rejects(() => killRemoteSession({ ...BASE_SESSION }, neverCalled), /kann nicht beendet werden/);
+  await assert.rejects(() => killRemoteSession({ ...BASE_SESSION, pid: 1 }, neverCalled), /kann nicht beendet werden/);
+  await assert.rejects(() => killRemoteSession({ ...BASE_SESSION, pid: 0 }, neverCalled), /kann nicht beendet werden/);
+  await assert.rejects(() => killRemoteSession({ ...BASE_SESSION, pid: 1.5 }, neverCalled), /kann nicht beendet werden/);
+});
+
+test('killRemoteSession: Sessions mit Kurz-ID werden ueber "claude stop <id>" beendet', async () => {
+  const logDir = mkdtempSync(join(tmpdir(), 'cl-remote-session-kill-log-'));
+  const logFile = join(logDir, 'args.log');
+  const mock = createMockClaude({ rawOutput: '', exitCode: 0, logFile });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    await killRemoteSession({ ...BASE_SESSION, id: '1771997d', pid: 99 }, () => {
+      assert.fail('PID-Kill darf nicht verwendet werden');
+    });
+    assert.deepEqual(readFirstLoggedArgs(logFile), ['stop', '1771997d']);
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+    rmSync(logDir, { recursive: true, force: true });
+  }
+});
+
+test('killRemoteSession: wirft, wenn "claude stop" fehlschlaegt', async () => {
+  const mock = createMockClaude({ rawOutput: 'nope', exitCode: 1 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    await assert.rejects(
+      () => killRemoteSession({ ...BASE_SESSION, id: '1771997d' }),
+      /ist fehlgeschlagen \(Exit-Code 1\)/,
+    );
+  } finally {
+    process.env.PATH = previousPath;
+    mock.cleanup();
+  }
 });

@@ -149,6 +149,25 @@
       }
     },
     {
+      "name": "learnings",
+      "path": "/home/sklein/IdeaProjects/learnings",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/learnings.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
       "name": "commander",
       "path": "/home/sklein/IdeaProjects/claude-cli/commander",
       "hosted": [

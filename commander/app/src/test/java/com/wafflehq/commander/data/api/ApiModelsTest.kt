@@ -85,90 +85,13 @@ class ApiModelsTest {
     }
 
     @Test
-    fun `the main agent maps back to its manifest command "cl"`() {
+    fun `the main agent maps back to its manifest command cl`() {
         assertEquals("cl", commandState(agent = "main", status = "failed").retryAgentCommand())
     }
 
     @Test
-    fun `a named agent maps back to its manifest command "cl name"`() {
+    fun `a named agent maps back to its manifest command cl name`() {
         assertEquals("cl dev", commandState(agent = "dev", status = "failed").retryAgentCommand())
     }
 }
 
-private fun remoteAgentSession(kind: String) = RemoteAgentSession(
-    pid = 123,
-    cwd = "/tmp/project",
-    kind = kind,
-    startedAt = 1_700_000_000_000,
-    sessionId = "a1b2c3",
-    name = "project-a1",
-)
-
-class RemoteAgentSessionTest {
-
-    @Test
-    fun `a background session is background`() {
-        assertTrue(remoteAgentSession(kind = "background").isBackground())
-    }
-
-    @Test
-    fun `an interactive session is not background`() {
-        assertFalse(remoteAgentSession(kind = "interactive").isBackground())
-    }
-
-    private fun goalEntry(id: String, running: Boolean, status: String = "ready") = GoalEntry(
-        id = id,
-        fileName = "$id.md",
-        title = id,
-        description = "",
-        date = "2026-09-29",
-        dependsOn = emptyList(),
-        command = "/goal x",
-        content = "",
-        timestamp = "2026-09-29T00:00:00.000Z",
-        legacy = false,
-        status = status,
-        missingDependencies = emptyList(),
-        running = running,
-    )
-
-    @Test
-    fun `goal group progress counts done, overall and running goals`() {
-        val group = GoalListGroup(
-            folder = "f",
-            totalCount = 5,
-            goals = listOf(goalEntry("G03", running = true), goalEntry("G04", running = false), goalEntry("G05", false)),
-        )
-
-        assertEquals(2, group.doneCount())
-        assertEquals(5, group.overallCount())
-        assertEquals(1, group.runningCount())
-        assertEquals(2, group.startableCount())
-    }
-
-    @Test
-    fun `startable count excludes blocked and running goals`() {
-        val group = GoalListGroup(
-            folder = "f",
-            totalCount = 4,
-            goals = listOf(
-                goalEntry("G01", running = false),
-                goalEntry("G02", running = true),
-                goalEntry("G03", running = false, status = "blocked"),
-                goalEntry("G04", running = false, status = "blocked"),
-            ),
-        )
-
-        assertEquals(1, group.startableCount())
-    }
-
-    @Test
-    fun `goal group progress never goes negative when the server omits totalCount`() {
-        val group = GoalListGroup(folder = "f", goals = listOf(goalEntry("G01", running = false)))
-
-        assertEquals(0, group.doneCount())
-        assertEquals(1, group.overallCount())
-        assertEquals(0, group.runningCount())
-        assertEquals(1, group.startableCount())
-    }
-}

@@ -39,14 +39,36 @@
     <string name="project_home_downloads">Downloads</string>
     <string name="project_home_agents">Entwicklung</string>
     <string name="project_home_agents_subtitle">Agenten starten und überwachen</string>
-    <string name="project_home_tickets">Tickets</string>
     <string name="project_home_history">Verlauf</string>
-    <string name="project_home_feedback">Feedback</string>
-    <string name="project_home_collect">Sammlung</string>
-    <string name="project_home_stats">Statistik</string>
-    <string name="project_home_remote_sessions">Remote-Sitzungen</string>
+    <string name="remote_sessions_kind_interactive">Interaktiv</string>
+    <string name="remote_sessions_kind_background">Hintergrund · ID: %1$s</string>
+    <string name="remote_sessions_started_at">Gestartet %1$s</string>
+    <string name="remote_sessions_waiting_for">Wartet auf: %1$s</string>
+    <string name="project_home_remote_session_start">Remote-Sitzung starten</string>
+    <string name="project_home_remote_session_start_subtitle">Remote-Control-Sitzung mit Standardmodell</string>
+    <string name="project_home_remote_session_started_title">Sitzung gestartet</string>
+    <string name="project_home_remote_session_started_body">ID: %1$s</string>
+    <string name="project_home_goal_plan">Goal-Plan</string>
+    <string name="project_home_goal_prompt">Goal-Prompt</string>
+    <string name="project_home_goal_command_body">Der Text wird an %1$s angehängt.</string>
+    <string name="project_home_goal_command_text_label">Text</string>
+    <string name="project_home_goal_command_run">Ausführen</string>
     <string name="project_home_schedulers">Scheduler</string>
     <string name="project_home_goals">Goals</string>
+    <string name="project_home_start_all_goals">Jetzt alle startbereiten Goals starten</string>
+    <plurals name="project_home_start_all_goals_subtitle">
+        <item quantity="one">%d Goal startbereit</item>
+        <item quantity="other">%d Goals startbereit</item>
+    </plurals>
+    <string name="project_home_start_all_goals_confirm_title">Alle startbereiten Goals starten?</string>
+    <plurals name="project_home_start_all_goals_confirm_body">
+        <item quantity="one">%d Auftrag wird jetzt gestartet.</item>
+        <item quantity="other">%d Aufträge werden jetzt gestartet.</item>
+    </plurals>
+    <string name="project_home_start_all_goals_model_label">Modell</string>
+    <string name="project_home_start_all_goals_max_label">Maximale Anzahl (leer = alle)</string>
+    <string name="project_home_start_all_goals_confirm">Starten</string>
+    <string name="project_home_start_all_goals_cancel">Abbrechen</string>
 
     <string name="usage_banner_title">Nutzung</string>
     <string name="usage_banner_expand">Nutzung anzeigen</string>
@@ -66,6 +88,8 @@
         <item quantity="other">%d Minuten</item>
     </plurals>
     <string name="usage_banner_pace">Damit liegst du bei ca. %1$d %% deines Nutzungstempos für diesen Zeitraum</string>
+    <string name="usage_banner_exhaustion">Bei diesem Tempo ist das Limit am %1$s aufgebraucht</string>
+    <string name="usage_banner_exhaustion_safe">Bei diesem Tempo reicht das Limit bis zum Reset</string>
 
     <string name="commands_title">Befehle</string>
     <string name="commands_empty">Keine Befehle.</string>
@@ -83,12 +107,6 @@
     <string name="history_command_expand">Befehl anzeigen</string>
     <string name="history_command_collapse">Befehl ausblenden</string>
 
-    <string name="stats_title">Statistik</string>
-    <string name="stats_running_agents">Laufende Agents</string>
-    <string name="stats_agents_in_window">Agents (letzte %1$s Std.)</string>
-    <string name="stats_last_debug_build">Letzter Debug-Build</string>
-    <string name="stats_last_release_build">Letzter Release-Build</string>
-    <string name="stats_no_build_yet">Kein Build vorhanden</string>
 
     <string name="token_costs_title">Token-Kosten</string>
     <string name="token_costs_refresh">Aktualisieren</string>
@@ -106,16 +124,6 @@
     <string name="system_metrics_refresh">Aktualisieren</string>
     <string name="system_metrics_ram_usage">%1$s / %2$s</string>
 
-    <string name="remote_sessions_title">Remote-Sitzungen</string>
-    <string name="remote_sessions_empty">Keine aktiven Sitzungen.</string>
-    <string name="remote_sessions_name_label">Sitzungsname (optional)</string>
-    <string name="remote_sessions_start_button">Remote-Control-Sitzung starten</string>
-    <string name="remote_sessions_started_title">Sitzung gestartet</string>
-    <string name="remote_sessions_started_body">ID: %1$s</string>
-    <string name="remote_sessions_kind_interactive">Interaktiv</string>
-    <string name="remote_sessions_kind_background">Hintergrund · ID: %1$s</string>
-    <string name="remote_sessions_started_at">Gestartet %1$s</string>
-    <string name="remote_sessions_waiting_for">Wartet auf: %1$s</string>
 
     <string name="goals_title">Goals</string>
     <string name="goals_empty">Keine Goals gefunden.\nLege Goal-Ordner unter goals/&lt;datum&gt;-&lt;slug&gt;/ im Projekt an.</string>
@@ -126,9 +134,11 @@
     <string name="goals_start">Starten</string>
     <string name="goals_progress">%1$d/%2$d erledigt, %3$d laufende, %4$d startbereit</string>
     <string name="goals_status_running">Läuft</string>
+    <string name="goals_interactive_model_label">Modell für interaktiven Start</string>
     <string name="goals_start_interactive">Interaktiv</string>
     <string name="goals_session_started">Interaktive Session gestartet</string>
     <string name="goals_expand">Ausklappen</string>
+    <string name="goals_details">Details</string>
     <string name="goals_collapse">Einklappen</string>
 
     <string name="schedulers_title">Scheduler</string>
@@ -200,34 +210,6 @@
     <string name="command_detail_cost">Kosten: %1$s</string>
     <string name="command_detail_tokens">Tokens gesamt: %1$s</string>
 
-    <string name="tickets_title">Tickets</string>
-    <string name="tickets_empty">Noch keine Tickets.</string>
-    <string name="tickets_create_text_label">Was soll passieren?</string>
-    <string name="tickets_create_submit">Ticket erstellen</string>
-    <string name="tickets_filter_label">Status</string>
-    <string name="tickets_filter_all">Alle</string>
-    <string name="ticket_detail_title">Ticket</string>
-    <string name="ticket_detail_original_request_label">Original-Anweisung</string>
-    <string name="ticket_detail_summary_label">Zusammenfassung</string>
-    <string name="ticket_detail_claude_instruction_label">Claude-Anweisung</string>
-    <string name="ticket_detail_category_label">Kategorie</string>
-    <string name="ticket_detail_status_label">Status</string>
-    <string name="ticket_detail_ip_label">IP-Adresse: %1$s</string>
-    <string name="ticket_detail_ip_unknown">unbekannt</string>
-    <string name="ticket_detail_save">Speichern</string>
-    <string name="ticket_detail_play">Ausführen und schließen</string>
-    <string name="ticket_detail_play_title">Ticket ausführen?</string>
-    <string name="ticket_detail_play_body">Das Ticket wird geschlossen und die Claude-Anweisung an den gewählten Agenten gesendet.</string>
-    <string name="ticket_detail_play_agent_label">Agent</string>
-    <string name="ticket_detail_play_confirm">Ausführen</string>
-    <string name="ticket_detail_delete">Ticket löschen</string>
-    <string name="ticket_detail_delete_confirm_title">Ticket löschen?</string>
-    <string name="ticket_detail_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
-    <string name="ticket_status_generating">Wird generiert…</string>
-    <string name="ticket_status_open">Offen</string>
-    <string name="ticket_status_in_progress">In Bearbeitung</string>
-    <string name="ticket_status_done">Fertig</string>
-    <string name="ticket_status_rejected">Abgelehnt</string>
 
     <string name="settings_title">Einstellungen</string>
     <string name="settings_display_title">Anzeige</string>
@@ -273,22 +255,17 @@
     <string name="settings_config_versions_confirm_body">„%1$s" wird sofort als aktive Konfiguration übernommen.</string>
     <string name="settings_config_versions_confirm_action">Aktivieren</string>
 
-    <string name="collect_title">Sammlung</string>
-    <string name="collect_button">Sammeln</string>
-    <string name="collect_result_ok">Gespeichert als %1$s</string>
 
-    <string name="feedback_title">Feedback</string>
-    <string name="feedback_empty">Noch kein Feedback.</string>
-    <string name="feedback_section">Bereich: %1$s</string>
-    <string name="feedback_context">Kontext: %1$s</string>
-    <string name="feedback_edit">Bearbeiten</string>
-    <string name="feedback_save">Speichern</string>
-    <string name="feedback_cancel">Abbrechen</string>
-    <string name="feedback_delete">Löschen</string>
-    <string name="feedback_delete_confirm_title">Feedback löschen?</string>
-    <string name="feedback_delete_confirm_body">Das kann nicht rückgängig gemacht werden.</string>
-    <string name="feedback_convert_to_ticket">In Ticket umwandeln</string>
-    <string name="feedback_convert_title">In Ticket umwandeln</string>
-    <string name="feedback_convert_project_label">Projekt</string>
-    <string name="feedback_convert_confirm">Ticket erstellen</string>
+    <string name="settings_all_sessions_title">Alle Sitzungen</string>
+    <string name="settings_all_sessions_sub">Laufende Claude-Sitzungen mit Status, Prozess beenden</string>
+    <string name="all_sessions_title">Alle Sitzungen</string>
+    <string name="all_sessions_empty">Keine laufenden Sitzungen.</string>
+    <string name="all_sessions_summary">%1$d laufend · %2$d arbeiten · %3$d warten · %4$d fertig</string>
+    <string name="all_sessions_activity_working">Arbeitet</string>
+    <string name="all_sessions_activity_waiting">Wartet auf Antwort</string>
+    <string name="all_sessions_activity_idle">Fertig</string>
+    <string name="all_sessions_kill_button">Prozess beenden</string>
+    <string name="all_sessions_kill_confirm_title">Prozess beenden?</string>
+    <string name="all_sessions_kill_confirm_body">Die Sitzung „%1$s“ wird sofort beendet. Nicht gespeicherte Arbeit geht verloren.</string>
+    <string name="all_sessions_kill_confirm_confirm">Beenden</string>
 </resources>

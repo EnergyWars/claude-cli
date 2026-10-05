@@ -10,6 +10,7 @@ import com.wafflehq.commander.data.api.agentNameOrNull
 import com.wafflehq.commander.data.context.DevContextRepository
 import com.wafflehq.commander.data.db.DevContextEntity
 import com.wafflehq.commander.data.usage.UsageRepository
+import com.wafflehq.commander.data.api.CLAUDE_MODELS
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-val RUN_AGENT_MODELS = listOf("", "haiku", "sonnet", "opus", "fable")
+val RUN_AGENT_MODELS = listOf("") + CLAUDE_MODELS
 
 /** Keine Kontexte gewaehlt -&gt; nur der Prompt; sonst alle Kontext-Werte der Reihe nach vor den Prompt gehaengt, Prompt optional. */
 fun buildAgentCommand(contextValues: List<String>, prompt: String): String = when {

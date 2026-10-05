@@ -36,6 +36,7 @@ fun SettingsScreen(
     onOpenTokenCosts: () -> Unit,
     onOpenSystemMetrics: () -> Unit,
     onOpenAllSchedulers: () -> Unit,
+    onOpenAllSessions: () -> Unit,
     onDisconnected: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -80,6 +81,12 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_all_schedulers_title),
                 subtitle = stringResource(R.string.settings_all_schedulers_sub),
                 onClick = onOpenAllSchedulers,
+            )
+            SettingsRowDivider()
+            SettingsListRow(
+                title = stringResource(R.string.settings_all_sessions_title),
+                subtitle = stringResource(R.string.settings_all_sessions_sub),
+                onClick = onOpenAllSessions,
             )
             SettingsGroupDivider()
             SettingsGroup(

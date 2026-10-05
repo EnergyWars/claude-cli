@@ -11,4 +11,10 @@ else
   runner=$(command -v gradle) || { echo "gradlew: neither gradlew_ nor gradle found" >&2; exit 127; }
 fi
 
-exec systemd-run --user --scope --quiet --slice=gradle.slice -p OOMPolicy=continue "$runner" "$@"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  exec systemd-run --user --scope --quiet --slice=gradle.slice -p OOMPolicy=continue "$runner" "$@"
+fi
+
+exec "$runner" "$@"

@@ -17,14 +17,22 @@ export function parseBackgroundSessionId(output: string): string {
   return match[1];
 }
 
+export interface RemoteSessionOptions {
+  name?: string;
+  prompt?: string;
+  model?: string | undefined;
+}
+
 export async function startRemoteSession(
   cwd: string,
-  name?: string,
-  prompt?: string,
+  { name, prompt, model }: RemoteSessionOptions = {},
 ): Promise<RemoteSessionStart> {
   const remoteControlFlag =
     name !== undefined && name.trim() !== '' ? `--remote-control=${name}` : '--remote-control';
   const args = ['--bg', remoteControlFlag];
+  if (model !== undefined && model.trim() !== '') {
+    args.push('--model', model);
+  }
   if (prompt !== undefined && prompt.trim() !== '') {
     args.push('--', prompt);
   }
@@ -149,4 +157,73 @@ export function isSessionActive(
     return ACTIVE_SESSION_STATES.has(session.state);
   }
   return session.status === undefined || !IDLE_SESSION_STATUSES.has(session.status);
+}
+
+export type SessionActivity = 'working' | 'waiting' | 'idle';
+
+const WAITING_SESSION_MARKERS: ReadonlySet<string> = new Set(['waiting', 'blocked']);
+const TERMINAL_SESSION_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'stopped']);
+
+export function sessionActivity(session: RemoteAgentSession): SessionActivity {
+  if (
+    session.waitingFor !== undefined ||
+    (session.status !== undefined && WAITING_SESSION_MARKERS.has(session.status)) ||
+    (session.state !== undefined && WAITING_SESSION_MARKERS.has(session.state))
+  ) {
+    return 'waiting';
+  }
+  if (session.state !== undefined && ACTIVE_SESSION_STATES.has(session.state)) {
+    return 'working';
+  }
+  return 'idle';
+}
+
+export function isSessionRunning(
+  session: RemoteAgentSession,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): boolean {
+  if (session.pid !== undefined) {
+    return isAlive(session.pid);
+  }
+  return session.status === undefined || !TERMINAL_SESSION_STATUSES.has(session.status);
+}
+
+async function runClaude(args: string[]): Promise<{ exitCode: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let collected = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      collected += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      collected += chunk.toString('utf8');
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      resolve({ exitCode: code, output: collected });
+    });
+  });
+}
+
+export async function killRemoteSession(
+  session: RemoteAgentSession,
+  killProcess: (pid: number, signal: NodeJS.Signals) => void = process.kill.bind(process),
+): Promise<void> {
+  if (session.id !== undefined) {
+    const { exitCode, output } = await runClaude(['stop', session.id]);
+    if (exitCode !== 0) {
+      throw new Error(`"claude stop ${session.id}" ist fehlgeschlagen (Exit-Code ${String(exitCode)}).\n\n${output}`);
+    }
+    return;
+  }
+  if (session.pid === undefined || !Number.isInteger(session.pid) || session.pid <= 1) {
+    throw new Error('Die Session hat weder eine Kurz-ID noch eine gueltige PID und kann nicht beendet werden.');
+  }
+  try {
+    killProcess(session.pid, 'SIGTERM');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      throw error;
+    }
+  }
 }

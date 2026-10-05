@@ -82,7 +82,7 @@ class UsageResetFormatTest {
     @Test
     fun `clamps a reset time in the past to zero remaining`() {
         val now = Instant.parse("2026-08-27T20:00:00Z")
-        val resetAt = requireNotNull(parseUsageResetAt("Aug 27, 5:40pm (Europe/Berlin)", now))
+        val resetAt = java.time.ZonedDateTime.of(2026, 8, 27, 17, 40, 0, 0, berlin)
         val countdown = usageResetCountdown(resetAt, now)
         assertEquals(0, countdown.hours)
         assertEquals(0, countdown.minutes)
@@ -126,5 +126,42 @@ class UsageResetFormatTest {
         val resetAt = now.plusSeconds(167 * 3600L + 3500L)
         val limit = UsageLimit(label = "Current week (all models)", percentUsed = 1, resetsAt = "ignored")
         assertNull(computeWeeklyUsagePace(limit, java.time.ZonedDateTime.ofInstant(resetAt, berlin), now))
+    }
+
+    @Test
+    fun `returns null pace while too little of the week has elapsed for a meaningful ratio`() {
+        val now = Instant.parse("2026-08-27T10:00:00Z")
+        val limit = UsageLimit(label = "Current week (all models)", percentUsed = 4, resetsAt = "ignored")
+        val tooEarly = java.time.ZonedDateTime.ofInstant(now.plusSeconds(163 * 3600L), berlin)
+        val longEnough = java.time.ZonedDateTime.ofInstant(now.plusSeconds(162 * 3600L), berlin)
+        assertNull(computeWeeklyUsagePace(limit, tooEarly, now))
+        assertEquals(6.0, requireNotNull(computeWeeklyUsagePace(limit, longEnough, now)).elapsedHours, 0.01)
+    }
+
+    @Test
+    fun `projects the exhaustion time when the limit would run out before the reset`() {
+        val now = Instant.parse("2026-08-27T10:00:00Z")
+        val resetAt = now.plusSeconds(97 * 3600L)
+        val limit = UsageLimit(label = "Current week (all models)", percentUsed = 52, resetsAt = "ignored")
+        val pace = requireNotNull(computeWeeklyUsagePace(limit, java.time.ZonedDateTime.ofInstant(resetAt, berlin), now))
+        val expected = now.plusMillis((48 * 71.0 / 52 * 3_600_000.0).toLong())
+        assertEquals(expected, pace.exhaustionAt)
+    }
+
+    @Test
+    fun `has no exhaustion time when the limit lasts until the reset or nothing is used`() {
+        val now = Instant.parse("2026-08-27T10:00:00Z")
+        val resetAt = java.time.ZonedDateTime.ofInstant(now.plusSeconds(97 * 3600L), berlin)
+        val slow = UsageLimit(label = "Current week (all models)", percentUsed = 20, resetsAt = "ignored")
+        val unused = UsageLimit(label = "Current week (all models)", percentUsed = 0, resetsAt = "ignored")
+        assertNull(requireNotNull(computeWeeklyUsagePace(slow, resetAt, now)).exhaustionAt)
+        assertNull(requireNotNull(computeWeeklyUsagePace(unused, resetAt, now)).exhaustionAt)
+    }
+
+    @Test
+    fun `formats the exhaustion time with weekday and clock time`() {
+        val instant = Instant.parse("2026-08-27T10:00:00Z")
+        val text = formatUsageExhaustion(instant, berlin)
+        assertEquals(true, text.endsWith("12:00"))
     }
 }

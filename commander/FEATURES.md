@@ -33,23 +33,19 @@ Ist noch kein Projekt gemerkt (oder nach „Verbindung trennen"), zeigt die App 
 
 ## Projekt-Hub
 
-Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter neun feste Einträge plus ein zehnter, nur bedingt sichtbarer Eintrag, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen Einträge bleiben schlichte Listenzeilen:
+Zentrale Seite nach der Projektauswahl. Oben ein Dropdown mit dem aktuellen Projektnamen – Tippen öffnet die Liste aller Projekte, Auswahl wechselt sofort um und persistiert. Daneben ein Zahnrad-Icon zu den Einstellungen. Darunter die Schnellaktionen (siehe unten) und sechs feste Einträge plus ein siebter, nur bedingt sichtbarer Eintrag, jeder öffnet einen eigenen, auf seinen Zweck beschränkten Screen. **Entwicklung** ist optisch hervorgehoben (eigene Karte mit Primary-Akzentfarbe, Icon und Untertitel statt schlichter Listenzeile), da es der zentrale Einstieg für Agenten-Läufe ist; die übrigen Einträge bleiben schlichte Listenzeilen:
 
+- **Remote-Sitzung starten** (hervorgehobene Karte) – startet per Tipp direkt eine neue Remote-Control-Sitzung für das aktuelle Projekt (`POST /paths/<pathName>/remote-sessions`, Modell `sonnet`, kein Name, siehe `../FEATURES.md`, Remote-Control-Sessions); zeigt danach einen Erfolgs-Banner mit der Kurz-ID. Es gibt keine Liste der Sitzungen im Projekt-Hub mehr (die projektübergreifende Übersicht liegt unter Einstellungen → Alle Sitzungen).
+- **Goal-Plan** / **Goal-Prompt** (zwei feste Buttons nebeneinander) – öffnen einen Dialog mit Textfeld; „Ausführen" schickt `/goal-plan <Text>` bzw. `/goal-prompt <Text>` (Text getrimmt, leerer Text wird ignoriert) als Command für das aktuelle Projekt (`POST /`, Standard-Modell) und öffnet die Command-Detailansicht.
 - **Entwicklung** (hervorgehoben) – alle konfigurierten Agenten des aktuellen Projekts.
 - **Befehle** – alle Commands des aktuellen Projekts.
 - **Downloads** – alle downloadbaren Dateien des aktuellen Projekts.
-- **Tickets** – die Ticket-Liste dieses Projekts.
 - **Verlauf** – der komplette Command-Verlauf dieses Projekts (siehe unten).
-- **Feedback** – Feedback-Liste nur des aktuellen Projekts (siehe unten).
-- **Sammlung** – löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (siehe unten).
-- **Statistik** – Kennzahlen des aktuellen Projekts (siehe unten).
-- **Remote-Sitzungen** – aktive Claude-Code-Sessions dieses Projekts anzeigen und eine neue mit Remote Control starten (siehe unten).
 - **Goals** – Goal-Listen (`goals/<ordner>/*.md`) des aktuellen Projekts gruppiert mit Abhängigkeits-Status anzeigen, Goals einklappbar mit Fortschritt („x/y erledigt, z laufende, n startbereit"), bereite Goals headless oder als interaktive Remote-Session starten oder den Befehl kopieren (siehe unten).
 - **Scheduler** (nur sichtbar, wenn das aktuelle Projekt mindestens einen (Script-)Scheduler führt) – konfigurierte (Script-)Scheduler manuell nur für dieses eine Projekt anstoßen (siehe unten).
 
-Feedback und Sammlung sind wie alle anderen Einträge pro Projekt: welches Feedback bzw. welche Collection-Einträge zu einem Projekt gehören, ergibt sich aus `collection[].path` in `config.json` (siehe `../FEATURES.md`, Collection-System) – Feedback wird dabei automatisch serverseitig über den `section`-Wert einem Projekt zugeordnet. Es gibt sonst keine weiteren Einträge oder Querverweise zwischen diesen Bereichen.
 
-Ganz oben, noch vor dem Projekt-Dropdown, zeigt der Hub ein **Nutzungslimits-Banner** (`GET /usage`, siehe `../FEATURES.md`, Nutzungslimits) – pro Limit eine Zeile mit Label, Prozentwert, Balken (`LinearProgressIndicator`, Farbe je nach Auslastung: < 70 % neutral, 70–89 % Warnung, ≥ 90 % Fehler) und darunter dem Reset-Zeitpunkt. Lässt sich der vom Server gelieferte Reset-Text (z. B. „Aug 27, 5:40pm (Europe/Berlin)") client-seitig parsen, wird er als „Setzt zurück um 17:40 (in 3 Stunden und 12 Minuten)" angezeigt (24-Stunden-Format in der Gerätezeitzone, Countdown in Stunden/Minuten); gelingt das Parsen nicht, wird ersatzweise der rohe Servertext unverändert angezeigt. Bei einem wöchentlichen Limit (Label beginnt mit „Current week") zeigt eine zusätzliche Zeile das aktuelle Verbrauchstempo hochgerechnet auf die volle 7-Tage-Woche (168 Stunden), z. B. „Damit liegst du bei ca. 123 % deines Nutzungstempos für diesen Zeitraum" – über 100 % wird die Zeile in der Warnfarbe hervorgehoben. Wird alle 60 Sekunden neu geladen, solange der Hub sichtbar ist, zusätzlich sofort neu geladen, wenn die App in den Vordergrund oder Hintergrund wechselt, sowie direkt nach jedem erfolgreich gestarteten Command oder Agent (egal von welchem Screen aus); ein fehlgeschlagener Abruf wird still ignoriert (zeigt einfach den letzten bekannten Stand weiter, kein Fehler-Banner) – die Nutzungsanzeige ist informativ und soll den Hub nicht blockieren. Ohne Limits (noch nicht geladen oder leere Antwort) bleibt die Zeile einfach weg. Ein Tap auf den Banner-Header klappt die Limit-Zeilen ein bzw. aus; der Zustand bleibt über App-Neustarts hinweg erhalten.
+Ganz oben, noch vor dem Projekt-Dropdown, zeigt der Hub ein **Nutzungslimits-Banner** (`GET /usage`, siehe `../FEATURES.md`, Nutzungslimits) – pro Limit eine Zeile mit Label, Prozentwert, Balken (`LinearProgressIndicator`, Farbe je nach Auslastung: < 70 % neutral, 70–89 % Warnung, ≥ 90 % Fehler) und darunter dem Reset-Zeitpunkt. Lässt sich der vom Server gelieferte Reset-Text (z. B. „Aug 27, 5:40pm (Europe/Berlin)") client-seitig parsen, wird er als „Setzt zurück um 17:40 (in 3 Stunden und 12 Minuten)" angezeigt (24-Stunden-Format in der Gerätezeitzone, Countdown in Stunden/Minuten); gelingt das Parsen nicht, wird ersatzweise der rohe Servertext unverändert angezeigt. Bei einem wöchentlichen Limit (Label beginnt mit „Current week") zeigt eine zusätzliche Zeile das aktuelle Verbrauchstempo hochgerechnet auf die volle 7-Tage-Woche (168 Stunden), z. B. „Damit liegst du bei ca. 123 % deines Nutzungstempos für diesen Zeitraum"; eine weitere Zeile zeigt, wann das Limit bei gleichbleibender Geschwindigkeit aufgebraucht wäre (z. B. „Bei diesem Tempo ist das Limit am Do 14:30 aufgebraucht", Warnfarbe) bzw. „Bei diesem Tempo reicht das Limit bis zum Reset" – über 100 % wird die Zeile in der Warnfarbe hervorgehoben. Wird alle 60 Sekunden neu geladen, solange der Hub sichtbar ist, zusätzlich sofort neu geladen, wenn die App in den Vordergrund oder Hintergrund wechselt, sowie direkt nach jedem erfolgreich gestarteten Command oder Agent (egal von welchem Screen aus); ein fehlgeschlagener Abruf wird still ignoriert (zeigt einfach den letzten bekannten Stand weiter, kein Fehler-Banner) – die Nutzungsanzeige ist informativ und soll den Hub nicht blockieren. Ohne Limits (noch nicht geladen oder leere Antwort) bleibt die Zeile einfach weg. Ein Tap auf den Banner-Header klappt die Limit-Zeilen ein bzw. aus; der Zustand bleibt über App-Neustarts hinweg erhalten.
 
 ## Befehle
 
@@ -94,60 +90,15 @@ Erreichbar über den „Verlauf"-Eintrag im Projekt-Hub, immer auf das aktuelle 
 
 **Agenten-Lauf neu starten:** Abgeschlossene Einträge (Status „completed", „failed" oder „stopped") aus „Entwicklung" zeigen zusätzlich ein Wiederholen-Icon – nicht nur fehlgeschlagene, auch erfolgreich beendete Läufe lassen sich erneut anstoßen. Tippen öffnet den „Entwicklung"-Ausführungs-Screen für denselben Agenten und Projekt, mit dem ursprünglich gesendeten Prompt bereits vorausgefüllt – abgeschickt wird erst nach erneutem, manuellem Tippen auf „Starten". Gilt nicht für laufende Einträge und nicht für Befehle (`Befehle`-Einträge sind feste Shell-Kommandos ohne freien Prompt zum Vorausfüllen).
 
-## Tickets
-
-Erreichbar über den „Tickets"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET/POST /tickets/<pathName>`).
-
-Ein Ticket besteht aus: der **Original-Anweisung**, einer **Zusammenfassung**, einer **Claude-Anweisung**, einer **Kategorie**, einem **Status** (Wird generiert/Offen/In Bearbeitung/Fertig/Abgelehnt) und der **IP-Adresse** des anlegenden Clients. ID, Pfadname und IP-Adresse sind nach dem Anlegen nicht mehr änderbar.
-
-**Liste:** Textfeld + „Ticket erstellen" ruft `POST /tickets/<pathName>` auf; der Server legt das Ticket sofort im Status „Wird generiert" an (leere Zusammenfassung/Claude-Anweisung/Kategorie) und füllt es im Hintergrund per Ticket-Agent. Ein Ticket in diesem Status erscheint als ladende Zeile (Spinner statt Kategorie-Text, Original-Anweisung als Titel) in derselben Liste wie alle anderen Tickets – kein separater lokaler Platzhalter mehr. Solange mindestens ein geladenes Ticket im Status „Wird generiert" ist, aktualisiert `TicketListViewModel` die Liste einmal pro Sekunde automatisch, bis der Agent fertig ist (Ticket wechselt dann auf „Offen" bzw. bei Fehlschlag auf „Abgelehnt" mit der Fehlermeldung als Zusammenfassung). Status-Dropdown filtert die Liste (inkl. „Wird generiert"). Lädt bei jedem (Wieder-)Betreten automatisch neu.
-
-**Detail:** Alle Felder außer Pfadname/IP-Adresse editierbar, „Speichern" (`PATCH`), ein „Ausführen und schließen"-Button startet den Play-Ablauf (siehe unten), „Ticket löschen" (`DELETE`, kehrt danach zur Liste zurück).
-
-**Ticket ausführen (Play-Button):** Öffnet einen Bestätigungsdialog mit Agenten-Auswahl (Dropdown aus `manifest.agents`, vorausgewählt ist `cl dev`, falls konfiguriert, sonst der erste Agent). Nach Bestätigung wird die `claudeInstruction` des Tickets per `POST /<agent>` an den gewählten Agenten geschickt (Pfad = `ticket.pathName`, kein Model-Override) und die App wechselt zur Status-Detailseite des gestarteten Commands. Erst nach erfolgreichem Start des Commands wird das Ticket per `PATCH` auf Status „Fertig" gesetzt; schlägt nur das Schließen fehl (der Command läuft aber bereits), bleibt das Ticket offen und muss manuell geschlossen werden.
-
-## Feedback
-
-Erreichbar über den „Feedback"-Eintrag im Projekt-Hub – zeigt nur das Feedback des aktuellen Projekts (`GET /feedback/<pathName>`). Welchem Projekt ein Feedback-Eintrag zugeordnet ist, entscheidet der Server automatisch anhand seines `section`-Werts (siehe `../FEATURES.md`, Feedback-System) – die App selbst schickt beim Laden nur den aktuellen Projektnamen mit.
-
-Liste der Feedback-Einträge dieses Projekts, neueste zuerst. Ist ein Eintrag mit einem Abschnitt (z. B. dem Namen einer Datei in `app-getter`) und/oder einem Kontext (Freitext, z. B. APK-Name und Zeitstempel) verknüpft, werden diese unter dem Text angezeigt. Pro Eintrag:
-
-- **Bearbeiten:** Mehrzeiliges Textfeld (Textarea) ersetzt den Text – Feedback darf beliebig lang sein –, „Speichern" (`PATCH /feedback/<id>`).
-- **Löschen:** Bestätigungsdialog, danach `DELETE /feedback/<id>`.
-- **In Ticket umwandeln:** Öffnet einen Dialog mit Projekt-Auswahl (Dropdown aus `manifest.paths`, vorausgewählt ist das aktuelle Projekt, falls es in der Liste vorkommt). Nach Bestätigung wird der Feedback-Text unverändert per `POST /tickets/<pathName>` als neues Ticket angelegt und der Feedback-Eintrag anschließend gelöscht (`DELETE /feedback/<id>`).
-
-Feedback kann aus der App heraus **nicht angelegt** werden – `POST /feedback` ist für externe Absender gedacht (allen voran `app-getter`, siehe dessen `FEATURES.md`, das automatisch einen Abschnitt mitschickt).
-
-## Sammlung
-
-Erreichbar über den „Sammlung"-Eintrag im Projekt-Hub. Ein einzelner Button „Sammeln" löst `cl server`s Collection-Feature nur für das aktuelle Projekt aus (`POST /collect/<pathName>`) – sammelt also alle `config.json`-`collection`-Einträge, deren `path` zum aktuellen Projekt passt. Das Ergebnis (`CollectSummary`) wird als Erfolgs-/Fehler-Banner pro Eintrag angezeigt.
-
-## Statistik
-
-Erreichbar über den „Statistik"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /stats/<pathName>`). Zeigt vier Kennzahlen als einfache Zeilen (Label + Wert):
-
-- **Laufende Agents:** Anzahl aktuell laufender Agenten-Läufe dieses Projekts (keine Pfad-Commands).
-- **Agents (letzte 24 Std.):** Anzahl der Agenten-Läufe dieses Projekts, die innerhalb der letzten 24 Stunden gestartet wurden (festes Zeitfenster, keine Auswahl-UI).
-- **Letzter Debug-Build:** Zeitpunkt der zuletzt geänderten Debug-APK im Projektverzeichnis (Geräte-Zeitzone, `formatTimestamp`), sonst „Kein Build vorhanden".
-- **Letzter Release-Build:** wie oben, für die Release-APK.
-
-Lädt einmalig beim Öffnen (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
-
 ## Goals
 
 Erreichbar über den „Goals"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET /paths/<pathName>/goals`, `POST /paths/<pathName>/goals/<ordner>/<datei>/start`, siehe `../FEATURES.md`, Goals).
 
 Die Liste aktualisiert sich alle 5 Sekunden im Hintergrund, solange der Screen sichtbar ist; der Status „Läuft" verschwindet dadurch von selbst, sobald der Server das Goal nicht mehr als aktiv meldet (Sessions, die nur auf Eingabe warten, zählen nicht als laufend).
 
-Gruppiert nach Goal-Ordner (Titel aus `PLAN.md` falls vorhanden, sonst der Ordnername; darunter „x/y erledigt, z laufende, n startbereit"). Jede Sektion ist einklappbar (Tippen auf den Header) und standardmäßig eingeklappt; nur ausgeklappte Sektionen zeigen ihre Goals. Je Goal eine Karte: ID + Titel, Datum, Beschreibung, eine `AppChip` je Voraussetzung (grün = bereits erledigt/erfüllt, rot = blockiert noch), Status-Pill „Läuft"/„Bereit"/„Blockiert" sowie der vollständige `/goal`-Befehl in Monospace. Drei Aktionen: „Starten" (`AppButton`, deaktiviert solange das Goal blockiert ist, gerade läuft oder ein Start bereits läuft) führt das Goal direkt headless auf dem Server aus und öffnet danach `CommandDetailScreen` mit Live-Output (wie bei Pfad-Commands); „Interaktiv" (ebenso deaktiviert) startet stattdessen eine interaktive Remote-Control-Session mit dem `/goal`-Prompt (Toast „Interaktive Session gestartet"); „Kopieren" (bei laufendem Goal deaktiviert) legt den `/goal`-Befehl in die Zwischenablage. Der Status kommt ausschließlich vom Server und wird dort bei jedem Laden frisch aus den tatsächlich noch vorhandenen Goal-Dateien berechnet – die App selbst führt keine eigene Abhängigkeitslogik. Ohne Goals erscheint ein zweizeiliger Leerzustand; Ladezustand und Fehleranzeige wie bei den übrigen Screens. Lädt beim Öffnen und nach jedem Start neu (kein Live-Polling); nach dem Starten eines Goals aktualisiert sich die Nutzungslimits-Anzeige.
+Gruppiert nach Goal-Ordner (Titel aus `PLAN.md` falls vorhanden, sonst der Ordnername; darunter „x/y erledigt, z laufende, n startbereit"). Jede Sektion ist einklappbar (Tippen auf den Header) und standardmäßig eingeklappt; nur ausgeklappte Sektionen zeigen ihre Goals. Je Goal eine Karte: ID + Titel, Datum, Beschreibung, eine `AppChip` je Voraussetzung (grün = bereits erledigt/erfüllt, rot = blockiert noch), Status-Pill „Läuft"/„Bereit"/„Blockiert" sowie ein einklappbarer „Details“-Bereich (standardmäßig eingeklappt) mit dem vollständigen `/goal`-Prompt in Monospace. Drei Aktionen: „Starten" (`AppButton`, deaktiviert solange das Goal blockiert ist, gerade läuft oder ein Start bereits läuft) führt das Goal direkt headless auf dem Server aus und öffnet danach `CommandDetailScreen` mit Live-Output (wie bei Pfad-Commands); „Interaktiv" (ebenso deaktiviert) startet stattdessen eine interaktive Remote-Control-Session mit dem `/goal`-Prompt (Toast „Interaktive Session gestartet") und dem Modell aus dem Dropdown „Modell für interaktiven Start" oben im Screen (haiku/sonnet/opus/fable, standardmäßig `sonnet`, gilt nur für interaktive Starts; headless Starts nutzen weiterhin das Modell des `main`-Agents); „Kopieren" (bei laufendem Goal deaktiviert) legt den `/goal`-Befehl in die Zwischenablage. Der Status kommt ausschließlich vom Server und wird dort bei jedem Laden frisch aus den tatsächlich noch vorhandenen Goal-Dateien berechnet – die App selbst führt keine eigene Abhängigkeitslogik. Ohne Goals erscheint ein zweizeiliger Leerzustand; Ladezustand und Fehleranzeige wie bei den übrigen Screens. Lädt beim Öffnen und nach jedem Start neu (kein Live-Polling); nach dem Starten eines Goals aktualisiert sich die Nutzungslimits-Anzeige.
 
-## Remote-Sitzungen
-
-Erreichbar über den „Remote-Sitzungen"-Eintrag im Projekt-Hub, immer auf das aktuelle Projekt beschränkt (`GET/POST /paths/<pathName>/remote-sessions`, siehe `../FEATURES.md`, Remote-Control-Sessions).
-
-Oben ein optionales Textfeld für einen Anzeigenamen sowie ein Button „Remote-Control-Sitzung starten": startet direkt auf dem Server per `claude --bg --remote-control` eine neue, von unterwegs per claude.ai/Mobile-App fernsteuerbare Session im Verzeichnis dieses Projekts. Nach erfolgreichem Start zeigt ein Erfolgs-Banner die vergebene Kurz-ID der Session; die Liste darunter lädt automatisch neu.
-
-Darunter die Liste aller aktiven Sessions dieses Projekts (interaktive **und** Hintergrund-Sessions, unabhängig davon, ob sie über die App oder direkt auf der Maschine gestartet wurden): Name, Status-Pill, Typ (Interaktiv bzw. Hintergrund inkl. Kurz-ID) und Startzeitpunkt (Geräte-Zeitzone); wartet eine Session gerade auf eine Rückmeldung (z. B. einen Permission-Prompt), erscheint zusätzlich eine Zeile dazu. Lädt einmalig beim Öffnen und nach jedem Start einer neuen Session neu (kein Live-Polling); Ladezustand und Fehleranzeige wie bei den übrigen Screens.
+**Alle startbereiten Goals starten:** Auf der Projekt-Startseite erscheint – nur wenn das Projekt mindestens ein startbereites, nicht laufendes Goal hat – oberhalb von „Entwicklung" eine große, hervorgehobene Karte „Jetzt alle startbereiten Goals starten" mit Anzahl. Tippen öffnet eine Rückfrage („Alle startbereiten Goals starten?") mit der Zahl der Aufträge und einem Modell-Dropdown (Standard `sonnet`, Auswahl `haiku`/`sonnet`/`opus`/`fable`) und einem optionalen Zahlenfeld „Maximale Anzahl (leer = alle)" (nur Ziffern, leer/0 = unbegrenzt; die angezeigte Zahl folgt dem Limit); Bestätigen startet die ersten n bzw. alle nacheinander headless mit dem gewählten Modell, Abbrechen verwirft. Schlägt ein Start fehl, werden die übrigen trotzdem gestartet und der Fehler im Banner angezeigt. Die Anzahl aktualisiert sich alle 10 s.
 
 ## Scheduler
 
@@ -165,7 +116,7 @@ Projektübergreifende Übersicht aller in `config.json` konfigurierten Scheduler
 
 ## Einstellungen
 
-Theme-Umschalter (System/Hell/Dunkel), Kontexte-Verwaltung (siehe oben), Server-Konfiguration (siehe unten), Token-Kosten, System-Metriken und Alle Scheduler (siehe unten bzw. oben, alle drei projektübergreifend statt im Projekt-Hub), Verbindungsanzeige mit „Verbindung trennen" (löscht Verbindung **und** das gemerkte Projekt, führt zurück zum Setup-Screen).
+Theme-Umschalter (System/Hell/Dunkel), Kontexte-Verwaltung (siehe oben), Server-Konfiguration (siehe unten), Token-Kosten, System-Metriken, Alle Scheduler und Alle Sitzungen (siehe unten bzw. oben, alle vier projektübergreifend statt im Projekt-Hub), Verbindungsanzeige mit „Verbindung trennen" (löscht Verbindung **und** das gemerkte Projekt, führt zurück zum Setup-Screen).
 
 ## Server-Konfiguration (Einstellungen)
 
@@ -178,6 +129,12 @@ Unter Einstellungen → Server-Konfiguration lässt sich die auf `cl server` lau
 ## Token-Kosten (Einstellungen)
 
 Erreichbar über Einstellungen → Token-Kosten – im Gegensatz zu fast allen anderen Bereichen **nicht** auf das aktuelle Projekt beschränkt, sondern projektübergreifend über alle Projekte hinweg (`GET /costs`). Oben eine Karte mit den Gesamtsummen: Gesamtkosten in USD (vier Nachkommastellen) sowie Input-, Output-, Cache-Erstellungs- und Cache-Lese-Tokens (mit Tausendertrennzeichen). Darunter eine Karte pro Projekt, sortiert nach dessen Kosten absteigend – Kopfzeile mit Projektname und Projektkosten, darunter je Kosteneintrag eine Zeile mit Zeitstempel und Kosten (neueste zuerst); Tippen auf einen Eintrag öffnet dieselbe Status-Detailseite wie „Befehle"/„Entwicklung"/„Verlauf". Ein Projektname kann in seltenen Fällen ein reiner Anzeigetext statt eines aktuell konfigurierten Projekts sein (wenn der zugehörige Projekteintrag später umbenannt oder entfernt wurde) – Tippen funktioniert trotzdem unverändert. Ohne jegliche Kosten (noch keine Agenten-/Scheduler-Läufe) zeigt die Seite den Hinweis „Noch keine Kosten erfasst.". Lädt einmalig beim Öffnen, ein Button „Aktualisieren" lädt erneut; ein Fehler bei „Aktualisieren" lässt die zuletzt geladenen Daten unverändert stehen.
+
+## Alle Sitzungen (Einstellungen)
+
+Erreichbar über Einstellungen → „Alle Sitzungen" – projektübergreifend, zeigt alle auf dem Server laufenden Claude-Code-Sitzungen (`GET /remote-sessions`, siehe `../FEATURES.md`). Pro Sitzung eine Karte mit Name, Status-Pill, Arbeitsverzeichnis, Typ (Interaktiv bzw. Hintergrund mit Kurz-ID), Startzeitpunkt und ggf. „Wartet auf: …". Die Status-Pill zeigt die Aktivität: „Arbeitet" (blau), „Wartet auf Antwort" (Warnfarbe) oder „Fertig" (grün). Sortierung: wartende zuerst, dann arbeitende, dann fertige, innerhalb einer Gruppe neueste zuerst. Über der Liste eine Zusammenfassung („x laufend · y arbeiten · z warten · n fertig"). Die Liste aktualisiert sich alle 3 Sekunden, solange der Screen sichtbar ist (Poll-Fehler bleiben still, der letzte Stand bleibt stehen).
+
+Jede Karte hat einen Button „Prozess beenden" (Error/Tonal): Tippen öffnet eine Bestätigung („Prozess beenden?"), erst danach ruft die App `POST /remote-sessions/<sessionId>/kill` auf und lädt die Liste neu. Während eines Beendens sind alle Beenden-Buttons gesperrt; Fehler erscheinen als Banner.
 
 ## System-Metriken (Einstellungen)
 

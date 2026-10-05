@@ -220,18 +220,6 @@ class ClServerApi @Inject constructor(
         return execute(request)
     }
 
-    suspend fun getStats(pathName: String, hours: Int? = null): ProjectStats {
-        val session = requireSession()
-        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
-            .addPathSegment("stats").addPathSegment(pathName)
-        if (hours != null) urlBuilder.addQueryParameter("hours", hours.toString())
-        val request = Request.Builder()
-            .url(urlBuilder.build())
-            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
-            .get()
-        return execute(request)
-    }
-
     suspend fun getUsage(): List<UsageLimit> = authedGet<UsageResponse>("usage").limits
 
     suspend fun getCosts(): CostOverview = authedGet("costs")
@@ -264,20 +252,31 @@ class ClServerApi @Inject constructor(
     suspend fun getGoals(pathName: String): List<GoalListGroup> =
         authedGet<GoalListsResponse>("paths", pathName, "goals").goalLists
 
-    suspend fun startGoal(pathName: String, folder: String, fileName: String): CommandAccepted =
-        authedPost("", "paths", pathName, "goals", folder, fileName, "start")
-
-    suspend fun startGoalInteractive(pathName: String, folder: String, fileName: String): RemoteSessionStart =
+    suspend fun startGoal(pathName: String, folder: String, fileName: String, model: String? = null): CommandAccepted =
         authedPost(
-            json.encodeToString(GoalStartRequest(interactive = true)),
+            if (model == null) "" else json.encodeToString(GoalStartRequest(interactive = false, model = model)),
             "paths", pathName, "goals", folder, fileName, "start",
         )
 
-    suspend fun getRemoteSessions(pathName: String): List<RemoteAgentSession> =
-        authedGet<RemoteSessionList>("paths", pathName, "remote-sessions").sessions
+    suspend fun startGoalInteractive(
+        pathName: String,
+        folder: String,
+        fileName: String,
+        model: String? = null,
+    ): RemoteSessionStart =
+        authedPost(
+            json.encodeToString(GoalStartRequest(interactive = true, model = model)),
+            "paths", pathName, "goals", folder, fileName, "start",
+        )
 
-    suspend fun startRemoteSession(pathName: String, name: String? = null): RemoteSessionStart =
-        authedPost(json.encodeToString(RemoteSessionCreateRequest(name)), "paths", pathName, "remote-sessions")
+    suspend fun getAllSessions(): List<ActiveSession> =
+        authedGet<ActiveSessionList>("remote-sessions").sessions
+
+    suspend fun killSession(sessionId: String): KillSessionResponse =
+        authedPost("", "remote-sessions", sessionId, "kill")
+
+    suspend fun startRemoteSession(pathName: String, name: String? = null, model: String? = null): RemoteSessionStart =
+        authedPost(json.encodeToString(RemoteSessionCreateRequest(name, model)), "paths", pathName, "remote-sessions")
 
     suspend fun listHostedFiles(pathName: String, hostedName: String): FileList =
         authedGet("files", pathName, hostedName)
@@ -296,60 +295,6 @@ class ClServerApi @Inject constructor(
         destinationDir: File,
         onProgress: (DownloadProgress) -> Unit = {},
     ): File = downloadTo(destinationDir, fileName, onProgress, "files", pathName, hostedName, fileName)
-
-    suspend fun listTickets(pathName: String, status: String? = null): TicketList {
-        val session = requireSession()
-        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
-            .addPathSegment("tickets").addPathSegment(pathName)
-        if (status != null) urlBuilder.addQueryParameter("status", status)
-        val request = Request.Builder()
-            .url(urlBuilder.build())
-            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
-            .get()
-        return execute(request)
-    }
-
-    suspend fun listAllTickets(status: String? = null): TicketList {
-        val session = requireSession()
-        val urlBuilder = urlBuilder(session.connection.host, session.connection.port)
-            .addPathSegment("tickets")
-        if (status != null) urlBuilder.addQueryParameter("status", status)
-        val request = Request.Builder()
-            .url(urlBuilder.build())
-            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
-            .get()
-        return execute(request)
-    }
-
-    suspend fun createTicket(pathName: String, text: String): Ticket {
-        val session = requireSession()
-        val request = Request.Builder()
-            .url(
-                urlBuilder(session.connection.host, session.connection.port)
-                    .addPathSegment("tickets").addPathSegment(pathName).build(),
-            )
-            .header(AUTHORIZATION_HEADER, "Bearer ${session.auth?.token}")
-            .post(json.encodeToString(TicketCreateRequest(text)).toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        return execute(request)
-    }
-
-    suspend fun getTicket(pathName: String, id: Int): Ticket = authedGet("tickets", pathName, id.toString())
-
-    suspend fun collect(pathName: String): CollectSummary = authedPost("", "collect", pathName)
-
-    suspend fun getFeedback(pathName: String): FeedbackList = authedGet("feedback", pathName)
-
-    suspend fun updateFeedback(id: Int, text: String): FeedbackEntry =
-        authedPatch(json.encodeToString(FeedbackPatchRequest(text)), "feedback", id.toString())
-
-    suspend fun deleteFeedback(id: Int): MessageResponse = authedDelete("feedback", id.toString())
-
-    suspend fun updateTicket(pathName: String, id: Int, patch: TicketPatchRequest): Ticket =
-        authedPatch(json.encodeToString(patch), "tickets", pathName, id.toString())
-
-    suspend fun deleteTicket(pathName: String, id: Int): MessageResponse =
-        authedDelete("tickets", pathName, id.toString())
 
     suspend fun getConfig(): JsonElement = authedGet("config")
 

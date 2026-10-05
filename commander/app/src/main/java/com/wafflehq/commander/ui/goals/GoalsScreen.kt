@@ -26,7 +26,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
@@ -39,6 +42,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.wafflehq.commander.R
+import com.wafflehq.commander.data.api.CLAUDE_MODELS
 import com.wafflehq.commander.data.api.GoalEntry
 import com.wafflehq.commander.data.api.GoalListGroup
 import com.wafflehq.commander.data.api.doneCount
@@ -55,6 +59,7 @@ import com.wafflehq.commander.ui.components.AppStatusPill
 import com.wafflehq.commander.ui.components.ButtonVariant
 import com.wafflehq.commander.ui.components.CardVariant
 import com.wafflehq.commander.ui.components.ChipVariant
+import com.wafflehq.commander.ui.components.SettingsDropdownField
 import com.wafflehq.commander.ui.components.SettingsScaffold
 import com.wafflehq.commander.ui.navigation.hiltViewModel
 import com.wafflehq.commander.ui.theme.AppRadius
@@ -115,6 +120,14 @@ fun GoalsScreen(
                 .padding(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.lg),
         ) {
+            SettingsDropdownField(
+                label = stringResource(R.string.goals_interactive_model_label),
+                value = state.interactiveModel,
+                options = CLAUDE_MODELS,
+                selectedIndex = CLAUDE_MODELS.indexOf(state.interactiveModel),
+                onSelect = { index -> viewModel.onInteractiveModelSelected(CLAUDE_MODELS[index]) },
+            )
+
             val error = state.error
             if (error != null) {
                 AppBanner(title = stringResource(R.string.setup_error_title), body = error, role = AppRole.Error)
@@ -274,16 +287,39 @@ private fun GoalCard(
                 }
             }
 
-            Text(
-                text = goal.command,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = GeistMono),
-                color = AppTheme.colors.onSurface,
-                maxLines = 6,
+            var detailsExpanded by rememberSaveable(goal.fileName) { mutableStateOf(false) }
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(AppTheme.colors.surfaceVariant, RoundedCornerShape(AppRadius.card))
-                    .padding(AppSpacing.md),
-            )
+                    .clickable { detailsExpanded = !detailsExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+            ) {
+                Text(
+                    text = stringResource(R.string.goals_details),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTheme.colors.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = if (detailsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = stringResource(
+                        if (detailsExpanded) R.string.goals_collapse else R.string.goals_expand,
+                    ),
+                    tint = AppTheme.colors.onSurfaceVariant,
+                )
+            }
+            if (detailsExpanded) {
+                Text(
+                    text = goal.command,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = GeistMono),
+                    color = AppTheme.colors.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AppTheme.colors.surfaceVariant, RoundedCornerShape(AppRadius.card))
+                        .padding(AppSpacing.md),
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

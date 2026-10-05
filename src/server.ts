@@ -110,7 +110,15 @@ import {
   SCHEDULER_TRIGGER_PROMPT,
 } from './launch.js';
 import { isLocalNetworkAddress } from './network.js';
-import { isProcessAlive, isSessionActive, listRemoteSessions, startRemoteSession } from './remote-session.js';
+import {
+  isProcessAlive,
+  isSessionActive,
+  isSessionRunning,
+  killRemoteSession,
+  listRemoteSessions,
+  sessionActivity,
+  startRemoteSession,
+} from './remote-session.js';
 import { startSchedulers, type SchedulerRegistry } from './scheduler.js';
 import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
@@ -1310,9 +1318,28 @@ function isInteractiveGoalRunning(
   return sessionId !== undefined && activeSessionIds.has(sessionId);
 }
 
-function parseGoalStartBody(bodyText: string): boolean {
+const REMOTE_SESSION_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._[\]-]*$/;
+
+function parseRemoteSessionModel(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !REMOTE_SESSION_MODEL_PATTERN.test(value)) {
+    throw new Error(
+      'Feld "model" muss ein Modellname (Buchstaben, Ziffern, ".", "-", "_", "[", "]") sein, falls angegeben.',
+    );
+  }
+  return value;
+}
+
+interface GoalStartBody {
+  interactive: boolean;
+  model?: string | undefined;
+}
+
+function parseGoalStartBody(bodyText: string): GoalStartBody {
   if (bodyText.trim().length === 0) {
-    return false;
+    return { interactive: false };
   }
   let parsed: unknown;
   try {
@@ -1323,11 +1350,11 @@ function parseGoalStartBody(bodyText: string): boolean {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('Body muss ein JSON-Objekt sein.');
   }
-  const interactive = (parsed as Record<string, unknown>).interactive;
-  if (interactive !== undefined && typeof interactive !== 'boolean') {
+  const record = parsed as Record<string, unknown>;
+  if (record.interactive !== undefined && typeof record.interactive !== 'boolean') {
     throw new Error('Feld "interactive" muss ein Boolean sein, falls angegeben.');
   }
-  return interactive === true;
+  return { interactive: record.interactive === true, model: parseRemoteSessionModel(record.model) };
 }
 
 function goalAgentName(pathName: string, folder: string, fileName: string): string {
@@ -1351,9 +1378,9 @@ async function handlePostGoalStart(
     return;
   }
 
-  let interactive: boolean;
+  let goalStart: GoalStartBody;
   try {
-    interactive = parseGoalStartBody(bodyText);
+    goalStart = parseGoalStartBody(bodyText);
   } catch (error) {
     sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
     return;
@@ -1378,23 +1405,28 @@ async function handlePostGoalStart(
     return;
   }
 
-  if (interactive) {
+  if (goalStart.interactive) {
     if (isInteractiveGoalRunning(db, agent, await listActiveSessionIds(pathEntry.path))) {
       sendJson(res, 409, { error: 'Goal laeuft bereits.' });
       return;
     }
-    const session = await startRemoteSession(pathEntry.path, agent, found.entry.command);
+    const session = await startRemoteSession(pathEntry.path, {
+      name: agent,
+      prompt: found.entry.command,
+      model: goalStart.model,
+    });
     setGoalSessionId(db, agent, session.id);
     sendJson(res, 201, session);
     return;
   }
 
   const mainAgent = resolveAgentFrom(config, undefined);
+  const headlessModel = goalStart.model ?? mainAgent.model;
   const id = randomUUID();
   insertCommand(db, {
     id,
     agent,
-    model: mainAgent.model,
+    model: headlessModel,
     command: found.entry.command,
     path: pathEntry.path,
   });
@@ -1403,7 +1435,7 @@ async function handlePostGoalStart(
   const outputPublisher = createOutputPublisher(db, id);
   runHeadlessCommand(
     buildSystemPrompt(mainAgent),
-    mainAgent.model,
+    headlessModel,
     found.entry.command,
     pathEntry.path,
     (output) => {
@@ -1458,8 +1490,29 @@ async function handleGetRemoteSessions(
   sendJson(res, 200, { sessions });
 }
 
+async function handleGetAllRemoteSessions(res: ServerResponse): Promise<void> {
+  const sessions = await listRemoteSessions();
+  sendJson(res, 200, {
+    sessions: sessions
+      .filter((session) => isSessionRunning(session))
+      .map((session) => ({ ...session, activity: sessionActivity(session) })),
+  });
+}
+
+async function handleKillRemoteSession(res: ServerResponse, sessionId: string): Promise<void> {
+  const sessions = await listRemoteSessions();
+  const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+  if (session === undefined) {
+    sendJson(res, 404, { error: `Keine Session mit der ID "${sessionId}" gefunden.` });
+    return;
+  }
+  await killRemoteSession(session);
+  sendJson(res, 200, { killed: true });
+}
+
 interface RemoteSessionCreateBody {
   name?: string;
+  model?: string;
 }
 
 function parseRemoteSessionCreateBody(raw: unknown): RemoteSessionCreateBody {
@@ -1473,6 +1526,10 @@ function parseRemoteSessionCreateBody(raw: unknown): RemoteSessionCreateBody {
   const body: RemoteSessionCreateBody = {};
   if (typeof record.name === 'string') {
     body.name = record.name;
+  }
+  const model = parseRemoteSessionModel(record.model);
+  if (model !== undefined) {
+    body.model = model;
   }
   return body;
 }
@@ -1507,7 +1564,7 @@ async function handlePostRemoteSession(
     return;
   }
 
-  const session = await startRemoteSession(pathEntry.path, body.name);
+  const session = await startRemoteSession(pathEntry.path, body);
   sendJson(res, 201, session);
 }
 
@@ -2664,6 +2721,15 @@ async function handleRequest(
     ) {
       bodyText = await readRequestBody(req);
       await handlePostRemoteSession(config, res, segments[1] ?? '', bodyText);
+    } else if (method === 'GET' && segments.length === 1 && segments[0] === 'remote-sessions') {
+      await handleGetAllRemoteSessions(res);
+    } else if (
+      method === 'POST' &&
+      segments.length === 3 &&
+      segments[0] === 'remote-sessions' &&
+      segments[2] === 'kill'
+    ) {
+      await handleKillRemoteSession(res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 2 && segments[0] === 'files') {
       handleGetHostedNames(config, res, segments[1] ?? '');
     } else if (method === 'GET' && segments.length === 3 && segments[0] === 'files') {
@@ -2819,6 +2885,8 @@ function printEndpoints(config: Config, port: number): void {
   console.log(
     `  POST ${base}/paths/:pathName/remote-sessions (startet eine "claude --bg --remote-control"-Session)`,
   );
+  console.log(`  GET  ${base}/remote-sessions (alle laufenden Claude-Code-Sessions inkl. Aktivitaet)`);
+  console.log(`  POST ${base}/remote-sessions/:sessionId/kill (beendet den Prozess einer Session)`);
   console.log(`  GET  ${base}/files/:pathName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName`);
   console.log(`  GET  ${base}/files/:pathName/:hostedName/:fileName`);

@@ -1,5 +1,6 @@
 package com.wafflehq.commander.ui.components
 
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,6 +26,7 @@ fun AppTextField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     minLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     val t = AppTheme.tokens.textField
     val r = t.forRole(role)
@@ -38,6 +40,7 @@ fun AppTextField(
         isError = isError,
         singleLine = false,
         minLines = minLines,
+        keyboardOptions = keyboardOptions,
         shape = RoundedCornerShape(AppRadius.textField),
         colors = TextFieldDefaults.colors(
             focusedContainerColor   = r.background,

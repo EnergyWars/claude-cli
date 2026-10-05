@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wafflehq.commander.data.api.ApiException
 import com.wafflehq.commander.data.api.ClServerApi
+import com.wafflehq.commander.data.api.DEFAULT_REMOTE_SESSION_MODEL
 import com.wafflehq.commander.data.api.GoalListGroup
 import com.wafflehq.commander.data.usage.UsageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,6 +29,7 @@ data class GoalsUiState(
     val startedCommandId: String? = null,
     val startedSessionId: String? = null,
     val expandedFolders: Set<String> = emptySet(),
+    val interactiveModel: String = DEFAULT_REMOTE_SESSION_MODEL,
 )
 
 @HiltViewModel
@@ -65,6 +67,10 @@ class GoalsViewModel @Inject constructor(
         }
     }
 
+    fun onInteractiveModelSelected(model: String) {
+        _uiState.update { it.copy(interactiveModel = model) }
+    }
+
     fun startGoal(folder: String, fileName: String, interactive: Boolean = false) {
         val key = goalKey(folder, fileName)
         if (_uiState.value.startingKey != null) return
@@ -73,7 +79,7 @@ class GoalsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (interactive) {
-                    val session = api.startGoalInteractive(pathName, folder, fileName)
+                    val session = api.startGoalInteractive(pathName, folder, fileName, _uiState.value.interactiveModel)
                     _uiState.update { it.copy(startingKey = null, startedSessionId = session.id) }
                 } else {
                     val accepted = api.startGoal(pathName, folder, fileName)

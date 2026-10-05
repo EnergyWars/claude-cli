@@ -298,39 +298,6 @@ class ClServerApiTest {
     }
 
     @Test
-    fun `getStats without hours requests the plain path and parses the response`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"runningAgents":2,"agentsInWindow":5,"windowHours":24,"lastDebugBuildAt":"2026-02-01T08:00:00.000Z","lastReleaseBuildAt":null}""",
-            ),
-        )
-
-        val result = apiWithConnection().getStats("myapp")
-
-        assertEquals(2, result.runningAgents)
-        assertEquals(5, result.agentsInWindow)
-        assertEquals(24.0, result.windowHours, 0.0)
-        assertEquals("2026-02-01T08:00:00.000Z", result.lastDebugBuildAt)
-        assertNull(result.lastReleaseBuildAt)
-        val recorded = server.takeRequest()
-        assertEquals("/stats/myapp", recorded.target)
-    }
-
-    @Test
-    fun `getStats with hours appends the hours query parameter`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"runningAgents":0,"agentsInWindow":0,"windowHours":6,"lastDebugBuildAt":null,"lastReleaseBuildAt":null}""",
-            ),
-        )
-
-        apiWithConnection().getStats("myapp", hours = 6)
-
-        val recorded = server.takeRequest()
-        assertEquals("/stats/myapp?hours=6", recorded.target)
-    }
-
-    @Test
     fun `getUsage requests the plain path and parses the limits`() = runBlocking {
         server.enqueue(
             MockResponse(
@@ -384,209 +351,6 @@ class ClServerApiTest {
         assertEquals(24.0, result.windowHours, 0.0)
         val recorded = server.takeRequest()
         assertEquals("/system-metrics", recorded.target)
-    }
-
-    @Test
-    fun `listTickets without status requests the plain path and parses the ticket list`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"tickets":[{"id":1,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}]}""",
-            ),
-        )
-
-        val result = apiWithConnection().listTickets("myapp")
-
-        assertEquals(1, result.tickets.size)
-        assertEquals("open", result.tickets.first().status)
-        val recorded = server.takeRequest()
-        assertEquals("/tickets/myapp", recorded.target)
-    }
-
-    @Test
-    fun `listTickets with status appends the status query parameter`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"tickets":[]}"""))
-
-        apiWithConnection().listTickets("myapp", status = "open")
-
-        val recorded = server.takeRequest()
-        assertEquals("/tickets/myapp?status=open", recorded.target)
-    }
-
-    @Test
-    fun `listAllTickets requests the global tickets path`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"tickets":[{"id":1,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}]}""",
-            ),
-        )
-
-        val result = apiWithConnection().listAllTickets()
-
-        assertEquals(1, result.tickets.size)
-        val recorded = server.takeRequest()
-        assertEquals("/tickets", recorded.target)
-    }
-
-    @Test
-    fun `listAllTickets with status appends the status query parameter`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"tickets":[]}"""))
-
-        apiWithConnection().listAllTickets(status = "rejected")
-
-        val recorded = server.takeRequest()
-        assertEquals("/tickets?status=rejected", recorded.target)
-    }
-
-    @Test
-    fun `createTicket posts the text and parses the created ticket`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                code = 201,
-                body = """{"id":1,"pathName":"myapp","originalRequest":"ein neues Feature","summary":"","claudeInstruction":"","category":"","status":"generating","ipAddress":"192.168.1.5","createdAt":"c","updatedAt":"u"}""",
-            ),
-        )
-
-        val result = apiWithConnection().createTicket("myapp", "ein neues Feature")
-
-        assertEquals(1, result.id)
-        assertEquals("192.168.1.5", result.ipAddress)
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertEquals("/tickets/myapp", recorded.target)
-        assertTrue(recorded.body?.utf8().orEmpty().contains("\"text\":\"ein neues Feature\""))
-    }
-
-    @Test
-    fun `getTicket requests the ticket by id`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"id":42,"pathName":"myapp","originalRequest":"r","summary":"s","claudeInstruction":"i","category":"c","status":"open","createdAt":"c","updatedAt":"u"}""",
-            ),
-        )
-
-        val result = apiWithConnection().getTicket("myapp", 42)
-
-        assertEquals(42, result.id)
-        assertEquals(null, result.ipAddress)
-        val recorded = server.takeRequest()
-        assertEquals("/tickets/myapp/42", recorded.target)
-    }
-
-    @Test
-    fun `updateTicket sends a PATCH request with only the provided fields`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"id":1,"pathName":"myapp","originalRequest":"r","summary":"Neu","claudeInstruction":"i","category":"c","status":"done","createdAt":"c","updatedAt":"u"}""",
-            ),
-        )
-
-        val result = apiWithConnection().updateTicket(
-            "myapp",
-            1,
-            TicketPatchRequest(summary = "Neu", status = TICKET_STATUS_DONE),
-        )
-
-        assertEquals("Neu", result.summary)
-        assertEquals(TICKET_STATUS_DONE, result.status)
-        val recorded = server.takeRequest()
-        assertEquals("PATCH", recorded.method)
-        assertEquals("/tickets/myapp/1", recorded.target)
-        val body = recorded.body?.utf8().orEmpty()
-        assertTrue(body.contains("\"summary\":\"Neu\""))
-        assertTrue(body.contains("\"status\":\"done\""))
-        assertFalse(body.contains("claudeInstruction"))
-    }
-
-    @Test
-    fun `deleteTicket sends a DELETE request`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"message":"Ticket \"1\" wurde geloescht."}"""))
-
-        val result = apiWithConnection().deleteTicket("myapp", 1)
-
-        assertTrue(result.message.isNotEmpty())
-        val recorded = server.takeRequest()
-        assertEquals("DELETE", recorded.method)
-        assertEquals("/tickets/myapp/1", recorded.target)
-    }
-
-    @Test
-    fun `collect posts to the path-scoped endpoint`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"results":[],"errors":[]}"""))
-
-        val result = apiWithConnection().collect("myapp")
-
-        assertTrue(result.results.isEmpty())
-        assertTrue(result.errors.isEmpty())
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertEquals("/collect/myapp", recorded.target)
-    }
-
-    @Test
-    fun `getFeedback lists feedback entries for a path`() = runBlocking {
-        server.enqueue(
-            MockResponse(body = """{"feedback":[{"id":1,"text":"Bitte Dark Mode.","createdAt":"c","updatedAt":"c"}]}"""),
-        )
-
-        val result = apiWithConnection().getFeedback("myapp")
-
-        assertEquals(1, result.feedback.size)
-        assertEquals("Bitte Dark Mode.", result.feedback.first().text)
-        assertEquals(null, result.feedback.first().section)
-        val recorded = server.takeRequest()
-        assertEquals("/feedback/myapp", recorded.target)
-    }
-
-    @Test
-    fun `getFeedback exposes the section an entry was sent from`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","createdAt":"c","updatedAt":"c"}]}""",
-            ),
-        )
-
-        val result = apiWithConnection().getFeedback("myapp")
-
-        assertEquals("periodical-debug", result.feedback.first().section)
-    }
-
-    @Test
-    fun `getFeedback exposes the context and path of an entry`() = runBlocking {
-        server.enqueue(
-            MockResponse(
-                body = """{"feedback":[{"id":1,"text":"Absturz","section":"periodical-debug","context":"periodical-debug.apk (2026-08-26T10:00:00.000Z)","path":"myapp","createdAt":"c","updatedAt":"c"}]}""",
-            ),
-        )
-
-        val result = apiWithConnection().getFeedback("myapp")
-
-        assertEquals("periodical-debug.apk (2026-08-26T10:00:00.000Z)", result.feedback.first().context)
-        assertEquals("myapp", result.feedback.first().path)
-    }
-
-    @Test
-    fun `updateFeedback sends a PATCH request with the new text`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"id":1,"text":"Neu","createdAt":"c","updatedAt":"u"}"""))
-
-        val result = apiWithConnection().updateFeedback(1, "Neu")
-
-        assertEquals("Neu", result.text)
-        val recorded = server.takeRequest()
-        assertEquals("PATCH", recorded.method)
-        assertEquals("/feedback/1", recorded.target)
-        assertTrue(recorded.body?.utf8().orEmpty().contains("\"text\":\"Neu\""))
-    }
-
-    @Test
-    fun `deleteFeedback sends a DELETE request`() = runBlocking {
-        server.enqueue(MockResponse(body = """{"message":"Feedback \"1\" wurde geloescht."}"""))
-
-        val result = apiWithConnection().deleteFeedback(1)
-
-        assertTrue(result.message.isNotEmpty())
-        val recorded = server.takeRequest()
-        assertEquals("DELETE", recorded.method)
-        assertEquals("/feedback/1", recorded.target)
     }
 
     @Test
@@ -749,22 +513,48 @@ class ClServerApiTest {
     }
 
     @Test
-    fun `getRemoteSessions requests the path-scoped endpoint and parses the sessions`() = runBlocking {
+    fun `getAllSessions requests the global endpoint and parses the activity`() = runBlocking {
         server.enqueue(
             MockResponse(
-                body = """{"sessions":[{"pid":123,"cwd":"/home/user/myapp","kind":"interactive","startedAt":1700000000000,"sessionId":"a1b2c3","name":"myapp-a1","status":"idle"},{"pid":456,"id":"1771997d","cwd":"/home/user/myapp","kind":"background","startedAt":1700000100000,"sessionId":"1771997d-e1ab-4ed7-9d04-79696f05ec1d","name":"1771997d","status":"idle","state":"blocked"}]}""",
+                body = """{"sessions":[{"pid":123,"cwd":"/a","kind":"interactive","startedAt":1700000000000,"sessionId":"s1","name":"a","state":"working","activity":"working"},{"pid":456,"id":"1771997d","cwd":"/b","kind":"background","startedAt":1700000100000,"sessionId":"s2","name":"b","waitingFor":"permission","activity":"waiting"},{"cwd":"/c","kind":"interactive","startedAt":1700000200000,"sessionId":"s3","name":"c","activity":"idle"},{"cwd":"/d","kind":"interactive","startedAt":1700000300000,"sessionId":"s4","name":"d","activity":"something-new"}]}""",
             ),
         )
 
-        val result = apiWithConnection().getRemoteSessions("myapp")
+        val result = apiWithConnection().getAllSessions()
 
-        assertEquals(2, result.size)
-        assertEquals("myapp-a1", result[0].name)
+        assertEquals(
+            listOf(SessionActivity.Working, SessionActivity.Waiting, SessionActivity.Idle, SessionActivity.Idle),
+            result.map { it.sessionActivity() },
+        )
         assertFalse(result[0].isBackground())
-        assertEquals("1771997d", result[1].id)
         assertTrue(result[1].isBackground())
+        assertEquals("permission", result[1].waitingFor)
+        assertNull(result[2].pid)
+        assertEquals("/remote-sessions", server.takeRequest().target)
+    }
+
+    @Test
+    fun `killSession posts to remote-sessions slash id slash kill`() = runBlocking {
+        server.enqueue(MockResponse(body = """{"killed":true}"""))
+
+        val result = apiWithConnection().killSession("s1")
+
+        assertTrue(result.killed)
         val recorded = server.takeRequest()
-        assertEquals("/paths/myapp/remote-sessions", recorded.target)
+        assertEquals("/remote-sessions/s1/kill", recorded.target)
+        assertEquals("POST", recorded.method)
+    }
+
+    @Test
+    fun `killSession surfaces a server error`() = runBlocking {
+        server.enqueue(MockResponse(code = 404, body = """{"error":"Keine Session mit der ID \"x\" gefunden."}"""))
+
+        try {
+            apiWithConnection().killSession("x")
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals(404, error.httpCode)
+        }
     }
 
     @Test
@@ -831,6 +621,17 @@ class ClServerApiTest {
     }
 
     @Test
+    fun `startGoal posts the given model with interactive false`() = runBlocking {
+        server.enqueue(MockResponse(code = 202, body = """{"id":"cmd-1"}"""))
+
+        apiWithConnection().startGoal("myapp", "2026-09-27-feature", "G01-erstes.md", "sonnet")
+
+        val body = server.takeRequest().body?.utf8().orEmpty()
+        assertTrue(body.contains("\"interactive\":false"))
+        assertTrue(body.contains("\"model\":\"sonnet\""))
+    }
+
+    @Test
     fun `startGoalInteractive posts interactive true to the start endpoint`() = runBlocking {
         server.enqueue(MockResponse(code = 201, body = """{"id":"abc123f9","output":"backgrounded"}"""))
 
@@ -853,7 +654,7 @@ class ClServerApiTest {
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         assertEquals("/paths/myapp/remote-sessions", recorded.target)
-        assertTrue(recorded.body?.utf8().orEmpty().contains("\"name\":null"))
+        assertEquals("{}", recorded.body?.utf8())
     }
 
     @Test
@@ -864,6 +665,27 @@ class ClServerApiTest {
 
         val recorded = server.takeRequest()
         assertTrue(recorded.body?.utf8().orEmpty().contains("\"name\":\"mein-name\""))
+    }
+
+    @Test
+    fun `startRemoteSession posts the given model`() = runBlocking {
+        server.enqueue(MockResponse(code = 201, body = """{"id":"xyz98765","output":"backgrounded"}"""))
+
+        apiWithConnection().startRemoteSession("myapp", model = "sonnet")
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.body?.utf8().orEmpty().contains("\"model\":\"sonnet\""))
+    }
+
+    @Test
+    fun `startGoalInteractive posts the given model`() = runBlocking {
+        server.enqueue(MockResponse(code = 201, body = """{"id":"abc123f9","output":"backgrounded"}"""))
+
+        apiWithConnection().startGoalInteractive("myapp", "2026-09-27-feature", "G01-erstes.md", "opus")
+
+        val body = server.takeRequest().body?.utf8().orEmpty()
+        assertTrue(body.contains("\"interactive\":true"))
+        assertTrue(body.contains("\"model\":\"opus\""))
     }
 
     @Test

@@ -22,20 +22,18 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.wafflehq.commander.ui.agents.AgentsScreen
-import com.wafflehq.commander.ui.collect.CollectScreen
 import com.wafflehq.commander.ui.command.CommandDetailScreen
 import com.wafflehq.commander.ui.commands.CommandsScreen
+import com.wafflehq.commander.ui.allsessions.AllSessionsScreen
 import com.wafflehq.commander.ui.costs.TokenCostsScreen
 import com.wafflehq.commander.ui.downloads.DownloadHistoryScreen
 import com.wafflehq.commander.ui.downloads.DownloadsScreen
-import com.wafflehq.commander.ui.feedback.FeedbackListScreen
 import com.wafflehq.commander.ui.history.HistoryScreen
 import com.wafflehq.commander.ui.login.LoginScreen
 import com.wafflehq.commander.ui.metrics.SystemMetricsScreen
 import com.wafflehq.commander.ui.projecthome.ProjectHomeScreen
 import com.wafflehq.commander.ui.projectselect.ProjectSelectScreen
 import com.wafflehq.commander.ui.goals.GoalsScreen
-import com.wafflehq.commander.ui.remotesessions.RemoteSessionsScreen
 import com.wafflehq.commander.ui.run.RunAgentScreen
 import com.wafflehq.commander.ui.schedulers.AllSchedulersScreen
 import com.wafflehq.commander.ui.schedulers.SchedulerDetailScreen
@@ -48,10 +46,7 @@ import com.wafflehq.commander.ui.settings.config.ConfigVersionsScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextEditScreen
 import com.wafflehq.commander.ui.settings.contexts.ContextsScreen
 import com.wafflehq.commander.ui.setup.SetupScreen
-import com.wafflehq.commander.ui.stats.StatsScreen
 import com.wafflehq.commander.ui.theme.AppTheme
-import com.wafflehq.commander.ui.tickets.TicketDetailScreen
-import com.wafflehq.commander.ui.tickets.TicketListScreen
 
 object Routes {
     const val SETUP = "setup"
@@ -64,17 +59,11 @@ object Routes {
     const val AGENTS = "agents/{pathName}"
     const val AGENT_RUN = "agent_run/{pathName}/{agentCommand}?prefillPrompt={prefillPrompt}"
     const val COMMAND_DETAIL = "command_detail/{id}?pathName={pathName}"
-    const val TICKETS = "tickets/{pathName}"
-    const val TICKET_DETAIL = "tickets/{pathName}/{id}"
     const val HISTORY = "history/{pathName}"
-    const val STATS = "stats/{pathName}"
-    const val REMOTE_SESSIONS = "remote_sessions/{pathName}"
     const val GOALS = "goals/{pathName}"
     const val SCHEDULERS = "schedulers/{pathName}"
     const val ALL_SCHEDULERS = "all_schedulers"
     const val SCHEDULER_DETAIL = "scheduler_detail/{kind}/{name}"
-    const val FEEDBACK = "feedback/{pathName}"
-    const val COLLECT = "collect/{pathName}"
     const val SETTINGS = "settings"
     const val SETTINGS_DISPLAY = "settings_display"
     const val SETTINGS_CONTEXTS = "settings_contexts"
@@ -84,6 +73,7 @@ object Routes {
     const val SETTINGS_CONFIG_VERSIONS = "settings_config/versions"
     const val TOKEN_COSTS = "token_costs"
     const val SYSTEM_METRICS = "system_metrics"
+    const val ALL_SESSIONS = "all_sessions"
 
     fun commands(pathName: String): String = "commands/${Uri.encode(pathName)}"
 
@@ -103,15 +93,7 @@ object Routes {
         return "command_detail/${Uri.encode(id)}$query"
     }
 
-    fun tickets(pathName: String): String = "tickets/${Uri.encode(pathName)}"
-
-    fun ticketDetail(pathName: String, id: Int): String = "tickets/${Uri.encode(pathName)}/$id"
-
     fun history(pathName: String): String = "history/${Uri.encode(pathName)}"
-
-    fun stats(pathName: String): String = "stats/${Uri.encode(pathName)}"
-
-    fun remoteSessions(pathName: String): String = "remote_sessions/${Uri.encode(pathName)}"
 
     fun goals(pathName: String): String = "goals/${Uri.encode(pathName)}"
 
@@ -119,10 +101,6 @@ object Routes {
 
     fun schedulerDetail(name: String, kind: SchedulerKind): String =
         "scheduler_detail/${kind.name}/${Uri.encode(name)}"
-
-    fun feedback(pathName: String): String = "feedback/${Uri.encode(pathName)}"
-
-    fun collect(pathName: String): String = "collect/${Uri.encode(pathName)}"
 
     fun settingsContextEdit(id: Long): String = "settings_contexts/edit/$id"
 }
@@ -206,14 +184,10 @@ fun AppNavHost() {
                 onOpenCommands = { pathName -> navController.navigate(Routes.commands(pathName)) },
                 onOpenDownloads = { pathName -> navController.navigate(Routes.downloads(pathName)) },
                 onOpenAgents = { pathName -> navController.navigate(Routes.agents(pathName)) },
-                onOpenTickets = { pathName -> navController.navigate(Routes.tickets(pathName)) },
                 onOpenHistory = { pathName -> navController.navigate(Routes.history(pathName)) },
-                onOpenFeedback = { pathName -> navController.navigate(Routes.feedback(pathName)) },
-                onOpenCollect = { pathName -> navController.navigate(Routes.collect(pathName)) },
-                onOpenStats = { pathName -> navController.navigate(Routes.stats(pathName)) },
-                onOpenRemoteSessions = { pathName -> navController.navigate(Routes.remoteSessions(pathName)) },
                 onOpenGoals = { pathName -> navController.navigate(Routes.goals(pathName)) },
                 onOpenSchedulers = { pathName -> navController.navigate(Routes.schedulers(pathName)) },
+                onCommandStarted = { commandId, pathName -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
                 onOpenSettings = openSettings,
             )
         }
@@ -276,28 +250,6 @@ fun AppNavHost() {
             CommandDetailScreen(onBack = { navController.popBackStack() })
         }
         composable(
-            route = Routes.TICKETS,
-            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            TicketListScreen(
-                onBack = { navController.popBackStack() },
-                onOpenTicket = { pathName, id -> navController.navigate(Routes.ticketDetail(pathName, id)) },
-            )
-        }
-        composable(
-            route = Routes.TICKET_DETAIL,
-            arguments = listOf(
-                navArgument("pathName") { type = NavType.StringType },
-                navArgument("id") { type = NavType.IntType },
-            ),
-        ) { entry ->
-            val pathName = checkNotNull(entry.arguments?.getString("pathName"))
-            TicketDetailScreen(
-                onBack = { navController.popBackStack() },
-                onCommandStarted = { commandId -> navController.navigate(Routes.commandDetail(commandId, pathName)) },
-            )
-        }
-        composable(
             route = Routes.HISTORY,
             arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
         ) { entry ->
@@ -309,18 +261,6 @@ fun AppNavHost() {
                     navController.navigate(Routes.agentRun(pathName, agentCommand, prompt))
                 },
             )
-        }
-        composable(
-            route = Routes.STATS,
-            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            StatsScreen(onBack = { navController.popBackStack() })
-        }
-        composable(
-            route = Routes.REMOTE_SESSIONS,
-            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            RemoteSessionsScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = Routes.GOALS,
@@ -357,18 +297,6 @@ fun AppNavHost() {
         ) {
             SchedulerDetailScreen(onBack = { navController.popBackStack() })
         }
-        composable(
-            route = Routes.FEEDBACK,
-            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            FeedbackListScreen(onBack = { navController.popBackStack() })
-        }
-        composable(
-            route = Routes.COLLECT,
-            arguments = listOf(navArgument("pathName") { type = NavType.StringType }),
-        ) {
-            CollectScreen(onBack = { navController.popBackStack() })
-        }
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
@@ -378,6 +306,7 @@ fun AppNavHost() {
                 onOpenTokenCosts = { navController.navigate(Routes.TOKEN_COSTS) },
                 onOpenSystemMetrics = { navController.navigate(Routes.SYSTEM_METRICS) },
                 onOpenAllSchedulers = { navController.navigate(Routes.ALL_SCHEDULERS) },
+                onOpenAllSessions = { navController.navigate(Routes.ALL_SESSIONS) },
                 onDisconnected = { navController.navigate(Routes.SETUP) { popUpTo(0) } },
             )
         }
@@ -408,6 +337,9 @@ fun AppNavHost() {
         }
         composable(Routes.SETTINGS_CONFIG_VERSIONS) {
             ConfigVersionsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.ALL_SESSIONS) {
+            AllSessionsScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.TOKEN_COSTS) {
             TokenCostsScreen(

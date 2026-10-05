@@ -2075,6 +2075,30 @@ test('POST /paths/paged/goals/:folder/:fileName/start: startet ein "ready" Goal 
   }
 });
 
+test('POST /paths/paged/goals/:folder/:fileName/start: headless uebernimmt "model" aus dem Body', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-headless-model');
+  mkdirSync(goalsDir, { recursive: true });
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const res = await fetch(`${baseUrl()}/paths/paged/goals/2026-09-29-headless-model/G01-erstes.md/start`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ model: 'sonnet' }),
+    });
+    assert.equal(res.status, 202);
+    const { id } = (await res.json()) as { id: string };
+
+    await sleep(300);
+
+    const stateRes = await fetch(`${baseUrl()}/state/${id}`, { headers: authHeaders() });
+    const state = (await stateRes.json()) as { model: string };
+    assert.equal(state.model, 'sonnet');
+  } finally {
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
 test('POST /paths/paged/goals/:folder/:fileName/start: 409 wenn eine Voraussetzung noch nicht erfuellt ist', async () => {
   const goalsDir = join(pagedDir, 'goals', '2026-09-29-blocked');
   mkdirSync(goalsDir, { recursive: true });
@@ -2166,6 +2190,48 @@ test('POST /paths/paged/goals/:folder/:fileName/start: interactive=true startet 
   }
 });
 
+test('POST /paths/paged/goals/:folder/:fileName/start: interactive=true uebergibt "model" als "--model"', async () => {
+  const goalsDir = join(pagedDir, 'goals', '2026-09-29-interactive-model');
+  mkdirSync(goalsDir, { recursive: true });
+  const logFile = join(mkdtempSync(join(tmpdir(), 'cl-goal-interactive-log-')), 'args.log');
+  const mock = createMockClaude({
+    outputChunks: ['backgrounded · goal5678 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  try {
+    writeFileSync(join(goalsDir, 'G01-erstes.md'), goalFrontmatter('G01', 'Erstes', ''));
+
+    const res = await fetch(
+      `${baseUrl()}/paths/paged/goals/2026-09-29-interactive-model/G01-erstes.md/start`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ interactive: true, model: 'sonnet' }),
+      },
+    );
+    assert.equal(res.status, 201);
+
+    const args = readFileSync(logFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[])
+      .find((logged) => logged[0] === '--bg');
+    assert.deepEqual(args?.slice(0, 4), [
+      '--bg',
+      '--remote-control=goal:paged:2026-09-29-interactive-model/G01-erstes.md',
+      '--model',
+      'sonnet',
+    ]);
+  } finally {
+    process.env.PATH = previous;
+    mock.cleanup();
+    rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
+  }
+});
+
 test('POST /paths/paged/goals/:folder/:fileName/start: interactive=true liefert 409, wenn die Session schon laeuft', async () => {
   const goalsDir = join(pagedDir, 'goals', '2026-09-29-interactive-running');
   mkdirSync(goalsDir, { recursive: true });
@@ -2213,6 +2279,18 @@ test('POST /paths/paged/goals/:folder/:fileName/start: 400 bei ungueltigem Body'
       body: JSON.stringify({ interactive: 'ja' }),
     });
     assert.equal(wrongType.status, 400);
+    const flagModel = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ interactive: true, model: '--dangerously-skip-permissions' }),
+    });
+    assert.equal(flagModel.status, 400);
+    const numericModel = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ interactive: true, model: 42 }),
+    });
+    assert.equal(numericModel.status, 400);
   } finally {
     rmSync(join(pagedDir, 'goals'), { recursive: true, force: true });
   }
@@ -2356,6 +2434,49 @@ test('POST /paths/default/remote-sessions: uebergibt "name" als "--remote-contro
     await server.close();
     process.env.PATH = previous;
     startMock.cleanup();
+  }
+});
+
+test('POST /paths/default/remote-sessions: uebergibt "model" als "--model <model>"', async () => {
+  const logFile = join(mkdtempSync(join(tmpdir(), 'cl-remote-session-log-')), 'args.log');
+  const startMock = createMockClaude({
+    outputChunks: ['backgrounded · xyz98765 (idle — send a prompt to start)\n'],
+    exitCode: 0,
+    logFile,
+  });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(startMock.binDir);
+  const server = startServer(0);
+  try {
+    await server.ready;
+    const res = await fetch(
+      `http://localhost:${server.port.toString()}/paths/default/remote-sessions`,
+      {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ name: 'mein-name', model: 'claude-sonnet-5-5[1m]' }),
+      },
+    );
+    assert.equal(res.status, 201);
+    const args = JSON.parse(
+      readFileSync(logFile, 'utf8').trim().split('\n')[0] ?? '[]',
+    ) as string[];
+    assert.deepEqual(args, ['--bg', '--remote-control=mein-name', '--model', 'claude-sonnet-5-5[1m]']);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    startMock.cleanup();
+  }
+});
+
+test('POST /paths/default/remote-sessions: 400 bei ungueltigem "model"', async () => {
+  for (const model of [42, '', '-p', 'sonnet; rm -rf /']) {
+    const res = await fetch(`${baseUrl()}/paths/default/remote-sessions`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ model }),
+    });
+    assert.equal(res.status, 400);
   }
 });
 
@@ -3527,4 +3648,104 @@ test('Script-Scheduler: PUT /config mit geleertem "scriptSchedulers"-Array beend
       process.env.CL_ROOT_DIR = previousRoot;
     }
   }
+});
+
+async function withMockedSessions<T>(
+  sessions: unknown[],
+  run: (port: number) => Promise<T>,
+  mockOptions: { exitCode?: number } = {},
+): Promise<T> {
+  const mock = createMockClaude({ rawOutput: JSON.stringify(sessions), exitCode: mockOptions.exitCode ?? 0 });
+  const previous = process.env.PATH;
+  process.env.PATH = pathWithMock(mock.binDir);
+  const server = startServer(0);
+  try {
+    await server.ready;
+    return await run(server.port);
+  } finally {
+    await server.close();
+    process.env.PATH = previous;
+    mock.cleanup();
+  }
+}
+
+test('GET /remote-sessions: liefert nur laufende Sessions samt Aktivitaet', async () => {
+  const sessions = [
+    { pid: process.pid, cwd: '/a', kind: 'interactive', startedAt: 1, sessionId: 'working-1', name: 'a', state: 'working' },
+    { pid: process.pid, cwd: '/b', kind: 'interactive', startedAt: 2, sessionId: 'waiting-1', name: 'b', waitingFor: 'permission' },
+    { pid: process.pid, cwd: '/c', kind: 'interactive', startedAt: 3, sessionId: 'idle-1', name: 'c', status: 'idle' },
+    { pid: 2_147_483_646, cwd: '/d', kind: 'interactive', startedAt: 4, sessionId: 'dead-1', name: 'd', status: 'idle' },
+    { id: 'abcd1234', cwd: '/e', kind: 'background', startedAt: 5, sessionId: 'gone-1', name: 'e', status: 'stopped' },
+  ];
+  await withMockedSessions(sessions, async (port) => {
+    const res = await fetch(`http://localhost:${port.toString()}/remote-sessions`, { headers: authHeaders() });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { sessions: { sessionId: string; activity: string }[] };
+    assert.deepEqual(
+      body.sessions.map((session) => [session.sessionId, session.activity]),
+      [
+        ['working-1', 'working'],
+        ['waiting-1', 'waiting'],
+        ['idle-1', 'idle'],
+      ],
+    );
+  });
+});
+
+test('GET /remote-sessions: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/remote-sessions`);
+  assert.equal(res.status, 401);
+});
+
+test('GET /remote-sessions: 500 wenn "claude agents --json" fehlschlaegt', async () => {
+  await withMockedSessions(
+    [],
+    async (port) => {
+      const res = await fetch(`http://localhost:${port.toString()}/remote-sessions`, { headers: authHeaders() });
+      assert.equal(res.status, 500);
+    },
+    { exitCode: 1 },
+  );
+});
+
+test('POST /remote-sessions/:id/kill: beendet den Prozess der Session', async () => {
+  const child = spawn('sleep', ['60'], { stdio: 'ignore' });
+  const exited = new Promise<NodeJS.Signals | null>((resolve) => {
+    child.on('exit', (_code, signal) => {
+      resolve(signal);
+    });
+  });
+  const pid = child.pid;
+  assert.ok(pid !== undefined);
+  const sessions = [
+    { pid, cwd: '/a', kind: 'interactive', startedAt: 1, sessionId: 'kill-me', name: 'a', state: 'working' },
+  ];
+  try {
+    await withMockedSessions(sessions, async (port) => {
+      const res = await fetch(`http://localhost:${port.toString()}/remote-sessions/kill-me/kill`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), { killed: true });
+    });
+    assert.equal(await exited, 'SIGTERM');
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
+test('POST /remote-sessions/:id/kill: 404 bei unbekannter Session', async () => {
+  await withMockedSessions([], async (port) => {
+    const res = await fetch(`http://localhost:${port.toString()}/remote-sessions/unknown/kill`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /remote-sessions/:id/kill: 401 ohne Authorization-Header', async () => {
+  const res = await fetch(`${baseUrl()}/remote-sessions/x/kill`, { method: 'POST' });
+  assert.equal(res.status, 401);
 });

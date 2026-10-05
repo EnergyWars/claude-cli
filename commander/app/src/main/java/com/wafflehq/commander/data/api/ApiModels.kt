@@ -56,15 +56,6 @@ data class CommandList(
 )
 
 @Serializable
-data class ProjectStats(
-    val runningAgents: Int,
-    val agentsInWindow: Int,
-    val windowHours: Double,
-    val lastDebugBuildAt: String? = null,
-    val lastReleaseBuildAt: String? = null,
-)
-
-@Serializable
 data class CostEntry(
     val id: String,
     val createdAt: String,
@@ -210,73 +201,6 @@ data class ScriptSchedulerOverviewList(val scriptSchedulers: List<ScriptSchedule
 const val HOSTED_TYPE_FILE = "file"
 const val HOSTED_TYPE_PATH = "path"
 
-const val TICKET_STATUS_GENERATING = "generating"
-const val TICKET_STATUS_OPEN = "open"
-const val TICKET_STATUS_IN_PROGRESS = "in progress"
-const val TICKET_STATUS_DONE = "done"
-const val TICKET_STATUS_REJECTED = "rejected"
-
-@Serializable
-data class Ticket(
-    val id: Int,
-    val pathName: String,
-    val originalRequest: String,
-    val summary: String,
-    val claudeInstruction: String,
-    val category: String,
-    val status: String,
-    val ipAddress: String? = null,
-    val createdAt: String,
-    val updatedAt: String,
-)
-
-@Serializable
-data class TicketList(val tickets: List<Ticket>)
-
-@Serializable
-data class TicketCreateRequest(val text: String)
-
-@Serializable
-data class TicketPatchRequest(
-    val originalRequest: String? = null,
-    val summary: String? = null,
-    val claudeInstruction: String? = null,
-    val category: String? = null,
-    val status: String? = null,
-)
-
-@Serializable
-data class CollectedFile(val name: String, val timestamp: String)
-
-@Serializable
-data class CollectionList(val files: List<CollectedFile>)
-
-@Serializable
-data class CollectResultEntry(val targetName: String, val fileName: String, val status: String)
-
-@Serializable
-data class CollectErrorEntry(val targetName: String, val error: String)
-
-@Serializable
-data class CollectSummary(val results: List<CollectResultEntry>, val errors: List<CollectErrorEntry>)
-
-@Serializable
-data class FeedbackEntry(
-    val id: Int,
-    val text: String,
-    val section: String? = null,
-    val context: String? = null,
-    val path: String? = null,
-    val createdAt: String,
-    val updatedAt: String,
-)
-
-@Serializable
-data class FeedbackList(val feedback: List<FeedbackEntry>)
-
-@Serializable
-data class FeedbackPatchRequest(val text: String)
-
 @Serializable
 data class ConfigVersionSummary(val id: Int, val createdAt: String)
 
@@ -293,13 +217,13 @@ data class ConfigPointerResponse(val versionId: Int? = null)
 data class ConfigPointerUpdateResponse(val versionId: Int? = null, val config: JsonElement, val warning: String? = null)
 
 @Serializable
-data class RemoteSessionCreateRequest(val name: String? = null)
+data class RemoteSessionCreateRequest(val name: String? = null, val model: String? = null)
 
 @Serializable
 data class RemoteSessionStart(val id: String, val output: String)
 
 @Serializable
-data class RemoteAgentSession(
+data class ActiveSession(
     val pid: Long? = null,
     val id: String? = null,
     val cwd: String,
@@ -310,10 +234,16 @@ data class RemoteAgentSession(
     val status: String? = null,
     val waitingFor: String? = null,
     val state: String? = null,
+    val activity: String,
 )
 
 @Serializable
-data class RemoteSessionList(val sessions: List<RemoteAgentSession>)
+data class ActiveSessionList(val sessions: List<ActiveSession>)
+
+@Serializable
+data class KillSessionResponse(val killed: Boolean)
+
+enum class SessionActivity { Waiting, Working, Idle }
 
 @Serializable
 data class GoalEntry(
@@ -342,7 +272,7 @@ data class GoalListGroup(
 )
 
 @Serializable
-data class GoalStartRequest(val interactive: Boolean)
+data class GoalStartRequest(val interactive: Boolean, val model: String? = null)
 
 /** Goals of this folder that have been completed (and thereby deleted themselves); never negative, even for servers that omit `totalCount`. */
 fun GoalListGroup.doneCount(): Int = (totalCount - goals.size).coerceAtLeast(0)
@@ -365,7 +295,13 @@ fun GoalEntry.isReady(): Boolean = status == GOAL_STATUS_READY
 private const val REMOTE_SESSION_KIND_BACKGROUND = "background"
 
 /** True for `--bg`-started sessions, which carry a short `id` usable with `claude attach/logs/stop/rm`. */
-fun RemoteAgentSession.isBackground(): Boolean = kind == REMOTE_SESSION_KIND_BACKGROUND
+fun ActiveSession.isBackground(): Boolean = kind == REMOTE_SESSION_KIND_BACKGROUND
+
+fun ActiveSession.sessionActivity(): SessionActivity = when (activity) {
+    "working" -> SessionActivity.Working
+    "waiting" -> SessionActivity.Waiting
+    else -> SessionActivity.Idle
+}
 
 /** Derives the agent name cl server expects in `POST /<agent>` from a manifest `command` like "cl" or "cl dev". */
 fun ManifestAgent.agentNameOrNull(): String? = command.removePrefix("cl").trim().ifEmpty { null }

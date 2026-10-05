@@ -1,11 +1,14 @@
 package com.wafflehq.commander.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.wafflehq.commander.ui.theme.AppRadius
 import com.wafflehq.commander.ui.theme.AppRole
+import com.wafflehq.commander.ui.theme.AppSpacing
 import com.wafflehq.commander.ui.theme.AppTheme
 
 @Composable
@@ -17,6 +20,7 @@ fun AppConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     confirmRole: AppRole = AppRole.Error,
+    content: (@Composable () -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -25,7 +29,12 @@ fun AppConfirmDialog(
         titleContentColor = AppTheme.tokens.surface.onSurface,
         textContentColor = AppTheme.tokens.surface.onSurface,
         title = { Text(title) },
-        text = { Text(body) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.lg)) {
+                Text(body)
+                content?.invoke()
+            }
+        },
         confirmButton = {
             AppButton(
                 text = confirmText,

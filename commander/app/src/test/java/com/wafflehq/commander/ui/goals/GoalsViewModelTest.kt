@@ -235,7 +235,7 @@ class GoalsViewModelTest {
             val running = listOf(group("2026-09-29-feature", goal("G01", "G01-erstes.md", running = true)))
             val api = mockk<ClServerApi> {
                 coEvery { getGoals("myapp") } returnsMany listOf(emptyList(), running)
-                coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md") } returns
+                coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md", "sonnet") } returns
                     RemoteSessionStart(id = "sess-1", output = "backgrounded")
             }
             val usageRepository = fakeUsageRepository()
@@ -253,10 +253,29 @@ class GoalsViewModelTest {
         }
 
     @Test
+    fun `interactive start uses sonnet by default and the selected model afterwards`() = runTest(dispatcher) {
+        val api = mockk<ClServerApi> {
+            coEvery { getGoals("myapp") } returns emptyList()
+            coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md", "haiku") } returns
+                RemoteSessionStart(id = "sess-2", output = "")
+        }
+        val viewModel = viewModel(api)
+        assertEquals("sonnet", viewModel.uiState.value.interactiveModel)
+
+        viewModel.onInteractiveModelSelected("haiku")
+        viewModel.startGoal("2026-09-29-feature", "G01-erstes.md", interactive = true)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("haiku", viewModel.uiState.value.interactiveModel)
+        assertEquals("sess-2", viewModel.uiState.value.startedSessionId)
+        coVerify { api.startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md", "haiku") }
+    }
+
+    @Test
     fun `interactive startGoal reports the server error`() = runTest(dispatcher) {
         val api = mockk<ClServerApi> {
             coEvery { getGoals("myapp") } returns emptyList()
-            coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md") } throws
+            coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md", "sonnet") } throws
                 ApiException(409, "Goal laeuft bereits.")
         }
         val viewModel = viewModel(api)
@@ -318,7 +337,7 @@ class GoalsViewModelTest {
     fun `consumeStartedSession clears the started session id`() = runTest(dispatcher) {
         val api = mockk<ClServerApi> {
             coEvery { getGoals("myapp") } returns emptyList()
-            coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md") } returns
+            coEvery { startGoalInteractive("myapp", "2026-09-29-feature", "G01-erstes.md", "sonnet") } returns
                 RemoteSessionStart(id = "sess-1", output = "")
         }
         val viewModel = viewModel(api)

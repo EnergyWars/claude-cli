@@ -934,7 +934,7 @@
     "/paths/{pathName}/goals/{folder}/{fileName}/start": {
       "post": {
         "summary": "Startet ein einzelnes Goal headless oder als interaktive Remote-Session",
-        "description": "Fuehrt den in der Goal-Datei hinterlegten /goal-Prompt headless aus (wie POST /, mit dem main-Agent aus config.json), sofern das Goal \"ready\" ist und nicht bereits laeuft. Mit Body {\"interactive\": true} wird stattdessen eine interaktive Remote-Control-Session (claude --bg --remote-control=<agent> -- <prompt>) im Pfad gestartet und mit 201 (RemoteSessionStart) beantwortet; der Sitzungsname entspricht dem agent-Wert. Headless antwortet sofort mit 202, Status/Output ueber GET /state/{id} bzw. GET /state/{id}/stream, abbrechbar ueber POST /state/{id}/stop. Der Command wird im Verlauf mit agent = \"goal:<pathName>:<folder>/<fileName>\" gefuehrt (wie path-command:/hook:/script-scheduler:-Praefixe von der Agenten-Statistik ausgeschlossen) - dieser Wert dient serverseitig auch als Sperre gegen doppeltes gleichzeitiges Starten desselben Goals.",
+        "description": "Fuehrt den in der Goal-Datei hinterlegten /goal-Prompt headless aus (wie POST /, mit dem main-Agent aus config.json), sofern das Goal \"ready\" ist und nicht bereits laeuft. Mit Body {\"interactive\": true} wird stattdessen eine interaktive Remote-Control-Session (claude --bg --remote-control=<agent> [--model <model>] -- <prompt>) im Pfad gestartet und mit 201 (RemoteSessionStart) beantwortet; der Sitzungsname entspricht dem agent-Wert. Headless antwortet sofort mit 202, Status/Output ueber GET /state/{id} bzw. GET /state/{id}/stream, abbrechbar ueber POST /state/{id}/stop. Der Command wird im Verlauf mit agent = \"goal:<pathName>:<folder>/<fileName>\" gefuehrt (wie path-command:/hook:/script-scheduler:-Praefixe von der Agenten-Statistik ausgeschlossen) - dieser Wert dient serverseitig auch als Sperre gegen doppeltes gleichzeitiges Starten desselben Goals.",
         "operationId": "startGoal",
         "requestBody": {
           "required": false,
@@ -943,7 +943,8 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "interactive": { "type": "boolean", "description": "true startet eine interaktive Remote-Control-Session statt eines headless Commands (Standard: false)." }
+                  "interactive": { "type": "boolean", "description": "true startet eine interaktive Remote-Control-Session statt eines headless Commands (Standard: false)." },
+                  "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]*$", "description": "Modell des Goals (claude --model <model>), z. B. sonnet. Interaktiv ohne Angabe: Standardmodell von Claude Code; headless ohne Angabe: Modell des main-Agents." }
                 }
               }
             }
@@ -1055,7 +1056,7 @@
       },
       "post": {
         "summary": "Startet eine neue Claude-Code-Session mit aktiviertem Remote Control",
-        "description": "Ruft \"claude --bg --remote-control[=name]\" im Dateisystem-Verzeichnis des Pfad-Eintrags auf und liefert die Kurz-ID der neu gestarteten Hintergrund-Session, sobald der Aufruf zurueckkehrt (synchron, kein Polling noetig).",
+        "description": "Ruft \"claude --bg --remote-control[=name] [--model <model>]\" im Dateisystem-Verzeichnis des Pfad-Eintrags auf und liefert die Kurz-ID der neu gestarteten Hintergrund-Session, sobald der Aufruf zurueckkehrt (synchron, kein Polling noetig).",
         "operationId": "startRemoteSession",
         "parameters": [
           {
@@ -1103,6 +1104,83 @@
           },
           "500": {
             "description": "\"claude --bg --remote-control\" ist fehlgeschlagen oder die Session-ID konnte nicht aus der Ausgabe gelesen werden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/remote-sessions": {
+      "get": {
+        "summary": "Listet alle laufenden Claude-Code-Sessions ueber alle Verzeichnisse hinweg",
+        "description": "Ruft \"claude agents --json\" ohne cwd-Filter auf und liefert nur Sessions, deren Prozess noch laeuft (PID lebt bzw. bei Sessions ohne PID ein nicht beendeter Status). Jede Session traegt zusaetzlich das berechnete Feld activity: \"working\" (arbeitet), \"waiting\" (wartet auf eine Antwort/Freigabe) oder \"idle\" (fertig, Leerlauf).",
+        "operationId": "listAllRemoteSessions",
+        "responses": {
+          "200": {
+            "description": "Laufende Sessions.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ActiveSessionList" }
+              }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "\"claude agents --json\" ist fehlgeschlagen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/remote-sessions/{sessionId}/kill": {
+      "post": {
+        "summary": "Beendet den Prozess einer laufenden Claude-Code-Session",
+        "description": "Sucht die Session anhand von sessionId in \"claude agents --json\". Hintergrund-Sessions mit Kurz-ID werden ueber \"claude stop <id>\" beendet, alle anderen per SIGTERM an die von claude gemeldete PID. Es werden nie vom Client gelieferte PIDs beendet.",
+        "operationId": "killRemoteSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "description": "sessionId aus GET /remote-sessions.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Der Prozess wurde beendet bzw. war bereits beendet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["killed"],
+                  "properties": { "killed": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Header Authorization: Bearer <jwt> fehlt oder ist ungueltig/abgelaufen.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "404": {
+            "description": "Keine Session mit dieser sessionId gefunden.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "500": {
+            "description": "Beenden fehlgeschlagen (z. B. \"claude stop\" mit Fehler-Exit-Code oder keine gueltige PID).",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -2613,6 +2691,11 @@
           "name": {
             "type": "string",
             "description": "Optionaler Anzeigename der Remote-Control-Pairing (nicht die Session-ID/den Session-Namen aus \"claude agents --json\")."
+          },
+          "model": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]*$",
+            "description": "Optionales Modell der Session (claude --model <model>), z. B. sonnet. Ohne Angabe gilt das Standardmodell von Claude Code."
           }
         },
         "additionalProperties": false
@@ -2720,6 +2803,33 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/GoalListSummary" },
             "description": "Absteigend nach Ordnername sortiert (neueste Goal-Liste zuerst)."
+          }
+        }
+      },
+      "ActiveRemoteSession": {
+        "allOf": [
+          { "$ref": "#/components/schemas/RemoteAgentSession" },
+          {
+            "type": "object",
+            "required": ["activity"],
+            "properties": {
+              "pid": { "type": "integer" },
+              "activity": {
+                "type": "string",
+                "enum": ["working", "waiting", "idle"],
+                "description": "working = arbeitet, waiting = wartet auf Antwort/Freigabe, idle = fertig/Leerlauf."
+              }
+            }
+          }
+        ]
+      },
+      "ActiveSessionList": {
+        "type": "object",
+        "required": ["sessions"],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ActiveRemoteSession" }
           }
         }
       },

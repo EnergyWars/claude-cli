@@ -162,6 +162,19 @@ private fun UsageLimitRow(limit: UsageLimit) {
                     AppTheme.colors.onSurfaceVariant
                 },
             )
+            Text(
+                text = if (pace.exhaustionAt != null) {
+                    stringResource(R.string.usage_banner_exhaustion, formatUsageExhaustion(pace.exhaustionAt))
+                } else {
+                    stringResource(R.string.usage_banner_exhaustion_safe)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (pace.exhaustionAt != null) {
+                    AppTheme.colors.forRole(AppRole.Warning).accent
+                } else {
+                    AppTheme.colors.onSurfaceVariant
+                },
+            )
         }
     }
 }
