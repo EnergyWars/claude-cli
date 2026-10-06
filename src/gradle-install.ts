@@ -22,12 +22,13 @@ const FIX_AGENT_SYSTEM_PROMPT =
   'Warnings enthaltenden Gradle-Builds. Behebe die Ursache im Code, sodass ein erneuter ' +
   'Gradle-Build fehlerfrei und ohne Warnings durchlaeuft.';
 
+const GRADLE_DEPRECATION_FOOTER_PATTERN =
+  /^(Deprecated Gradle features were used|You can use '--warning-mode all'|For more on this, please refer to https:\/\/docs\.gradle\.org\/.*command_line_warnings).*$/;
+
 function hasWarnings(output: string): boolean {
-  if (/warning/i.test(output)) {
-    return true;
-  }
+  const lines = output.split('\n').filter((line) => !GRADLE_DEPRECATION_FOOTER_PATTERN.test(line.trim()));
   // Kotlinc emits "w: <file>: <message>" per line instead of the word "warning".
-  return output.split('\n').some((line) => /^\s*w:\s/.test(line));
+  return lines.some((line) => /warning/i.test(line) || /^\s*w:\s/.test(line));
 }
 
 function isOnPath(executable: string): boolean {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -464,6 +464,34 @@ test('buildAndInstall: startet den Fix-Agent auch bei erfolgreichem Build mit Wa
     assert.ok(invokedArgs.some((arg) => arg.includes('unused variable bar')));
 
     assert.equal(readGradlewCallCount(cwd), 2);
+  } finally {
+    process.env.PATH = previousPath;
+    claude.cleanup();
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: ignoriert den Gradle-Deprecation-Footer und startet keinen Fix-Agent', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-footer-'));
+  const footer = [
+    'Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.',
+    "You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.",
+    'For more on this, please refer to https://docs.gradle.org/9.8.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.',
+  ].join('\n');
+  writeFakeGradlew(cwd, {
+    buildType: 'debug',
+    steps: [{ exitCode: 0, stdout: footer, createApk: true }],
+  });
+  const claudeLogFile = join(cwd, 'claude.log');
+  const claude = createMockClaude({ exitCode: 0, logFile: claudeLogFile });
+  const adb = createMockAdb({ devicesOutput: 'List of devices attached\n\n' });
+  const previousPath = process.env.PATH;
+  process.env.PATH = [claude.binDir, adb.binDir, previousPath ?? ''].join(delimiter);
+  try {
+    await buildAndInstall('debug', cwd);
+    assert.equal(existsSync(claudeLogFile), false);
+    assert.equal(readGradlewCallCount(cwd), 1);
   } finally {
     process.env.PATH = previousPath;
     claude.cleanup();
