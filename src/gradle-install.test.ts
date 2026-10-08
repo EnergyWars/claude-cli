@@ -6,6 +6,8 @@ import { test } from 'node:test';
 
 import {
   buildAndInstall,
+  connectionPriority,
+  dedupeDevices,
   findApk,
   findLatestBuildTimestamp,
   formatInstallSummary,
@@ -632,6 +634,58 @@ test('runUnitTests: bricht nach 10 Durchlaeufen ab, wenn die Tests weiterhin feh
   } finally {
     process.env.PATH = previousPath;
     claude.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('connectionPriority: USB vor WLAN-IP vor mDNS', () => {
+  assert.equal(connectionPriority('ABC123'), 0);
+  assert.equal(connectionPriority('192.168.1.5:5555'), 1);
+  assert.equal(connectionPriority('adb-XYZ-abc._adb-tls-connect._tcp'), 2);
+});
+
+test('dedupeDevices: behaelt pro Hardware-ID den Eintrag mit bester Verbindung', () => {
+  const result = dedupeDevices([
+    { serial: '192.168.1.5:5555', hardwareId: 'HW1' },
+    { serial: 'adb-HW1-abc._adb-tls-connect._tcp', hardwareId: 'HW1' },
+    { serial: 'HW1', hardwareId: 'HW1' },
+    { serial: 'OTHER', hardwareId: 'HW2' },
+  ]);
+  assert.deepEqual(
+    result.map((device) => device.serial),
+    ['HW1', 'OTHER'],
+  );
+});
+
+test('dedupeDevices: leere Liste bleibt leer', () => {
+  assert.deepEqual(dedupeDevices([]), []);
+});
+
+test('buildAndInstall: installiert dasselbe physische Geraet nur einmal', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-build-install-dedupe-'));
+  writeFakeGradlew(cwd, { buildType: 'debug', steps: [{ exitCode: 0, createApk: true }] });
+  const adb = createMockAdb({
+    devicesOutput:
+      'List of devices attached\n192.168.1.5:5555\tdevice\nHW1\tdevice\nadb-HW1-abc._adb-tls-connect._tcp\tdevice\n\n',
+    deviceNames: { 'HW1': 'Pixel 7', '192.168.1.5:5555': 'Pixel 7', 'adb-HW1-abc._adb-tls-connect._tcp': 'Pixel 7' },
+    hardwareIds: { 'HW1': 'HW1', '192.168.1.5:5555': 'HW1', 'adb-HW1-abc._adb-tls-connect._tcp': 'HW1' },
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = pathWithMockAdb(adb.binDir);
+  const originalLog = console.log;
+  console.log = () => undefined;
+  try {
+    await buildAndInstall('debug', cwd);
+    const installs = readFileSync(adb.logFile, 'utf8')
+      .trim()
+      .split('\n')
+      .filter((line) => line.includes(' install '));
+    assert.equal(installs.length, 1);
+    assert.ok(installs[0]?.startsWith('-s HW1 install'));
+  } finally {
+    console.log = originalLog;
+    process.env.PATH = previousPath;
+    adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });
   }
 });

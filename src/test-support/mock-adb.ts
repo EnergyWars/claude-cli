@@ -6,6 +6,7 @@ export interface MockAdbOptions {
   devicesOutput?: string;
   failSerials?: string[];
   deviceNames?: Record<string, string>;
+  hardwareIds?: Record<string, string>;
   connectOutput?: string;
   mdnsOutput?: string;
 }
@@ -25,6 +26,7 @@ export function createMockAdb(options: MockAdbOptions = {}): MockAdb {
     devicesOutput = 'List of devices attached\n\n',
     failSerials = [],
     deviceNames = {},
+    hardwareIds = {},
     connectOutput = '',
     mdnsOutput = '',
   } = options;
@@ -47,6 +49,14 @@ fi
 if [ "$1" = "mdns" ]; then
   echo ${shellQuote(mdnsOutput)}
   exit 0
+fi
+if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "getprop" ] && [ "$5" = "ro.serialno" ]; then
+  case "$2" in
+${Object.entries(hardwareIds)
+  .map(([serial, id]) => `    ${shellQuote(serial)}) echo ${shellQuote(id)}; exit 0 ;;`)
+  .join('\n')}
+    *) exit 1 ;;
+  esac
 fi
 if [ "$1" = "-s" ] && [ "$3" = "shell" ] && [ "$4" = "getprop" ]; then
   case "$2" in

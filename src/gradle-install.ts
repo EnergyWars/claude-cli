@@ -211,21 +211,41 @@ function listAdbDevices(adbExecutable: string): Promise<string[]> {
   });
 }
 
-function readDeviceName(adbExecutable: string, serial: string): Promise<string> {
+function readDeviceProp(adbExecutable: string, serial: string, prop: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn(adbExecutable, ['-s', serial, 'shell', 'getprop', 'ro.product.model']);
+    const child = spawn(adbExecutable, ['-s', serial, 'shell', 'getprop', prop]);
     let output = '';
     child.stdout.on('data', (chunk: Buffer) => {
       output += chunk.toString('utf8');
     });
     child.on('error', () => {
-      resolve(serial);
+      resolve(null);
     });
     child.on('exit', (code) => {
-      const name = output.trim();
-      resolve(code === 0 && name.length > 0 ? name : serial);
+      const value = output.trim();
+      resolve(code === 0 && value.length > 0 ? value : null);
     });
   });
+}
+
+export function connectionPriority(serial: string): number {
+  if (serial.includes('._adb-tls-connect')) {
+    return 2;
+  }
+  return serial.includes(':') ? 1 : 0;
+}
+
+export function dedupeDevices<T extends { serial: string; hardwareId: string }>(
+  devices: readonly T[],
+): T[] {
+  const best = new Map<string, T>();
+  for (const device of devices) {
+    const current = best.get(device.hardwareId);
+    if (current === undefined || connectionPriority(device.serial) < connectionPriority(current.serial)) {
+      best.set(device.hardwareId, device);
+    }
+  }
+  return [...best.values()];
 }
 
 export function formatInstallSummary(
@@ -272,9 +292,20 @@ export async function buildAndInstall(
     return;
   }
 
+  const identified = await Promise.all(
+    devices.map(async (serial) => {
+      const name = (await readDeviceProp(adbExecutable, serial, 'ro.product.model')) ?? serial;
+      const hardwareId = (await readDeviceProp(adbExecutable, serial, 'ro.serialno')) ?? serial;
+      return { serial, name, hardwareId };
+    }),
+  );
+  const uniqueDevices = dedupeDevices(identified);
+  for (const skipped of identified.filter((device) => !uniqueDevices.includes(device))) {
+    console.log(`Uebersprungen (selbes Geraet wie ${skipped.hardwareId}): ${skipped.serial}`);
+  }
+
   const installed: { serial: string; name: string }[] = [];
-  for (const serial of devices) {
-    const name = await readDeviceName(adbExecutable, serial);
+  for (const { serial, name } of uniqueDevices) {
     try {
       await installApk(adbExecutable, serial, apkPath);
       console.log(`Installiert auf ${name} (${serial}).`);
