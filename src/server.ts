@@ -124,7 +124,7 @@ import { runTicketAgent, type TicketAgentOutput } from './ticket.js';
 import { buildOtpAuthUrl, generateSecret, verifyTotp } from './totp.js';
 import { VERSION } from './version.js';
 
-const JWT_TTL_SECONDS = 60 * 60 * 2;
+const JWT_TTL_SECONDS = 60 * 60 * 8;
 
 const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',

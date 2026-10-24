@@ -149,6 +149,17 @@
       }
     },
     {
+      "name": "department",
+      "path": "/home/sklein/IdeaProjects/department",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "build/department-tycoon.apk",
+          "type": "file"
+        }
+      ]
+    },
+    {
       "name": "learnings",
       "path": "/home/sklein/IdeaProjects/learnings",
       "hosted": [

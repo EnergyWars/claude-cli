@@ -197,7 +197,7 @@ test('POST /auth/login: 200 bei korrektem Code, liefert ein frisches JWT', async
   assert.equal(authed.status, 200);
 
   const expiresInMs = Date.parse(body.expiresAt) - Date.now();
-  assert.ok(expiresInMs > 1000 * 60 * 60 * 1.9 && expiresInMs <= 1000 * 60 * 60 * 2, `expiresAt sollte ca. 2 Stunden in der Zukunft liegen, war ${expiresInMs.toString()}ms`);
+  assert.ok(expiresInMs > 1000 * 60 * 60 * 7.9 && expiresInMs <= 1000 * 60 * 60 * 8, `expiresAt sollte ca. 8 Stunden in der Zukunft liegen, war ${expiresInMs.toString()}ms`);
 });
 
 test('POST /auth/refresh: 401 ohne Authorization-Header', async () => {

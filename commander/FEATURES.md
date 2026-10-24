@@ -18,9 +18,9 @@ Button „Automatisch suchen": ermittelt die eigene IPv4-Adresse im verbundenen 
 
 ## Login
 
-Nach dem Verbinden fragt der Login-Screen den aktuellen 6-stelligen TOTP-Code ab und tauscht ihn gegen ein JWT (`POST /auth/login`, 2 Stunden gültig). Läuft das Token ab, führt die App automatisch zurück zum Login. „Verbindung wechseln" führt zurück zum Setup.
+Nach dem Verbinden fragt der Login-Screen den aktuellen 6-stelligen TOTP-Code ab und tauscht ihn gegen ein JWT (`POST /auth/login`, 8 Stunden gültig). Läuft das Token ab, führt die App automatisch zurück zum Login. „Verbindung wechseln" führt zurück zum Setup.
 
-**Automatisches Verlängern (Sliding Session):** Die App hält die Session proaktiv am Leben, damit ein aktiver Nutzer nicht alle 2 Stunden neu einloggen muss – der Server verlängert dabei nur ein noch gültiges Token (`POST /auth/refresh`), ein bereits abgelaufenes Token erfordert weiterhin einen erneuten Login mit TOTP-Code. Zwei Auslöser:
+**Automatisches Verlängern (Sliding Session):** Die App hält die Session proaktiv am Leben, damit ein aktiver Nutzer nicht alle 8 Stunden neu einloggen muss – der Server verlängert dabei nur ein noch gültiges Token (`POST /auth/refresh`), ein bereits abgelaufenes Token erfordert weiterhin einen erneuten Login mit TOTP-Code. Zwei Auslöser:
 
 - **Nach jeder Aktion:** Jeder erfolgreiche authentifizierte Server-Aufruf löst im Hintergrund einen Refresh aus (min. 1 Minute Abstand zwischen zwei Versuchen, damit nicht jeder einzelne von mehreren gleichzeitigen Aufrufen einen eigenen Refresh anstößt).
 - **Beim Reintappen in die App:** Kommt die App in den Vordergrund (App-Start oder Rückkehr aus dem Hintergrund), wird sofort ein Refresh versucht, unabhängig vom letzten Aktions-Refresh.

@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -7,6 +16,7 @@ import { test } from 'node:test';
 import {
   buildAndInstall,
   connectionPriority,
+  detectProjectType,
   dedupeDevices,
   findApk,
   findLatestBuildTimestamp,
@@ -687,5 +697,154 @@ test('buildAndInstall: installiert dasselbe physische Geraet nur einmal', async 
     process.env.PATH = previousPath;
     adb.cleanup();
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+function writeGodotProject(cwd: string, presetName = 'Android', exportPath = 'build/game.apk'): void {
+  writeFileSync(join(cwd, 'project.godot'), 'config_version=5\n');
+  writeFileSync(
+    join(cwd, 'export_presets.cfg'),
+    `[preset.0]\n\nname="${presetName}"\nplatform="Android"\nexport_path="${exportPath}"\n`,
+  );
+}
+
+function writeFakeGodot(dir: string, logFile: string, body: string): string {
+  const scriptPath = join(dir, 'fake-godot');
+  writeFileSync(
+    scriptPath,
+    `#!/bin/sh\necho "$@" >> '${logFile}'\n${body}\n`,
+  );
+  chmodSync(scriptPath, 0o755);
+  return scriptPath;
+}
+
+async function withGodotEnv<T>(godotPath: string, adbBinDir: string, run: () => Promise<T>): Promise<T> {
+  const previousPath = process.env.PATH;
+  const previousGodot = process.env.GODOT_BIN;
+  process.env.PATH = pathWithMockAdb(adbBinDir);
+  process.env.GODOT_BIN = godotPath;
+  try {
+    return await run();
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousGodot === undefined) {
+      delete process.env.GODOT_BIN;
+    } else {
+      process.env.GODOT_BIN = previousGodot;
+    }
+  }
+}
+
+test('detectProjectType: project.godot erkennt Godot, sonst Gradle', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-detect-'));
+  try {
+    assert.equal(detectProjectType(cwd), 'gradle');
+    writeFileSync(join(cwd, 'project.godot'), '');
+    assert.equal(detectProjectType(cwd), 'godot');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: Godot-Projekt exportiert per Godot-Debug-Export und installiert die APK', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-godot-install-'));
+  const toolDir = mkdtempSync(join(tmpdir(), 'cl-godot-bin-'));
+  const godotLog = join(toolDir, 'godot.log');
+  writeGodotProject(cwd);
+  const godot = writeFakeGodot(toolDir, godotLog, 'echo FAKE-APK > "build/game.apk"\nexit 0');
+  const adb = createMockAdb({ devicesOutput: 'List of devices attached\nemulator-5554\tdevice\n\n' });
+  try {
+    await withGodotEnv(godot, adb.binDir, () => buildAndInstall('debug', cwd));
+    assert.equal(
+      readFileSync(godotLog, 'utf8').trim(),
+      `--headless --path ${cwd} --export-debug Android build/game.apk`,
+    );
+    const log = readFileSync(adb.logFile, 'utf8');
+    assert.match(log, new RegExp(`-s emulator-5554 install -r ${join(cwd, 'build', 'game.apk')}`));
+    assert.equal(readGradlewCallCount(cwd), 0);
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolDir, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: Godot-Projekt nutzt im Release-Modus --export-release', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-godot-release-'));
+  const toolDir = mkdtempSync(join(tmpdir(), 'cl-godot-bin-'));
+  const godotLog = join(toolDir, 'godot.log');
+  writeGodotProject(cwd, 'Mobile', 'out/release/game.apk');
+  const godot = writeFakeGodot(toolDir, godotLog, 'mkdir -p out/release\necho FAKE-APK > "out/release/game.apk"\nexit 0');
+  const adb = createMockAdb();
+  try {
+    await withGodotEnv(godot, adb.binDir, () => buildAndInstall('release', cwd));
+    assert.equal(
+      readFileSync(godotLog, 'utf8').trim(),
+      `--headless --path ${cwd} --export-release Mobile out/release/game.apk`,
+    );
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolDir, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: Godot-Export mit ERROR-Zeile startet den Fix-Agent und wiederholt den Export', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-godot-fix-'));
+  const toolDir = mkdtempSync(join(tmpdir(), 'cl-godot-bin-'));
+  const godotLog = join(toolDir, 'godot.log');
+  const claudeLog = join(toolDir, 'claude.log');
+  writeGodotProject(cwd);
+  const godot = writeFakeGodot(
+    toolDir,
+    godotLog,
+    `if [ "$(wc -l < '${godotLog}')" -le 1 ]; then echo "ERROR: Cannot export project"; exit 0; fi\necho FAKE-APK > "build/game.apk"\nexit 0`,
+  );
+  const adb = createMockAdb();
+  const claude = createMockClaude({ logFile: claudeLog });
+  const previousPath = process.env.PATH;
+  try {
+    await withGodotEnv(godot, adb.binDir, async () => {
+      process.env.PATH = [claude.binDir, adb.binDir, previousPath].join(delimiter);
+      await buildAndInstall('debug', cwd);
+    });
+    assert.equal(readFileSync(godotLog, 'utf8').trim().split('\n').length, 2);
+    const claudeCalls = readFileSync(claudeLog, 'utf8').trim().split('\n');
+    assert.equal(claudeCalls.length, 1);
+    assert.match(claudeCalls[0] ?? '', /Godot-Build-Fix-Agent/);
+    assert.match(claudeCalls[0] ?? '', /Cannot export project/);
+  } finally {
+    claude.cleanup();
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolDir, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: Godot-Projekt ohne export_presets.cfg wirft', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-godot-nopreset-'));
+  writeFileSync(join(cwd, 'project.godot'), '');
+  try {
+    await assert.rejects(() => buildAndInstall('debug', cwd), /export_presets\.cfg fehlt/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('buildAndInstall: Godot-Export ohne erzeugte APK wirft', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cl-godot-noapk-'));
+  const toolDir = mkdtempSync(join(tmpdir(), 'cl-godot-bin-'));
+  writeGodotProject(cwd);
+  const godot = writeFakeGodot(toolDir, join(toolDir, 'godot.log'), 'exit 0');
+  const adb = createMockAdb();
+  try {
+    await assert.rejects(
+      () => withGodotEnv(godot, adb.binDir, () => buildAndInstall('debug', cwd)),
+      /keine APK/,
+    );
+  } finally {
+    adb.cleanup();
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolDir, { recursive: true, force: true });
   }
 });

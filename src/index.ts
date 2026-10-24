@@ -654,7 +654,7 @@ program
 program
   .command('inst')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
+    'Baut das Android-Projekt im aktuellen Verzeichnis (Gradle oder Godot, erkannt an project.godot) im Debug-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings (Godot: ERROR-Zeilen) wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('debug');
@@ -663,7 +663,7 @@ program
 program
   .command('instr')
   .description(
-    'Baut das Android-Projekt im aktuellen Verzeichnis per Gradle im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
+    'Baut das Android-Projekt im aktuellen Verzeichnis (Gradle oder Godot, erkannt an project.godot) im Release-Modus und installiert die APK auf allen gefundenen adb-Geraeten (Fehler pro Geraet werden abgefangen); bei Build-Fehlern oder Warnings (Godot: ERROR-Zeilen) wird ein Fix-Agent gestartet und der Build wiederholt, maximal 10 Durchlaeufe; am Ende wird ausgegeben, auf wie vielen und welchen Geraeten installiert wurde.',
   )
   .action(async () => {
     await buildAndInstall('release');

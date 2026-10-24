@@ -1,12 +1,26 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 
 import { connectConfiguredAdb } from './adb-connect.js';
+import {
+  hasGodotErrors,
+  isGodotProject,
+  readAndroidExportPreset,
+  resolveGodotExecutable,
+  runGodotExport,
+} from './godot-build.js';
 import { buildClaudeArgs } from './launch.js';
+import { type CapturedProcessResult, isOnPath, runCapturedProcess } from './process-utils.js';
 
 export type GradleBuildType = 'debug' | 'release';
+
+export type ProjectType = 'gradle' | 'godot';
+
+export function detectProjectType(cwd: string): ProjectType {
+  return isGodotProject(cwd) ? 'godot' : 'gradle';
+}
 
 const GRADLE_TASKS: Record<GradleBuildType, string> = {
   debug: 'assembleDebug',
@@ -22,6 +36,11 @@ const FIX_AGENT_SYSTEM_PROMPT =
   'Warnings enthaltenden Gradle-Builds. Behebe die Ursache im Code, sodass ein erneuter ' +
   'Gradle-Build fehlerfrei und ohne Warnings durchlaeuft.';
 
+const GODOT_FIX_AGENT_SYSTEM_PROMPT =
+  'Du bist ein Godot-Build-Fix-Agent. Du bekommst die Ausgabe eines fehlgeschlagenen oder ' +
+  'Fehlermeldungen enthaltenden headless Godot-Android-Exports. Behebe die Ursache im Projekt ' +
+  '(GDScript, Szenen, Export-Preset), sodass ein erneuter Export fehlerfrei durchlaeuft.';
+
 const GRADLE_DEPRECATION_FOOTER_PATTERN =
   /^(Deprecated Gradle features were used|You can use '--warning-mode all'|For more on this, please refer to https:\/\/docs\.gradle\.org\/.*command_line_warnings).*$/;
 
@@ -29,14 +48,6 @@ function hasWarnings(output: string): boolean {
   const lines = output.split('\n').filter((line) => !GRADLE_DEPRECATION_FOOTER_PATTERN.test(line.trim()));
   // Kotlinc emits "w: <file>: <message>" per line instead of the word "warning".
   return lines.some((line) => /warning/i.test(line) || /^\s*w:\s/.test(line));
-}
-
-function isOnPath(executable: string): boolean {
-  const names = process.platform === 'win32' ? [`${executable}.exe`, `${executable}.bat`] : [executable];
-  return (process.env.PATH ?? '')
-    .split(delimiter)
-    .filter((dir) => dir.length > 0)
-    .some((dir) => names.some((name) => existsSync(join(dir, name))));
 }
 
 function defaultSdkDirs(): string[] {
@@ -133,57 +144,77 @@ export function findLatestBuildTimestamp(cwd: string, buildType: GradleBuildType
   return latestMtimeMs === null ? null : new Date(latestMtimeMs).toISOString();
 }
 
-interface GradleBuildResult {
-  exitCode: number;
-  output: string;
+interface FixLoopSpec {
+  actionLabel: string;
+  commandText: string;
+  problemLabel: string;
+  fixAgentSystemPrompt: string;
+  run: () => Promise<CapturedProcessResult>;
+  hasProblems: (output: string) => boolean;
 }
 
-function runGradleTask(cwd: string, task: string): Promise<GradleBuildResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('./gradlew', [task], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-
-    const handleChunk = (chunk: Buffer): void => {
-      output += chunk.toString('utf8');
-      process.stdout.write(chunk);
-    };
-
-    child.stdout.on('data', handleChunk);
-    child.stderr.on('data', handleChunk);
-    child.on('error', reject);
-    child.on('exit', (code) => {
-      resolve({ exitCode: code ?? 1, output });
-    });
-  });
+function runGradleTask(cwd: string, task: string): Promise<CapturedProcessResult> {
+  return runCapturedProcess('./gradlew', [task], cwd);
 }
 
-async function runTaskWithFixLoop(cwd: string, task: string, actionLabel: string): Promise<void> {
+async function runWithFixLoop(cwd: string, spec: FixLoopSpec): Promise<void> {
+  const { actionLabel, commandText, problemLabel } = spec;
   for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt += 1) {
-    const { exitCode, output } = await runGradleTask(cwd, task);
-    if (exitCode === 0 && !hasWarnings(output)) {
+    const { exitCode, output } = await spec.run();
+    if (exitCode === 0 && !spec.hasProblems(output)) {
       return;
     }
 
     if (attempt === MAX_FIX_ATTEMPTS) {
       throw new Error(
-        `${actionLabel} (./gradlew ${task}) ist nach ${String(MAX_FIX_ATTEMPTS)} Durchlaeufen weiterhin fehlgeschlagen oder enthaelt Warnings.`,
+        `${actionLabel} (${commandText}) ist nach ${String(MAX_FIX_ATTEMPTS)} Durchlaeufen weiterhin fehlgeschlagen oder enthaelt ${problemLabel}.`,
       );
     }
 
     const reason =
       exitCode !== 0
-        ? `${actionLabel} (./gradlew ${task}) ist fehlgeschlagen (Exit-Code ${String(exitCode)}).`
-        : `${actionLabel} (./gradlew ${task}) war erfolgreich, enthaelt aber Warnings.`;
+        ? `${actionLabel} (${commandText}) ist fehlgeschlagen (Exit-Code ${String(exitCode)}).`
+        : `${actionLabel} (${commandText}) war erfolgreich, enthaelt aber ${problemLabel}.`;
     console.log(
       `${reason} Starte Claude (${FIX_AGENT_MODEL}, Auto-Mode) zur Behebung (Durchlauf ${String(attempt)}/${String(MAX_FIX_ATTEMPTS)})...`,
     );
-    await runFixAgent(cwd, `${reason}\n\nOutput:\n${output}`);
+    await runFixAgent(cwd, spec.fixAgentSystemPrompt, `${reason}\n\nOutput:\n${output}`);
     console.log('Fix-Agent beendet, starte den Durchlauf erneut...');
   }
 }
 
-function runFixAgent(cwd: string, message: string): Promise<void> {
-  const args = buildClaudeArgs(FIX_AGENT_MODEL, FIX_AGENT_SYSTEM_PROMPT, message);
+function runTaskWithFixLoop(cwd: string, task: string, actionLabel: string): Promise<void> {
+  return runWithFixLoop(cwd, {
+    actionLabel,
+    commandText: `./gradlew ${task}`,
+    problemLabel: 'Warnings',
+    fixAgentSystemPrompt: FIX_AGENT_SYSTEM_PROMPT,
+    run: () => runGradleTask(cwd, task),
+    hasProblems: hasWarnings,
+  });
+}
+
+async function buildGodotApk(cwd: string, buildType: GradleBuildType): Promise<string> {
+  const preset = readAndroidExportPreset(cwd);
+  const godotExecutable = resolveGodotExecutable();
+  const exportFlag = buildType === 'debug' ? '--export-debug' : '--export-release';
+  await runWithFixLoop(cwd, {
+    actionLabel: 'Der Godot-Export',
+    commandText: `godot ${exportFlag} "${preset.name}"`,
+    problemLabel: 'Fehlermeldungen',
+    fixAgentSystemPrompt: GODOT_FIX_AGENT_SYSTEM_PROMPT,
+    run: () => runGodotExport(cwd, buildType, godotExecutable, preset),
+    hasProblems: hasGodotErrors,
+  });
+  const apkPath = resolvePath(cwd, preset.exportPath);
+  if (!existsSync(apkPath)) {
+    throw new Error(`Godot-Export hat keine APK unter ${apkPath} erzeugt.`);
+  }
+  return apkPath;
+}
+
+function runFixAgent(cwd: string, systemPrompt: string, message: string): Promise<void> {
+  const args = buildClaudeArgs(FIX_AGENT_MODEL, systemPrompt, message);
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { cwd, stdio: 'inherit' });
     child.on('error', reject);
@@ -277,11 +308,13 @@ export async function buildAndInstall(
   buildType: GradleBuildType,
   cwd: string = process.cwd(),
 ): Promise<void> {
-  const task = GRADLE_TASKS[buildType];
-
-  await runTaskWithFixLoop(cwd, task, 'Der Gradle-Build');
-
-  const apkPath = findApk(cwd, buildType);
+  let apkPath: string;
+  if (detectProjectType(cwd) === 'godot') {
+    apkPath = await buildGodotApk(cwd, buildType);
+  } else {
+    await runTaskWithFixLoop(cwd, GRADLE_TASKS[buildType], 'Der Gradle-Build');
+    apkPath = findApk(cwd, buildType);
+  }
   console.log(`APK: ${apkPath}`);
 
   const adbExecutable = resolveAdbExecutable();
