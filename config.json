@@ -154,10 +154,75 @@
       "hosted": [
         {
           "name": "debug-apk",
-          "path": "build/department-tycoon.apk",
+          "path": "build/idle-germany.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "build/idle-germany.apk",
           "type": "file"
         }
-      ]
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
+      "name": "energywars",
+      "path": "/home/sklein/IdeaProjects/energywars",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "build/energy-wars.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "build/energy-wars.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
+      "name": "lootbastion",
+      "path": "/home/sklein/IdeaProjects/lootbastion",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "build/lootbastion.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "build/lootbastion.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
+    },
+    {
+      "name": "gehalt",
+      "path": "/home/sklein/IdeaProjects/gehalt",
+      "hosted": [
+        {
+          "name": "debug-apk",
+          "path": "app/build/outputs/apk/debug/app-debug.apk",
+          "type": "file"
+        },
+        {
+          "name": "release-apk",
+          "path": "app/build/outputs/apk/release/app-release.apk",
+          "type": "file"
+        }
+      ],
+      "hooks": {
+        "onLastAgentFinish": "cl inst"
+      }
     },
     {
       "name": "learnings",
@@ -411,6 +476,21 @@
       "sourcePath": "/home/sklein/IdeaProjects/base-project/app/build/outputs/apk/debug/app-debug.apk",
       "targetName": "base-project",
       "path": "base-project"
+    },
+    {
+      "sourcePath": "/home/sklein/IdeaProjects/department/build/idle-germany.apk",
+      "targetName": "department",
+      "path": "department"
+    },
+    {
+      "sourcePath": "/home/sklein/IdeaProjects/energywars/build/energy-wars.apk",
+      "targetName": "energywars",
+      "path": "energywars"
+    },
+    {
+      "sourcePath": "/home/sklein/IdeaProjects/gehalt/app/build/outputs/apk/debug/app-debug.apk",
+      "targetName": "gehalt",
+      "path": "gehalt"
     }
   ]
 }
